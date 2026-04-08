@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.idea/
+
+config.json
+Backups/
+CharacterSheets/
