@@ -1,72 +1,85 @@
+from __future__ import annotations
+
 import json
-import os
 import re
 import threading
 import urllib.parse
+from typing import TYPE_CHECKING, Any, Final
 
 from parsers import extract_optimized_data, get_beautiful_soup, vault_name_matches
 
+if TYPE_CHECKING:
+    from models import AppConfig, CharacterConfig
 
-REQUEST_TIMEOUT = (5, 20)
 
-_SYNC_TIMERS = {}
+REQUEST_TIMEOUT: Final[tuple[int, int]] = (5, 20)
+PROFILE_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r'href="/user/(\d+)/characters"')
+CHARACTER_LINK_PATTERN: Final[re.Pattern[str]] = re.compile(r"/characters/\d+/tome/[a-fA-F0-9\-]{36}")
+VAULT_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"/characters/\d+/tome/([a-fA-F0-9\-]{36})")
+
+_SYNC_TIMERS: dict[str, threading.Timer] = {}
 _SYNC_TIMERS_LOCK = threading.Lock()
+_REQUESTS_SESSION: Any | None = None
 
 
-def get_requests_module():
+def get_requests_module() -> Any:
     try:
         import requests
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "requests is required for TE4 syncing. Install it with `py -3 -m pip install requests`."
+            "requests is required for TE4 syncing. Install it with `py -3.14 -m pip install requests`."
         ) from exc
     return requests
 
 
-def get_profile_ids_from_char_name(char_name):
-    """Searches the vault for candidate owner Profile IDs."""
+def get_requests_session() -> tuple[Any, Any]:
+    global _REQUESTS_SESSION
+    requests = get_requests_module()
+    if _REQUESTS_SESSION is None:
+        session = requests.Session()
+        session.headers.update({"User-Agent": "TOME-SaveMonitor/1.0"})
+        _REQUESTS_SESSION = session
+    return requests, _REQUESTS_SESSION
+
+
+def get_profile_ids_from_char_name(char_name: str) -> list[str]:
+    """Search the vault for candidate owner profile IDs."""
     try:
-        requests = get_requests_module()
+        requests, session = get_requests_session()
         query = urllib.parse.quote_plus(char_name)
-        url = f"https://te4.org/characters-vault?tag_name={query}"
-        response = requests.get(url, timeout=REQUEST_TIMEOUT)
-        if response.status_code == 200:
-            candidate_ids = []
-            for profile_id in re.findall(r'href="/user/(\d+)/characters"', response.text):
-                if profile_id not in candidate_ids:
-                    candidate_ids.append(profile_id)
-            return candidate_ids
+        response = session.get(f"https://te4.org/characters-vault?tag_name={query}", timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return list(dict.fromkeys(PROFILE_ID_PATTERN.findall(response.text)))
     except RuntimeError as exc:
         print(f"    -> Profile search failed: {exc}")
-    except Exception as exc:
+    except requests.RequestException as exc:
         print(f"    -> Profile search failed: {exc}")
     return []
 
 
-def get_vault_ids_from_profile(profile_id):
-    """Scrapes the user's character page for all living Vault IDs."""
-    alive_chars = {}
+def get_vault_ids_from_profile(profile_id: str) -> dict[str, str]:
+    """Scrape a TE4 profile page for living vault character IDs."""
+    alive_chars: dict[str, str] = {}
     try:
-        requests = get_requests_module()
+        requests, session = get_requests_session()
         BeautifulSoup = get_beautiful_soup()
-        url = f"https://te4.org/user/{profile_id}/characters"
-        response = requests.get(url, timeout=REQUEST_TIMEOUT)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            char_links = soup.find_all('a', href=re.compile(r'/characters/\d+/tome/[a-fA-F0-9\-]{36}'))
-            for link in char_links:
-                if '#FF0000' in link.get('style', ''):
-                    continue
-                match = re.search(r'/characters/\d+/tome/([a-fA-F0-9\-]{36})', link['href'])
-                if match:
-                    alive_chars[match.group(1)] = link.get_text(strip=True)
-    except Exception as exc:
+        response = session.get(f"https://te4.org/user/{profile_id}/characters", timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        for link in soup.find_all("a", href=CHARACTER_LINK_PATTERN):
+            if "#FF0000" in link.get("style", ""):
+                continue
+            if match := VAULT_ID_PATTERN.search(link["href"]):
+                alive_chars[match.group(1)] = link.get_text(strip=True)
+    except RuntimeError as exc:
+        print(f"    -> Could not load TE4 roster for profile {profile_id}: {exc}")
+    except requests.RequestException as exc:
         print(f"    -> Could not load TE4 roster for profile {profile_id}: {exc}")
     return alive_chars
 
 
-def discover_profile_id(local_chars):
-    """Validates an inferred TE4 profile ID against the locally discovered characters."""
+def discover_profile_id(local_chars: list[CharacterConfig]) -> tuple[str, dict[str, str]]:
+    """Validate an inferred TE4 profile ID against the locally discovered characters."""
     if not local_chars:
         return "", {}
 
@@ -76,7 +89,7 @@ def discover_profile_id(local_chars):
         print("    -> No candidate TE4 profiles found.")
         return "", {}
 
-    ranked_candidates = []
+    ranked_candidates: list[tuple[int, str, dict[str, str]]] = []
     for profile_id in candidate_ids:
         roster = get_vault_ids_from_profile(profile_id)
         match_count = sum(
@@ -102,39 +115,39 @@ def discover_profile_id(local_chars):
     return best_profile_id, best_roster
 
 
-def sync_scrying_mirror(char_info, config):
+def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig) -> None:
     if not char_info.vault_id or not config.profile_id:
         return
 
     print(f" > Syncing {char_info.name} with Te4 Vault...")
     try:
-        requests = get_requests_module()
-        response = requests.get(
+        requests, session = get_requests_session()
+        response = session.get(
             f"https://te4.org/characters/{config.profile_id}/tome/{char_info.vault_id}",
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
-        if response.status_code == 200:
-            data = extract_optimized_data(response.text)
-            out_dir = os.path.join(config.save_root, "CharacterSheets")
-            os.makedirs(out_dir, exist_ok=True)
-            out_path = os.path.join(out_dir, f"data_{char_info.folder_name}.json")
-            with open(out_path, 'w', encoding='utf-8') as file_handle:
-                json.dump(data, file_handle, indent=4)
-            print(" > Scrying mirror updated successfully.")
-        else:
-            print(f" > Sync failed with status {response.status_code}.")
-    except Exception as exc:
+        response.raise_for_status()
+        data = extract_optimized_data(response.text)
+        config.character_sheets_root.mkdir(exist_ok=True)
+        out_path = config.character_sheets_root / f"data_{char_info.folder_name}.json"
+        out_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        print(" > Scrying mirror updated successfully.")
+    except RuntimeError as exc:
+        print(f" > Sync error: {exc}")
+    except requests.RequestException as exc:
+        print(f" > Sync error: {exc}")
+    except OSError as exc:
         print(f" > Sync error: {exc}")
 
 
-def schedule_scrying_sync(char_info, config, delay=0):
-    """Schedules a debounced vault sync so backup monitoring stays responsive."""
+def schedule_scrying_sync(char_info: CharacterConfig, config: AppConfig, delay: float = 0) -> None:
+    """Schedule a debounced vault sync so backup monitoring stays responsive."""
     if not char_info.vault_id or not config.profile_id:
         return
 
-    timer = None
+    timer: threading.Timer | None = None
 
-    def run_sync():
+    def run_sync() -> None:
         try:
             sync_scrying_mirror(char_info, config)
         finally:
@@ -145,8 +158,7 @@ def schedule_scrying_sync(char_info, config, delay=0):
     timer = threading.Timer(delay, run_sync)
     timer.daemon = True
     with _SYNC_TIMERS_LOCK:
-        existing_timer = _SYNC_TIMERS.get(char_info.folder_name)
-        if existing_timer is not None:
+        if existing_timer := _SYNC_TIMERS.get(char_info.folder_name):
             existing_timer.cancel()
         _SYNC_TIMERS[char_info.folder_name] = timer
     timer.start()

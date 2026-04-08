@@ -1,0 +1,17 @@
+[project]
+name = "tales-of-maj-eyal-save-game-monitor"
+version = "0.1.0"
+description = "Rolling save backup and TE4 vault character sheet scraper for Tales of Maj'Eyal."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "beautifulsoup4",
+    "requests",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
