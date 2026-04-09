@@ -27,6 +27,22 @@ class EquipmentEntry(TypedDict, total=False):
     Properties: dict[str, ItemFieldValue]
     Notes: list[str]
 
+
+class InventoryEntry(TypedDict, total=False):
+    Name: str
+    Type: str
+    Tier: int
+    Tags: list[str]
+    Properties: dict[str, ItemFieldValue]
+    Notes: list[str]
+
+
+class InscriptionEntry(TypedDict, total=False):
+    Name: str
+    Kind: str
+    Properties: dict[str, TalentFieldValue]
+    Summary: str
+
 HEADING_TAGS: Final[tuple[str, ...]] = ("h2", "h3", "h4")
 IGNORED_SECTION_TITLES: Final[frozenset[str]] = frozenset({"Features:"})
 BUILD_ANALYSIS_CHARACTER_FIELDS: Final[tuple[str, ...]] = (
@@ -363,28 +379,37 @@ def _parse_simple_key_value_section(content_list: list[str]) -> dict[str, str]:
     return parsed
 
 
-def _parse_inscriptions_section(content_list: list[str]) -> dict[str, str]:
-    parsed: dict[str, str] = {}
+def _parse_inscriptions_section(content_list: list[str]) -> list[InscriptionEntry]:
+    parsed: list[InscriptionEntry] = []
     for row in content_list:
         key = "Unknown Inscription"
         if name_match := INSCRIPTION_NAME_PATTERN.search(row):
             key = name_match.group(1).strip()
 
-        details: list[str] = []
+        properties: dict[str, TalentFieldValue] = {}
         for label, pattern in TALENT_PATTERNS.items():
             if matches := pattern.findall(row):
-                value: TalentFieldValue = matches if len(matches) > 1 else matches[0]
-                if label == "Turn Duration" and isinstance(value, str):
-                    value = f"{value} turns"
-                details.append(f"{label}: {value}")
+                properties[label] = matches[0].strip()
 
+        summary = ""
         if description_match := INSCRIPTION_DESCRIPTION_PATTERN.search(row):
             description = " ".join(description_match.group(1).split())
             if ". " in description:
                 description = description.split(". ", 1)[0].rstrip(".") + "."
-            details.append(description)
+            summary = description
 
-        parsed[key] = " | ".join(details) if details else row
+        if turn_duration := _extract_talent_turn_duration(summary):
+            properties.setdefault("Turn Duration", turn_duration)
+
+        entry: InscriptionEntry = {"Name": key}
+        if ":" in key:
+            entry["Kind"] = key.split(":", 1)[0].strip()
+        if properties:
+            entry["Properties"] = properties
+        if summary:
+            entry["Summary"] = summary
+        parsed.append(entry)
+
     return parsed
 
 
@@ -457,8 +482,8 @@ def _parse_equipment_section(content_list: list[str]) -> list[EquipmentEntry]:
     return equipment
 
 
-def _parse_inventory_section(content_list: list[str]) -> list[str]:
-    parsed_items: list[str] = []
+def _parse_inventory_section(content_list: list[str]) -> list[InventoryEntry]:
+    parsed_items: list[InventoryEntry] = []
     for item in content_list:
         formatted = _format_inventory_entry(item)
         if formatted:
@@ -505,18 +530,27 @@ def _format_equipment_entry(entry: str) -> EquipmentEntry | None:
     return equipment_entry
 
 
-def _format_inventory_entry(entry: str) -> str | None:
+def _format_inventory_entry(entry: str) -> InventoryEntry | None:
     slot, item_name, item_type, tier, tags, segments = _parse_item_components(entry, include_slot=False)
     metadata = _render_item_metadata(tier, tags)
     if not _is_build_relevant_inventory_item(item_name, metadata, segments):
         return None
 
-    parts: list[str] = [slot] if slot else []
-    parts.append(item_name)
-    if metadata:
-        parts.append(metadata)
-    parts.extend(segments)
-    return " | ".join(part for part in parts if part)
+    properties, notes = _segment_list_to_fields(segments)
+    inventory_entry: InventoryEntry = {
+        "Name": item_name,
+    }
+    if item_type:
+        inventory_entry["Type"] = item_type
+    if tier is not None:
+        inventory_entry["Tier"] = tier
+    if tags:
+        inventory_entry["Tags"] = tags
+    if properties:
+        inventory_entry["Properties"] = properties
+    if notes:
+        inventory_entry["Notes"] = notes
+    return inventory_entry
 
 
 def _extract_item_name(body: str) -> str:
