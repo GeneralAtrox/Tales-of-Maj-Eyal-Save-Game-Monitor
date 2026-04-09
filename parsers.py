@@ -12,17 +12,34 @@ class DescLuaDetails(TypedDict, total=False):
     loadable: bool
 
 
-class DeathSummary(TypedDict):
-    Target_Death: list[str]
-    Total_Death_Count: str
-
-
 type TalentFieldValue = str | list[str]
 type TalentRecord = str | dict[str, TalentFieldValue]
+type ItemFieldValue = str | list[str]
 type AgentData = dict[str, object]
+
+
+class EquipmentEntry(TypedDict, total=False):
+    Slot: str
+    Name: str
+    Type: str
+    Tier: int
+    Tags: list[str]
+    Properties: dict[str, ItemFieldValue]
+    Notes: list[str]
 
 HEADING_TAGS: Final[tuple[str, ...]] = ("h2", "h3", "h4")
 IGNORED_SECTION_TITLES: Final[frozenset[str]] = frozenset({"Features:"})
+BUILD_ANALYSIS_CHARACTER_FIELDS: Final[tuple[str, ...]] = (
+    "Game",
+    "Campaign",
+    "Mode",
+    "Race",
+    "Class",
+    "Level / Exp",
+    "Size",
+    "Lifes / Deaths",
+)
+LOW_SIGNAL_SECTIONS: Final[frozenset[str]] = frozenset({"Quests"})
 SIMPLE_KEY_VALUE_SECTIONS: Final[frozenset[str]] = frozenset({
     "Primary Stats",
     "Resources",
@@ -45,6 +62,7 @@ CHARACTER_NAME_SUFFIX_PATTERN: Final[re.Pattern[str]] = re.compile(r"\s+by\S+$")
 SHORT_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r'(?m)^\s*short_name\b\s*=\s*["\']([^"\']+)["\']')
 NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r'(?m)^\s*name\b\s*=\s*["\']([^"\']+)["\']')
 LOADABLE_PATTERN: Final[re.Pattern[str]] = re.compile(r'(?m)^\s*loadable\b\s*=\s*(true|false)\b')
+LIFE_DEATHS_SUMMARY_PATTERN: Final[re.Pattern[str]] = re.compile(r"(\d+\s*/\s*\d+)\s*$")
 TALENT_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"([A-Z][A-Za-z' -]+)$")
 TALENT_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "Range": re.compile(r"Range:\s*(.*?)(?=\s+(?:Cooldown|Travel Speed|Usage Speed|Is:|Description:|$))"),
@@ -62,6 +80,7 @@ TALENT_SCALE_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 TALENT_DURATION_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?:for|lasts?|duration of)\s+(\d+\s+turns?)", flags=re.IGNORECASE)
 ITEM_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"^(?:[^|]+\s+\|\s+)?(?P<name>.+?)\s+\d+(?:\.\d+)?\s+Encumbrance\.")
+ITEM_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"Type:\s*([^;]+)\s*;")
 ITEM_TIER_PATTERN: Final[re.Pattern[str]] = re.compile(r"\btier\s+\d+\b")
 ITEM_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(r"\[[^\]]+\]")
 ITEM_ENCUMBRANCE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\s+\d+(?:\.\d+)?\s+Encumbrance\.")
@@ -75,7 +94,9 @@ ITEM_FLAVOR_START_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"A belt that goes around your waist|Light gloves which|Magical wands are made|Magical runes may be inscribed|"
     r"Rings make your fingers look great|Amulets make your neck look great|Staves designed for wielders of magic|"
     r"This ordinary blade|This simple appearance belies|This strange creature seems|Try to not die|"
-    r"\"?An innocuous bauble|Ventilation and bad vision can be a problem|It is spacious enough to be worn"
+    r"\"?An innocuous bauble|Ventilation and bad vision can be a problem|It is spacious enough to be worn|"
+    r"A fang from the great warg|A small crystal phial|You can feel magic draining out around this rod|"
+    r"This strange device appears|There does appear to be some sort of metallic grid|Torques are made by powerful psionics"
     r").*$"
 )
 INSCRIPTION_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"((?:Rune|Infusion|Taint|Torque): [^.]+)$")
@@ -83,7 +104,7 @@ INSCRIPTION_DESCRIPTION_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"Description:\s*(.*?)(?=\s+(?:Rune|Infusion|Taint|Torque):\s|$)"
 )
 ACTIVATION_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"It can be used to (.*?)(?=\s+Activation puts|\s+Range:|\s+Cooldown:|\s+Travel Speed:|\s+Usage Speed:|\s+Description:|$)"
+    r"It can be used to (.*?)(?=\s+Activation puts|\s+Activation costs|\s+When used:|\s+Range:|\s+Cooldown:|\s+Travel Speed:|\s+Usage Speed:|\s+Description:|$)"
 )
 ACTIVATION_COOLDOWN_PATTERN: Final[re.Pattern[str]] = re.compile(r"Activation puts .*? cooldown for \d+\s+turns?\.", flags=re.IGNORECASE)
 ITEM_DESCRIPTION_PATTERN: Final[re.Pattern[str]] = re.compile(r"Description:\s*(.*)$")
@@ -91,10 +112,35 @@ ITEM_SECTION_MARKER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\s*(?:When wielded/worn|When inscribed on your body|When carried):\s*"
 )
 EFFECT_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^(.*?)\s+\|\s+(.*)$")
+INVENTORY_GEM_NAMES: Final[frozenset[str]] = frozenset({
+    "agate",
+    "almandine",
+    "amethyst",
+    "ametrine",
+    "aquamarine",
+    "bloodstone",
+    "citrine",
+    "diamond",
+    "emerald",
+    "garnet",
+    "jade",
+    "lapis lazuli",
+    "moonstone",
+    "onyx",
+    "opal",
+    "quartz",
+    "ruby",
+    "sapphire",
+    "spinel",
+    "topaz",
+    "turquoise",
+    "zircon",
+})
 ITEM_FIELD_LABELS: Final[tuple[str, ...]] = (
     "Accuracy bonus",
     "Accuracy",
     "Activation costs",
+    "Activates",
     "Armour Hardiness",
     "Armour Penetration",
     "Armour penetration",
@@ -125,6 +171,7 @@ ITEM_FIELD_LABELS: Final[tuple[str, ...]] = (
     "Fatigue",
     "Firing range",
     "Grants spell-crit equal to half of your Shadow Power.",
+    "Grants telepathy",
     "Healing mod.",
     "Infravision radius",
     "Knockback immunity",
@@ -182,6 +229,7 @@ ITEM_FIELD_LABELS: Final[tuple[str, ...]] = (
     "When attacking in melee",
     "When carried",
     "When hits",
+    "When used",
     "When used as an alchemist bomb",
 )
 ITEM_LABELED_SEGMENT_PATTERN: Final[re.Pattern[str]] = re.compile(
@@ -230,7 +278,7 @@ def extract_optimized_data(html_content: str) -> AgentData:
 
     for section in soup.find_all(HEADING_TAGS):
         section_title = section.get_text(strip=True)
-        if section_title == character_title or section_title in IGNORED_SECTION_TITLES:
+        if section_title == character_title or section_title in IGNORED_SECTION_TITLES or section_title in LOW_SIGNAL_SECTIONS:
             continue
 
         content_list = _collect_section_content(section)
@@ -249,12 +297,14 @@ def extract_optimized_data(html_content: str) -> AgentData:
             agent_data[section_title] = _parse_effects_section(content_list)
         elif section_title == "Quests":
             agent_data[section_title] = _parse_quests_section(content_list)
-        elif section_title in {"Equipment", "Inventory"}:
-            agent_data[section_title] = _parse_item_section(content_list, include_slot=(section_title == "Equipment"))
+        elif section_title == "Equipment":
+            agent_data[section_title] = _parse_equipment_section(content_list)
+        elif section_title == "Inventory":
+            agent_data[section_title] = _parse_inventory_section(content_list)
         else:
             agent_data[section_title] = content_list
 
-    return agent_data
+    return _prune_for_build_analysis(agent_data)
 
 
 def vault_name_matches(remote_name: str, local_name: str) -> bool:
@@ -287,21 +337,18 @@ def _extract_table_rows(table) -> list[str]:
     return rows
 
 
-def _parse_character_section(content_list: list[str]) -> dict[str, str | DeathSummary]:
-    parsed: dict[str, str | DeathSummary] = {}
+def _parse_character_section(content_list: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
     for row in content_list:
         if " | " not in row:
             continue
         key, value = (part.strip() for part in row.split(" | ", 1))
         if key == "Lifes / Deaths":
-            death_matches = re.findall(r"Killed by ([^/]+)", value)
-            target_death = [death.strip() for death in death_matches if "Spellblaze Crystal at level 3" in death]
-            summary_count = value.split("/")[-1].strip() if "/" in value else ""
-            parsed[key] = {
-                "Target_Death": target_death,
-                "Total_Death_Count": summary_count,
-            }
-        elif key not in {"Addons", "Features:"}:
+            if summary_match := LIFE_DEATHS_SUMMARY_PATTERN.search(value):
+                parsed[key] = summary_match.group(1)
+            else:
+                parsed[key] = value
+        elif key in BUILD_ANALYSIS_CHARACTER_FIELDS:
             parsed[key] = value
     return parsed
 
@@ -402,11 +449,24 @@ def _parse_quests_section(content_list: list[str]) -> list[str]:
     return parsed
 
 
-def _parse_item_section(content_list: list[str], *, include_slot: bool) -> list[str]:
-    return [_format_item_entry(item, include_slot=include_slot) for item in content_list]
+def _parse_equipment_section(content_list: list[str]) -> list[EquipmentEntry]:
+    equipment: list[EquipmentEntry] = []
+    for item in content_list:
+        if entry := _format_equipment_entry(item):
+            equipment.append(entry)
+    return equipment
 
 
-def _format_item_entry(entry: str, *, include_slot: bool) -> str:
+def _parse_inventory_section(content_list: list[str]) -> list[str]:
+    parsed_items: list[str] = []
+    for item in content_list:
+        formatted = _format_inventory_entry(item)
+        if formatted:
+            parsed_items.append(formatted)
+    return parsed_items
+
+
+def _parse_item_components(entry: str, *, include_slot: bool) -> tuple[str | None, str, str | None, int | None, list[str], list[str]]:
     slot = None
     body = entry
     if include_slot and " | " in entry:
@@ -415,12 +475,47 @@ def _format_item_entry(entry: str, *, include_slot: bool) -> str:
     body = " ".join(ITEM_FLAVOR_START_PATTERN.sub("", body).split())
     item_name = _extract_item_name(body)
     body = _strip_trailing_item_name(body, item_name)
+    item_type = _extract_item_type(body)
+    tier = _extract_item_tier(body)
+    tags = _extract_item_tags(body)
+    segments = _extract_item_segments(body)
+    return slot, item_name, item_type, tier, tags, segments
+
+
+def _format_equipment_entry(entry: str) -> EquipmentEntry | None:
+    slot, item_name, item_type, tier, tags, segments = _parse_item_components(entry, include_slot=True)
+    if not slot:
+        return None
+
+    properties, notes = _segment_list_to_fields(segments)
+    equipment_entry: EquipmentEntry = {
+        "Slot": slot,
+        "Name": item_name,
+    }
+    if item_type:
+        equipment_entry["Type"] = item_type
+    if tier is not None:
+        equipment_entry["Tier"] = tier
+    if tags:
+        equipment_entry["Tags"] = tags
+    if properties:
+        equipment_entry["Properties"] = properties
+    if notes:
+        equipment_entry["Notes"] = notes
+    return equipment_entry
+
+
+def _format_inventory_entry(entry: str) -> str | None:
+    slot, item_name, item_type, tier, tags, segments = _parse_item_components(entry, include_slot=False)
+    metadata = _render_item_metadata(tier, tags)
+    if not _is_build_relevant_inventory_item(item_name, metadata, segments):
+        return None
 
     parts: list[str] = [slot] if slot else []
     parts.append(item_name)
-    if metadata := _extract_item_metadata(body):
+    if metadata:
         parts.append(metadata)
-    parts.extend(_extract_item_segments(body))
+    parts.extend(segments)
     return " | ".join(part for part in parts if part)
 
 
@@ -438,10 +533,30 @@ def _strip_trailing_item_name(body: str, item_name: str) -> str:
     return body
 
 
-def _extract_item_metadata(body: str) -> str:
-    tier = ITEM_TIER_PATTERN.search(body)
-    tags = ITEM_TAG_PATTERN.findall(body)
-    return " ".join(part for part in [tier.group(0) if tier else "", *tags] if part)
+def _extract_item_type(body: str) -> str | None:
+    if type_match := ITEM_TYPE_PATTERN.search(body):
+        return " ".join(type_match.group(1).split())
+    return None
+
+
+def _extract_item_tier(body: str) -> int | None:
+    if not (tier_match := ITEM_TIER_PATTERN.search(body)):
+        return None
+    if number_match := re.search(r"\d+", tier_match.group(0)):
+        return int(number_match.group(0))
+    return None
+
+
+def _extract_item_tags(body: str) -> list[str]:
+    return [tag.strip("[]") for tag in ITEM_TAG_PATTERN.findall(body)]
+
+
+def _render_item_metadata(tier: int | None, tags: list[str]) -> str:
+    parts: list[str] = []
+    if tier is not None:
+        parts.append(f"tier {tier}")
+    parts.extend(f"[{tag}]" for tag in tags)
+    return " ".join(parts)
 
 
 def _extract_item_segments(body: str) -> list[str]:
@@ -476,7 +591,16 @@ def _extract_item_segments(body: str) -> list[str]:
             continue
         if label == "Talent granted" or label == "Talents granted":
             label = "Grants"
+        if label == "Activates":
+            label = "Activates"
         if cleaned_value := _clean_item_segment_value(value):
+            if " When attacking in melee, " in cleaned_value:
+                primary_value, melee_effect = cleaned_value.split(" When attacking in melee, ", 1)
+                if primary_value.strip():
+                    segments.append(f"{label}: {primary_value.strip()}")
+                if melee_effect.strip():
+                    segments.append(f"When attacking in melee: {melee_effect.strip()}")
+                continue
             segments.append(f"{label}: {cleaned_value}")
 
     if activation_summary and "inscribe your skin" not in activation_summary.lower():
@@ -499,6 +623,25 @@ def _extract_item_labeled_segments(text: str) -> list[tuple[str, str]]:
         if value:
             segments.append((label, value))
     return segments
+
+
+def _segment_list_to_fields(segments: list[str]) -> tuple[dict[str, ItemFieldValue], list[str]]:
+    properties: dict[str, ItemFieldValue] = {}
+    notes: list[str] = []
+    for segment in segments:
+        if ": " not in segment:
+            notes.append(segment)
+            continue
+
+        key, value = segment.split(": ", 1)
+        existing_value = properties.get(key)
+        if existing_value is None:
+            properties[key] = value
+        elif isinstance(existing_value, list):
+            existing_value.append(value)
+        else:
+            properties[key] = [existing_value, value]
+    return properties, notes
 
 
 def _extract_talent_name(raw_desc: str) -> str:
@@ -588,11 +731,55 @@ def _clean_item_segment_value(value: str) -> str:
     value = " ".join(value.split())
     value = ITEM_FLAVOR_START_PATTERN.sub("", value).strip()
     value = value.removeprefix("When wielded/worn: ").removeprefix("When inscribed on your body: ").strip()
+    value = value.replace("When used to imbue an object:", "").replace("When used:", "")
+    value = re.sub(r"\s+Activation costs .*?$", "", value)
     value = re.sub(r"\s+Learn an unarmed attack talent.*$", "", value)
     value = re.sub(r"\s+Grants spell-crit equal to half of your Shadow Power\.?.*$", "", value)
+    value = re.sub(r"\s+Can block like a shield.*$", "", value)
+    value = re.sub(r"\s+Handheld deflection devices.*$", "", value)
+    value = re.sub(r"\s+Gems can be sold for money or used in arcane rituals.*$", "", value)
     value = re.sub(r"\s+No rogue blades shall incapacitate.*$", "", value)
     value = re.sub(r"\s+Transfers a bleed, poison, or wound.*$", "", value)
     return value.strip(" .")
+
+
+def _is_build_relevant_inventory_item(item_name: str, metadata: str, segments: list[str]) -> bool:
+    normalized_name = re.sub(r"^\d+\s+", "", item_name.lower()).strip()
+    normalized_name = normalized_name.removeprefix("alchemist ").strip()
+    metadata_lower = metadata.lower()
+
+    if "[plot item]" in metadata_lower:
+        return False
+    if normalized_name in INVENTORY_GEM_NAMES:
+        return False
+    if normalized_name.endswith(" gem"):
+        return False
+    if not segments and "[unique]" not in metadata_lower:
+        return False
+
+    segment_blob = " | ".join(segments).lower()
+    if "latent damage type" in segment_blob and len(segments) <= 2:
+        return False
+    return True
+
+
+def _prune_for_build_analysis(agent_data: AgentData) -> AgentData:
+    if effects := agent_data.pop("Effects", None):
+        active_talents = _extract_active_talents(effects)
+        if active_talents:
+            agent_data["Active Talents"] = active_talents
+    return agent_data
+
+
+def _extract_active_talents(effects: object) -> list[str]:
+    if not isinstance(effects, dict):
+        return []
+    talents = effects.get("talent")
+    if isinstance(talents, str):
+        return [talents]
+    if isinstance(talents, list):
+        return [talent for talent in talents if isinstance(talent, str)]
+    return []
 
 
 def _dedupe_preserving_order(values: list[str]) -> list[str]:
