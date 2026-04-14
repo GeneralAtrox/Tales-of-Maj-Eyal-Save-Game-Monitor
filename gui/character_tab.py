@@ -26,7 +26,8 @@ _MONO_FONT = "\"Cascadia Code\", \"Consolas\", \"Courier New\", monospace"
 class CharacterTab(QWidget):
     """Per-character detail view: Sheet JSON, Backups list, Analysis prompt."""
 
-    analyze_requested = Signal(str, str)  # folder_name, question
+    analyze_requested  = Signal(str, str)  # folder_name, question
+    restore_requested  = Signal(str, str)  # folder_name, backup_name
 
     def __init__(
         self,
@@ -89,8 +90,19 @@ class CharacterTab(QWidget):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 8, 0, 0)
         lay.setSpacing(8)
+
         self._backups_list = QListWidget()
+        self._backups_list.currentRowChanged.connect(self._on_backup_selection_changed)
         lay.addWidget(self._backups_list)
+
+        btn_row = QHBoxLayout()
+        self._restore_btn = QPushButton("Restore Selected Save")
+        self._restore_btn.setEnabled(False)
+        self._restore_btn.clicked.connect(self._on_restore_clicked)
+        btn_row.addWidget(self._restore_btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
         return w
 
     def _build_analysis_tab(self) -> QWidget:
@@ -180,6 +192,7 @@ class CharacterTab(QWidget):
 
     def _load_backups(self, folder_name: str) -> None:
         self._backups_list.clear()
+        self._restore_btn.setEnabled(False)
         backup_dir = self._backups_root / folder_name
         if backup_dir.exists():
             backups = sorted(
@@ -192,6 +205,18 @@ class CharacterTab(QWidget):
                 self._backups_list.addItem(item)
         if self._backups_list.count() == 0:
             self._backups_list.addItem("No backups yet")
+
+    def _on_backup_selection_changed(self, row: int) -> None:
+        item = self._backups_list.item(row)
+        has_valid = item is not None and item.text() != "No backups yet"
+        self._restore_btn.setEnabled(has_valid)
+
+    def _on_restore_clicked(self) -> None:
+        if not self._current_folder:
+            return
+        item = self._backups_list.currentItem()
+        if item and item.text() != "No backups yet":
+            self.restore_requested.emit(self._current_folder, item.text())
 
     def _on_analyze_clicked(self) -> None:
         if not self._current_folder:

@@ -39,6 +39,14 @@ def ensure_baseline_backup(char: CharacterConfig, config: AppConfig) -> None:
         print(f" > Baseline anchor error: {exc}")
 
 
+def restore_backup(backup_path: Path, save_root: Path, folder_name: str) -> None:
+    """Overwrite the current save directory with the contents of *backup_path*."""
+    save_path = save_root / folder_name
+    if save_path.exists():
+        shutil.rmtree(save_path)
+    shutil.copytree(backup_path, save_path)
+
+
 def get_latest_save_mtime(path: Path) -> float:
     latest_mtime = 0.0
     for root, _, file_names in path.walk():

@@ -7,6 +7,7 @@ from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
 from PySide6.QtWidgets import (
     QInputDialog,
     QMainWindow,
+    QMessageBox,
     QSplitter,
     QStatusBar,
     QTabWidget,
@@ -99,6 +100,7 @@ class MainWindow(QMainWindow):
             config.backup_root,
         )
         self._character_tab.analyze_requested.connect(self._run_analysis)
+        self._character_tab.restore_requested.connect(self._restore_backup)
         self._tabs.addTab(self._character_tab, "Characters")
 
         self._settings_tab = SettingsTab()
@@ -177,6 +179,35 @@ class MainWindow(QMainWindow):
         if isinstance(config, AppConfig):
             save_config(config)
             self.statusBar().showMessage("Config saved", 3000)
+
+    def _restore_backup(self, folder_name: str, backup_name: str) -> None:
+        config = self._monitor.config
+        if not config:
+            return
+
+        char_name = next(
+            (c.name for c in config.characters if c.folder_name == folder_name),
+            folder_name,
+        )
+        reply = QMessageBox.warning(
+            self,
+            "Restore Save File",
+            f"Restore <b>{char_name}</b> to backup <b>{backup_name}</b>?<br><br>"
+            f"This will <b>overwrite the current save</b> on disk and cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        backup_path = config.backup_root / folder_name / backup_name
+        try:
+            from backups import restore_backup
+            restore_backup(backup_path, config.save_root, folder_name)
+            print(f"[*] {char_name} restored from {backup_name}.")
+            self.statusBar().showMessage(f"Restored {char_name} from {backup_name}", 5000)
+        except OSError as exc:
+            QMessageBox.critical(self, "Restore Failed", str(exc))
 
     def _run_analysis(self, folder_name: str, question: str) -> None:
         """Placeholder — wire up Claude API here."""
