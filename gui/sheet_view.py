@@ -49,9 +49,10 @@ _STAT_ORDER = list(_STAT_ICONS)
 # Talent names whose icon filename doesn't match their snake_case name.
 # Value is the stem (no .png) of the file in Icons/talents/.
 _ICON_OVERRIDES: dict[str, str] = {
-    "Pulverising Auger": "dig",
-    "Mirror Image":      "mirror_images",
-    "Temporal Shield":   "time_shield",
+    "Pulverising Auger":    "dig",
+    "Mirror Image":         "mirror_images",
+    "Temporal Shield":      "time_shield",
+    "Arcane Reconstruction": "heal",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
