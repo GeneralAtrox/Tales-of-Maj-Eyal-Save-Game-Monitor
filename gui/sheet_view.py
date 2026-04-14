@@ -50,6 +50,7 @@ _STAT_ORDER = list(_STAT_ICONS)
 # Value is the stem (no .png) of the file in Icons/talents/.
 _ICON_OVERRIDES: dict[str, str] = {
     "Pulverising Auger":     "dig",
+    "Pulverizing Auger":     "dig",
     "Mirror Image":          "mirror_images",
     "Temporal Shield":       "time_shield",
     "Arcane Reconstruction": "heal",
