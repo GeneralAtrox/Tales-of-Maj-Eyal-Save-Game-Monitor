@@ -92,6 +92,8 @@ class MainWindow(QMainWindow):
 
         self._init_poll.stop()
         self._dashboard.set_monitor_status(active=True)
+        self._dashboard.set_backups_root(config.backup_root)
+        self._dashboard.restore_requested.connect(self._restore_backup)
         self.statusBar().showMessage("Monitor active")
 
         # ── Build character-aware tabs now that config is known ──
