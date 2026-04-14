@@ -56,6 +56,7 @@ _ICON_OVERRIDES: dict[str, str] = {
     "Ogric Wrath":           "ogre_wrath",
     "Heavy Armour Training": "armour_training",
     "Combat Accuracy":       "weapon_combat",
+    "Dagger Mastery":        "knife_mastery",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
