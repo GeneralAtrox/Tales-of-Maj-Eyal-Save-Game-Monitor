@@ -45,6 +45,13 @@ _STAT_ICONS: dict[str, str] = {
 }
 _STAT_ORDER = list(_STAT_ICONS)
 
+# ── Icon overrides ────────────────────────────────────────────────────────────
+# Talent names whose icon filename doesn't match their snake_case name.
+# Value is the stem (no .png) of the file in Icons/talents/.
+_ICON_OVERRIDES: dict[str, str] = {
+    "Pulverising Auger": "dig",
+}
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _to_snake(name: str) -> str:
@@ -123,7 +130,7 @@ class _TalentIcon(QWidget):
         lay.setSpacing(2)
 
         # Icon
-        px = _load_pixmap(TALENT_ICONS / f"{_to_snake(name)}.png", _ICON_GRID)
+        px = _load_pixmap(TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png", _ICON_GRID)
         if zero:
             # Dim the icon for unlearned talents
             dimmed = QPixmap(px.size())
@@ -235,7 +242,7 @@ class _TalentDetailPanel(QWidget):
     def show_talent(self, name: str, data: Any, category: str = "") -> None:
         self._clear_fields()
 
-        px = _load_pixmap(TALENT_ICONS / f"{_to_snake(name)}.png", _ICON_DETAIL)
+        px = _load_pixmap(TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png", _ICON_DETAIL)
         self._icon_lbl.setPixmap(px)
         self._name_lbl.setText(name)
         self._category_lbl.setText(category)
