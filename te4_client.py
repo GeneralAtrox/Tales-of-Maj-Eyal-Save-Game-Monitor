@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import threading
@@ -127,7 +128,15 @@ def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig) -> None:
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
-        data = extract_optimized_data(response.text)
+        vault_url = f"https://te4.org/characters/{config.profile_id}/tome/{char_info.vault_id}"
+        data = {
+            "_meta": {
+                "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "vault_url": vault_url,
+                "schema_version": "1",
+            },
+            **extract_optimized_data(response.text),
+        }
         config.character_sheets_root.mkdir(exist_ok=True)
         out_path = config.character_sheets_root / f"data_{char_info.folder_name}.json"
         out_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
