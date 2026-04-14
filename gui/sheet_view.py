@@ -54,6 +54,7 @@ _ICON_OVERRIDES: dict[str, str] = {
     "Temporal Shield":       "time_shield",
     "Arcane Reconstruction": "heal",
     "Ogric Wrath":           "ogre_wrath",
+    "Heavy Armour Training": "armour_training",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
