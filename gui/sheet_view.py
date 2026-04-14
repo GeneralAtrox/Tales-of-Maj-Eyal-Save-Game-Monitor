@@ -201,9 +201,15 @@ class _TalentDetailPanel(QWidget):
             f"font-size: 15px; font-weight: 700; color: {TEXT};"
         )
         self._name_lbl.setWordWrap(True)
+        self._name_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         self._category_lbl = QLabel()
         self._category_lbl.setStyleSheet(
             f"font-size: 11px; color: {SUBTEXT0};"
+        )
+        self._category_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
         )
         name_col.addWidget(self._name_lbl)
         name_col.addWidget(self._category_lbl)
@@ -278,6 +284,7 @@ class _TalentDetailPanel(QWidget):
         val.setStyleSheet(f"color: {color}; font-size: 12px;")
         val.setWordWrap(True)
         val.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         row.addWidget(lbl)
         row.addWidget(val, 1)
         container = QWidget()
