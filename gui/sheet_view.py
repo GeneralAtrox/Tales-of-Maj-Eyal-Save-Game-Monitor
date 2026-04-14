@@ -51,6 +51,7 @@ _STAT_ORDER = list(_STAT_ICONS)
 _ICON_OVERRIDES: dict[str, str] = {
     "Pulverising Auger": "dig",
     "Mirror Image":      "mirror_images",
+    "Temporal Shield":   "time_shield",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
