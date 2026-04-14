@@ -66,8 +66,8 @@ class MainWindow(QMainWindow):
         self._log_bridge.message_ready.connect(self._log_panel.append)
 
         # ── Wire dashboard signals ──
-        self._dashboard.character_selected.connect(self._open_character_tab)
-        self._dashboard.open_sheet_requested.connect(self._open_character_tab)
+        self._dashboard.character_selected.connect(self._open_visual_sheet)
+        self._dashboard.open_sheet_requested.connect(self._open_raw_sheet)
         self._dashboard.force_sync_requested.connect(self._force_sync)
 
         # ── Start monitor thread ──
@@ -155,10 +155,19 @@ class MainWindow(QMainWindow):
         self._character_tab.refresh_current()
         self.statusBar().showMessage("Character sheet updated", 4000)
 
-    def _open_character_tab(self, folder_name: str) -> None:
+    def _open_visual_sheet(self, folder_name: str) -> None:
+        from gui.character_tab import CharacterTab
+        self._open_character_tab(folder_name, CharacterTab.SUBTAB_CHARACTER_SHEET)
+
+    def _open_raw_sheet(self, folder_name: str) -> None:
+        from gui.character_tab import CharacterTab
+        self._open_character_tab(folder_name, CharacterTab.SUBTAB_RAW_SHEET)
+
+    def _open_character_tab(self, folder_name: str, subtab: int = 0) -> None:
         if not self._character_tab:
             return
         self._character_tab.select_character(folder_name)
+        self._character_tab.select_subtab(subtab)
         for i in range(self._tabs.count()):
             if self._tabs.tabText(i) == "Characters":
                 self._tabs.setCurrentIndex(i)

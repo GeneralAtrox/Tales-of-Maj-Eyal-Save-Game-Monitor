@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.sheet_view import CharacterSheetView
 from gui.theme import BORDER, SUBTEXT0, SURFACE0, SURFACE1, TEXT
 
 _MONO_FONT = "\"Cascadia Code\", \"Consolas\", \"Courier New\", monospace"
@@ -61,9 +62,17 @@ class CharacterTab(QWidget):
         self._subtabs = QTabWidget()
         root.addWidget(self._subtabs)
 
-        self._subtabs.addTab(self._build_sheet_tab(),    "Sheet")
-        self._subtabs.addTab(self._build_backups_tab(),  "Backups")
-        self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
+        # Sub-tab indices (keep in sync with SUBTAB_* constants below)
+        self._sheet_visual = CharacterSheetView()
+        self._subtabs.addTab(self._sheet_visual,          "Character Sheet")
+        self._subtabs.addTab(self._build_sheet_tab(),     "Sheet")
+        self._subtabs.addTab(self._build_backups_tab(),   "Backups")
+        self._subtabs.addTab(self._build_analysis_tab(),  "Analysis")
+
+    SUBTAB_CHARACTER_SHEET = 0
+    SUBTAB_RAW_SHEET       = 1
+    SUBTAB_BACKUPS         = 2
+    SUBTAB_ANALYSIS        = 3
 
     # ── Tab builders ─────────────────────────────────────────────────────
 
@@ -156,6 +165,9 @@ class CharacterTab(QWidget):
                 self._combo.setCurrentIndex(i)
                 return
 
+    def select_subtab(self, index: int) -> None:
+        self._subtabs.setCurrentIndex(index)
+
     def refresh_current(self) -> None:
         if self._current_folder:
             self._load_sheet(self._current_folder)
@@ -177,18 +189,22 @@ class CharacterTab(QWidget):
 
     def _load_sheet(self, folder_name: str) -> None:
         sheet_path = self._sheets_root / f"data_{folder_name}.json"
+        char_name  = self._chars.get(folder_name, "")
         if sheet_path.exists():
             try:
                 data = json.loads(sheet_path.read_text(encoding="utf-8"))
                 self._sheet_view.setPlainText(json.dumps(data, indent=2))
+                self._sheet_visual.load(data, char_name)
             except (OSError, json.JSONDecodeError) as exc:
                 self._sheet_view.setPlainText(f"Error reading sheet:\n{exc}")
         else:
-            self._sheet_view.setPlainText(
+            placeholder = (
                 "No character sheet available yet.\n\n"
                 "Save in-game to trigger a sync, or use Actions → Force Sync\n"
                 "from the Monitor tab."
             )
+            self._sheet_view.setPlainText(placeholder)
+            self._sheet_visual.load({}, char_name)
 
     def _load_backups(self, folder_name: str) -> None:
         self._backups_list.clear()
