@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -52,7 +53,19 @@ class DashboardTab(QWidget):
         self._status_dot = QLabel("● Initializing")
         self._status_dot.setProperty("status", "warn")
         header_row.addWidget(self._status_dot)
+
+        self._game_dot = QLabel("● Game Inactive")
+        self._game_dot.setProperty("status", "error")
+        header_row.addWidget(self._game_dot)
+
         root.addLayout(header_row)
+
+        # ── Poll for ToME process every 3 s ──
+        self._game_poll = QTimer(self)
+        self._game_poll.setInterval(3000)
+        self._game_poll.timeout.connect(self._check_game_process)
+        self._game_poll.start()
+        self._check_game_process()   # immediate first check
 
         # ── Roster table ──
         self._table = QTableWidget(0, 5)
@@ -95,6 +108,29 @@ class DashboardTab(QWidget):
         self._status_dot.style().unpolish(self._status_dot)
         self._status_dot.style().polish(self._status_dot)
 
+    def set_game_status(self, active: bool) -> None:
+        if active:
+            self._game_dot.setText("● Game Active")
+            self._game_dot.setProperty("status", "ok")
+        else:
+            self._game_dot.setText("● Game Inactive")
+            self._game_dot.setProperty("status", "error")
+        self._game_dot.style().unpolish(self._game_dot)
+        self._game_dot.style().polish(self._game_dot)
+
+    def _check_game_process(self) -> None:
+        try:
+            result = subprocess.run(
+                ["tasklist"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            active = "t-engine" in result.stdout.lower()
+        except (OSError, subprocess.TimeoutExpired):
+            active = False
+        self.set_game_status(active)
+
     def upsert_character(
         self,
         folder_name: str,
@@ -125,16 +161,30 @@ class DashboardTab(QWidget):
 
     # ── Internals ─────────────────────────────────────────────────────────
 
-    def _action_button(self, folder_name: str) -> QToolButton:
+    def _action_button(self, folder_name: str) -> QWidget:
         btn = QToolButton()
         btn.setText("Actions  ▾")
         btn.setFixedWidth(105)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setStyleSheet(
+            "QToolButton { text-align: center; }"
+            "QToolButton::menu-indicator { image: none; }"
+        )
         menu = QMenu(btn)
         # Rebuild the backup list every time the menu opens
         menu.aboutToShow.connect(lambda: self._rebuild_menu(menu, folder_name))
         btn.setMenu(menu)
-        return btn
+
+        # Wrap in a container so the button sits flush with the same
+        # horizontal padding the text cells use (QTableWidget adds ~8 px
+        # left padding; match it on the right so the button doesn't butt
+        # up against the scrollbar/edge).
+        container = QWidget()
+        lay = QHBoxLayout(container)
+        lay.setContentsMargins(4, 0, 8, 0)
+        lay.setSpacing(0)
+        lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        return container
 
     def _rebuild_menu(self, menu: QMenu, folder_name: str) -> None:
         menu.clear()

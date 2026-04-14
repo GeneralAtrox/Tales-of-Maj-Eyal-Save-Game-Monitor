@@ -45,6 +45,10 @@ class AppConfig:
     def character_sheets_root(self) -> Path:
         return self.save_root / "CharacterSheets"
 
+    @property
+    def builds_root(self) -> Path:
+        return self.save_root / "Builds"
+
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> AppConfig:
         raw_chars = data.get("characters", [])
