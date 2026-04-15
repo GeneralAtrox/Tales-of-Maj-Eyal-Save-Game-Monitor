@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMenu,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -19,7 +21,9 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
-from gui.theme import BORDER, SUBTEXT0, SURFACE1, TEXT
+from gui.enemy_panel import EnemyPanel
+from gui.memory_reader import MemoryReader
+from gui.theme import BORDER, GREEN, RED, SUBTEXT0, SURFACE1, TEXT
 
 
 class DashboardTab(QWidget):
@@ -29,6 +33,7 @@ class DashboardTab(QWidget):
     open_sheet_requested  = Signal(str)   # folder_name
     force_sync_requested  = Signal(str)   # folder_name
     restore_requested     = Signal(str, str)  # folder_name, backup_name
+    _enemies_ready        = Signal(list)  # list[EntityInfo] from bg thread
 
     _COL_NAME      = 0
     _COL_CLASS     = 1
@@ -58,7 +63,17 @@ class DashboardTab(QWidget):
         self._game_dot.setProperty("status", "error")
         header_row.addWidget(self._game_dot)
 
+        self._hp_label = QLabel("")
+        self._hp_label.setStyleSheet(f"font-weight: 600; color: {SUBTEXT0};")
+        header_row.addWidget(self._hp_label)
+
         root.addLayout(header_row)
+
+        # ── Memory reader (attaches in background thread) ──
+        self._reader = MemoryReader()
+        self._attach_pending = False
+        self._hp_fail_count = 0       # consecutive None reads
+        self._last_level_id: str | None = None   # map-change detection
 
         # ── Poll for ToME process every 3 s ──
         self._game_poll = QTimer(self)
@@ -66,6 +81,21 @@ class DashboardTab(QWidget):
         self._game_poll.timeout.connect(self._check_game_process)
         self._game_poll.start()
         self._check_game_process()   # immediate first check
+
+        # ── Poll HP every 1 s (fast — just a few ReadProcessMemory calls) ──
+        self._hp_poll = QTimer(self)
+        self._hp_poll.setInterval(1000)
+        self._hp_poll.timeout.connect(self._poll_hp)
+        self._hp_poll.start()
+
+        # ── Poll level ID every 2 s for map-change detection ──
+        self._level_poll = QTimer(self)
+        self._level_poll.setInterval(2000)
+        self._level_poll.timeout.connect(self._poll_level_id)
+        self._level_poll.start()
+
+        # ── Splitter: roster table (top) + enemy panel (bottom) ──
+        splitter = QSplitter(Qt.Orientation.Vertical)
 
         # ── Roster table ──
         self._table = QTableWidget(0, 5)
@@ -89,7 +119,16 @@ class DashboardTab(QWidget):
         self._table.setShowGrid(False)
         self._table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._table.itemDoubleClicked.connect(self._on_double_click)
-        root.addWidget(self._table)
+        splitter.addWidget(self._table)
+
+        # ── Enemy panel ──
+        self._enemy_panel = EnemyPanel()
+        self._enemies_ready.connect(self._enemy_panel.update_enemies)
+        splitter.addWidget(self._enemy_panel)
+
+        splitter.setStretchFactor(0, 2)   # table gets more space
+        splitter.setStretchFactor(1, 3)   # enemy panel gets rest
+        root.addWidget(splitter)
 
         self._rows: dict[str, int] = {}  # folder_name → row index
 
@@ -130,6 +169,68 @@ class DashboardTab(QWidget):
         except (OSError, subprocess.TimeoutExpired):
             active = False
         self.set_game_status(active)
+
+        # Try to attach memory reader when game becomes active
+        if active and not self._reader.attached and not self._attach_pending:
+            self._attach_pending = True
+            self._hp_label.setText("Attaching...")
+            threading.Thread(target=self._attach_reader, daemon=True).start()
+        elif not active and self._reader.attached:
+            self._reader.detach()
+            self._hp_label.setText("")
+
+    def _attach_reader(self) -> None:
+        """Run in background thread — the initial _G scan takes a few seconds."""
+        try:
+            self._reader.attach()
+        finally:
+            self._attach_pending = False
+
+    def _poll_hp(self) -> None:
+        if not self._reader.attached:
+            return
+        hp = self._reader.read_player_hp()
+        if hp is not None:
+            self._hp_fail_count = 0
+            life, max_life = hp
+            pct = life / max_life if max_life > 0 else 0
+            if pct > 0.5:
+                color = GREEN
+            elif pct > 0.25:
+                color = "#f9e2af"  # yellow
+            else:
+                color = RED
+            self._hp_label.setStyleSheet(f"font-weight: 600; color: {color};")
+            self._hp_label.setText(f"HP: {life:.0f} / {max_life:.0f}")
+        else:
+            self._hp_fail_count += 1
+            # After 5 consecutive failures (5 s), _G is probably stale —
+            # detach so the next game-poll cycle triggers a fresh re-attach.
+            if self._hp_fail_count >= 5 and not self._attach_pending:
+                self._reader.detach()
+                self._hp_label.setText("")
+                self._hp_fail_count = 0
+            elif self._hp_fail_count >= 2:
+                self._hp_label.setStyleSheet(f"font-weight: 600; color: {SUBTEXT0};")
+                self._hp_label.setText("HP: --")
+
+    def _poll_level_id(self) -> None:
+        """Check for map change every 2 s — triggers entity scan on change."""
+        if not self._reader.attached:
+            return
+        level_id = self._reader.read_level_id()
+        if level_id is None:
+            return
+        if level_id != self._last_level_id:
+            self._last_level_id = level_id
+            self._enemy_panel.set_map_name(level_id)
+            # Scan entities in background thread to avoid blocking the GUI
+            threading.Thread(target=self._scan_entities, daemon=True).start()
+
+    def _scan_entities(self) -> None:
+        """Read entities (background thread) and emit signal for main thread."""
+        entities = self._reader.read_entities(min_rank=1.5)
+        self._enemies_ready.emit(entities)
 
     def upsert_character(
         self,
