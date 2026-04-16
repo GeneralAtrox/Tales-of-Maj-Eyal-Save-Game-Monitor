@@ -767,23 +767,28 @@ class MemoryReader:
             unique    = bool(all_fields.get("unique", False))
 
             # ── Image resolution ──────────────────────────────────────────
-            # Two patterns in ToME:
-            #   Direct:    image = "npc/troll_f.png"  → use directly.
-            #   nice_tile: image = "invis.png"; real path in add_mos[1].image.
+            # Three patterns in ToME:
+            #   Direct:           image = "npc/troll_f.png"  → use directly.
+            #   nice_tile:        image = "invis.png"; real path in add_mos[1].image.
+            #   attachement_spots: string field holding "npc/xxx.png" (random bosses).
             raw_image = str(all_fields.get("image") or "")
             if raw_image.startswith("npc/") and raw_image != "invis.png":
                 entity_image = raw_image
             else:
+                # Try add_mos[1].image first
+                entity_image = ""
                 add_mos_tab = _tab_get_table(h, ptr, "add_mos")
                 if add_mos_tab:
                     first = _tab_array_get_table(h, add_mos_tab, 1)
                     if first:
                         mos_img = _tab_get_string(h, first, "image") or ""
-                        entity_image = mos_img if mos_img.startswith("npc/") else ""
-                    else:
-                        entity_image = ""
-                else:
-                    entity_image = ""
+                        if mos_img.startswith("npc/"):
+                            entity_image = mos_img
+                # Fall back to attachement_spots (typo is in the game source)
+                if not entity_image:
+                    attach = str(all_fields.get("attachement_spots") or "")
+                    if attach.startswith("npc/"):
+                        entity_image = attach
 
             if not entity_image:
                 import sys
