@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import (
     BG, BLUE, BORDER, GREEN, MAUVE, OVERLAY, RED,
-    SUBTEXT0, SUBTEXT1, SURFACE0, SURFACE1, TEXT, YELLOW,
+    SUBTEXT0, SUBTEXT1, SURFACE0, SURFACE1, SURFACE2, TEXT, YELLOW,
 )
 
 # ── Asset paths ───────────────────────────────────────────────────────────────
@@ -417,6 +417,12 @@ class CharacterSheetView(QWidget):
     def clear_hp(self) -> None:
         self._header.clear_hp()
 
+    def set_mana(self, mana: float, max_mana: float) -> None:
+        self._header.set_mana(mana, max_mana)
+
+    def clear_mana(self) -> None:
+        self._header.clear_mana()
+
     def load(self, data: dict, char_name: str = "") -> None:
         self._clear_left()
         char = data.get("Character", {})
@@ -523,9 +529,23 @@ class _HeaderBar(QWidget):
         )
         self._hp_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+        # Divider between HP and mana
+        self._resource_sep = QLabel("|")
+        self._resource_sep.setStyleSheet(f"color: {SURFACE2}; font-size: 13px; padding: 0 2px;")
+        self._resource_sep.setVisible(False)
+
+        self._mana_lbl = QLabel("")
+        self._mana_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 4px; padding-right: 12px;"
+        )
+        self._mana_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._mana_lbl.setVisible(False)
+
         lay.addWidget(self._class_icon)
         lay.addWidget(self._info_lbl, 1)
         lay.addWidget(self._hp_lbl)
+        lay.addWidget(self._resource_sep)
+        lay.addWidget(self._mana_lbl)
 
     def update_from(self, char: dict[str, str], char_name: str = "") -> None:
         cls   = char.get("Class", "")
@@ -542,7 +562,8 @@ class _HeaderBar(QWidget):
         parts = [p for p in [char_name or cls, race, f"Level {level}" if level else "", mode] if p]
         self._info_lbl.setText("   ·   ".join(parts))
 
-    _HP_STYLE = "font-size: 13px; font-weight: 700; padding-left: 12px; padding-right: 8px;"
+    _HP_STYLE   = "font-size: 13px; font-weight: 700; padding-left: 12px; padding-right: 8px;"
+    _MANA_STYLE = "font-size: 13px; font-weight: 700; padding-left: 4px; padding-right: 12px;"
 
     def set_hp(self, life: float, max_life: float) -> None:
         pct = life / max_life if max_life > 0 else 0
@@ -553,6 +574,18 @@ class _HeaderBar(QWidget):
     def clear_hp(self) -> None:
         self._hp_lbl.setStyleSheet(f"{self._HP_STYLE} color: {SUBTEXT0};")
         self._hp_lbl.setText("")
+        self.clear_mana()
+
+    def set_mana(self, mana: float, max_mana: float) -> None:
+        self._resource_sep.setVisible(True)
+        self._mana_lbl.setVisible(True)
+        self._mana_lbl.setStyleSheet(f"{self._MANA_STYLE} color: {BLUE};")
+        self._mana_lbl.setText(f"Mana  {mana:.0f} / {max_mana:.0f}")
+
+    def clear_mana(self) -> None:
+        self._resource_sep.setVisible(False)
+        self._mana_lbl.setVisible(False)
+        self._mana_lbl.setText("")
 
 
 def _divider() -> QFrame:

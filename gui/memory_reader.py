@@ -512,6 +512,18 @@ class MemoryReader:
             return None
         return life, max_life
 
+    def read_player_mana(self) -> tuple[float, float] | None:
+        """Return (mana, max_mana) or None if character has no mana."""
+        if not self._player_table or not self.attached:
+            return None
+        h  = self._handle
+        pt = self._player_table
+        mana     = _tab_get_number(h, pt, "mana")
+        max_mana = _tab_get_number(h, pt, "max_mana")
+        if mana is None or max_mana is None or max_mana <= 0:
+            return None
+        return mana, max_mana
+
     def read_level_id(self) -> str | None:
         """Return game.level.id string, or None."""
         if not self.attached:

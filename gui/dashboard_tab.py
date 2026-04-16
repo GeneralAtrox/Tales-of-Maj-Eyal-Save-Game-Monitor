@@ -233,11 +233,16 @@ class DashboardTab(QWidget):
             self._hp_fail_count = 0
             life, max_life = hp
             self._sheet_visual.set_hp(life, max_life)
+            mana = self._reader.read_player_mana()
+            if mana is not None:
+                self._sheet_visual.set_mana(*mana)
+            else:
+                self._sheet_visual.clear_mana()
         else:
             self._hp_fail_count += 1
             if self._hp_fail_count >= 5 and not self._attach_pending:
                 self._reader.detach()
-                self._sheet_visual.clear_hp()
+                self._sheet_visual.clear_hp()   # also clears mana via clear_hp
                 self._hp_fail_count = 0
 
     def _poll_level_id(self) -> None:
