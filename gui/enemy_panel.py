@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from game_data.npc_db import NpcRecord, get_npc_db
 from gui.memory_reader import (
     DANGER_DEADLY,
     DANGER_DANGEROUS,
@@ -49,31 +50,44 @@ _ICON_DIR = Path(__file__).resolve().parent.parent / "Icons" / "npc"
 _ICON_CACHE: dict[str, Path | None] = {}   # normalised name → path or None
 _ICON_SIZE = 32
 
+# Truncate lore text longer than this in the card (full text goes to tooltip).
+_DESC_MAX_CHARS = 160
+
 
 def _normalise(name: str) -> str:
     """'Skeleton Warrior' → 'skeleton_warrior'"""
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
-def _find_icon(entity_name: str) -> Path | None:
+def _find_icon(entity_name: str, image_hint: str = "") -> Path | None:
     """
-    Best-effort match of entity display name to an icon file.
+    Resolve entity display name → icon Path.
 
-    Tries exact match first, then strips leading unique-name prefix
-    (e.g. "Jaedemas the Guardian" → "guardian"), then progressively
-    shorter suffixes of the name.
+    Priority:
+    1. Ground-truth ``image_hint`` from the NPC database (e.g. "npc/troll_f.png").
+    2. Exact normalised name match against ``Icons/npc/``.
+    3. Strip "Foo the <type>" → use part after "the".
+    4. Progressively shorter word suffixes (e.g. "master_skeleton_archer").
     """
     key = _normalise(entity_name)
     if key in _ICON_CACHE:
         return _ICON_CACHE[key]
 
+    # 1. Ground-truth path from NPC db
+    if image_hint:
+        stem = Path(image_hint).stem   # "npc/troll_f.png" → "troll_f"
+        p = _ICON_DIR / f"{stem}.png"
+        if p.exists():
+            _ICON_CACHE[key] = p
+            return p
+
     candidates = [key]
 
-    # Strip "Foo the <type>" prefix — use the part after "the"
+    # 2. Strip "Foo the <type>" prefix
     if "_the_" in key:
         candidates.append(key.split("_the_", 1)[1])
 
-    # Try progressively shorter suffixes (e.g. "master_skeleton_archer")
+    # 3. Progressively shorter suffixes
     parts = key.split("_")
     for i in range(1, len(parts)):
         candidates.append("_".join(parts[i:]))
@@ -116,7 +130,7 @@ def _hp_color(pct: float) -> str:
 
 
 class _EnemyCard(QFrame):
-    """Single enemy row — sprite + name, HP bar, rank badge, key stats."""
+    """Single enemy row — sprite + name, HP bar, rank badge, key stats, lore."""
 
     def __init__(self, entity: EntityInfo, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -129,13 +143,16 @@ class _EnemyCard(QFrame):
             f"}}"
         )
 
+        # Look up NPC record for ground-truth image and lore text.
+        npc: NpcRecord | None = get_npc_db().get(entity.name.lower())
+
         # Outer horizontal layout: [sprite] [info column]
         outer = QHBoxLayout(self)
         outer.setContentsMargins(8, 6, 10, 6)
         outer.setSpacing(8)
 
         # ── Sprite ──
-        icon_path = _find_icon(entity.name)
+        icon_path = _find_icon(entity.name, npc.image if npc else "")
         if icon_path:
             pix = QPixmap(str(icon_path)).scaled(
                 QSize(_ICON_SIZE, _ICON_SIZE),
@@ -240,6 +257,25 @@ class _EnemyCard(QFrame):
             stats_lbl = QLabel("  |  ".join(stats_parts))
             stats_lbl.setStyleSheet(f"color: {OVERLAY}; font-size: 11px;")
             info.addWidget(stats_lbl)
+
+        # ── Row 4: lore description (truncated) ──
+        if npc and npc.desc:
+            full_desc = npc.desc
+            # Replace newlines with spaces for the inline label
+            one_line = " ".join(full_desc.split())
+            if len(one_line) > _DESC_MAX_CHARS:
+                display_text = one_line[:_DESC_MAX_CHARS].rsplit(" ", 1)[0] + " \u2026"
+            else:
+                display_text = one_line
+            desc_lbl = QLabel(display_text)
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet(
+                f"color: {SUBTEXT0}; font-size: 11px; font-style: italic;"
+            )
+            if len(one_line) > _DESC_MAX_CHARS:
+                # Full text as tooltip
+                self.setToolTip(full_desc)
+            info.addWidget(desc_lbl)
 
         outer.addLayout(info, stretch=1)
 

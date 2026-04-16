@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from game_data.npc_db import get_npc_db
 from gui.enemy_panel import EnemyPanel
 from gui.memory_reader import MemoryReader
 from gui.sheet_view import CharacterSheetView
@@ -46,6 +47,9 @@ class DashboardTab(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # ── Warm NPC database in background (zip parse / cache load) ──────
+        threading.Thread(target=get_npc_db, daemon=True).start()
 
         # ── Memory reader ──────────────────────────────────────────────────
         self._reader = MemoryReader()
