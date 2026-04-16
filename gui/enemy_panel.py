@@ -53,6 +53,29 @@ _ICON_SIZE = 32
 # Truncate lore text longer than this in the card (full text goes to tooltip).
 _DESC_MAX_CHARS = 160
 
+# Suffix index built once on first use:  normalised_stem_suffix → Path
+# e.g. "giant_spider" → spiderkin_spider_giant_spider.png
+# Allows matching when the icon filename has a category prefix we don't know.
+_SUFFIX_INDEX: dict[str, Path] = {}
+_SUFFIX_INDEX_BUILT = False
+
+
+def _build_suffix_index() -> None:
+    global _SUFFIX_INDEX_BUILT
+    if _SUFFIX_INDEX_BUILT:
+        return
+    for p in _ICON_DIR.glob("*.png"):
+        stem = p.stem  # e.g. "spiderkin_spider_giant_spider"
+        parts = stem.split("_")
+        # Register every trailing sub-sequence of words as a key.
+        # Shorter sequences are registered only if not already present
+        # (longer match wins — more specific first).
+        for i in range(len(parts)):
+            suffix = "_".join(parts[i:])
+            if suffix and suffix not in _SUFFIX_INDEX:
+                _SUFFIX_INDEX[suffix] = p
+    _SUFFIX_INDEX_BUILT = True
+
 
 def _normalise(name: str) -> str:
     """'Skeleton Warrior' → 'skeleton_warrior'"""
@@ -64,18 +87,22 @@ def _find_icon(entity_name: str, image_hint: str = "") -> Path | None:
     Resolve entity display name → icon Path.
 
     Priority:
-    1. Ground-truth ``image_hint`` from the NPC database (e.g. "npc/troll_f.png").
+    1. Ground-truth ``image_hint`` from the NPC database or live memory
+       (e.g. ``"npc/troll_f.png"``).
     2. Exact normalised name match against ``Icons/npc/``.
     3. Strip "Foo the <type>" → use part after "the".
-    4. Progressively shorter word suffixes (e.g. "master_skeleton_archer").
+    4. Progressively shorter word suffixes (left-trimmed).
+    5. Suffix index — finds icons whose filename *ends with* the normalised
+       name (e.g. "giant_spider" → ``spiderkin_spider_giant_spider.png``).
     """
+    _build_suffix_index()
     key = _normalise(entity_name)
     if key in _ICON_CACHE:
         return _ICON_CACHE[key]
 
-    # 1. Ground-truth path from NPC db
+    # 1. Ground-truth image hint (db or memory)
     if image_hint:
-        stem = Path(image_hint).stem   # "npc/troll_f.png" → "troll_f"
+        stem = Path(image_hint).stem
         p = _ICON_DIR / f"{stem}.png"
         if p.exists():
             _ICON_CACHE[key] = p
@@ -83,11 +110,9 @@ def _find_icon(entity_name: str, image_hint: str = "") -> Path | None:
 
     candidates = [key]
 
-    # 2. Strip "Foo the <type>" prefix
+    # 2+3. Strip "Foo the <type>" prefix, shorter left-trimmed suffixes
     if "_the_" in key:
         candidates.append(key.split("_the_", 1)[1])
-
-    # 3. Progressively shorter suffixes
     parts = key.split("_")
     for i in range(1, len(parts)):
         candidates.append("_".join(parts[i:]))
@@ -95,6 +120,13 @@ def _find_icon(entity_name: str, image_hint: str = "") -> Path | None:
     for c in candidates:
         p = _ICON_DIR / f"{c}.png"
         if p.exists():
+            _ICON_CACHE[key] = p
+            return p
+
+    # 4. Suffix index — icon stem ends with the candidate string
+    for c in candidates:
+        p = _SUFFIX_INDEX.get(c)
+        if p and p.exists():
             _ICON_CACHE[key] = p
             return p
 
