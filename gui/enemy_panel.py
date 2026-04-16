@@ -6,7 +6,6 @@ game.level.entities, scanned on map change only.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -47,91 +46,30 @@ from gui.theme import (
 # ── NPC sprite lookup ────────────────────────────────────────────────────────
 
 _ICON_DIR = Path(__file__).resolve().parent.parent / "Icons" / "npc"
-_ICON_CACHE: dict[str, Path | None] = {}   # normalised name → path or None
+_ICON_CACHE: dict[str, Path | None] = {}   # image_hint key → Path or None
 _ICON_SIZE = 32
 
 # Truncate lore text longer than this in the card (full text goes to tooltip).
 _DESC_MAX_CHARS = 160
 
-# Suffix index built once on first use:  normalised_stem_suffix → Path
-# e.g. "giant_spider" → spiderkin_spider_giant_spider.png
-# Allows matching when the icon filename has a category prefix we don't know.
-_SUFFIX_INDEX: dict[str, Path] = {}
-_SUFFIX_INDEX_BUILT = False
 
-
-def _build_suffix_index() -> None:
-    global _SUFFIX_INDEX_BUILT
-    if _SUFFIX_INDEX_BUILT:
-        return
-    for p in _ICON_DIR.glob("*.png"):
-        stem = p.stem  # e.g. "spiderkin_spider_giant_spider"
-        parts = stem.split("_")
-        # Register every trailing sub-sequence of words as a key.
-        # Shorter sequences are registered only if not already present
-        # (longer match wins — more specific first).
-        for i in range(len(parts)):
-            suffix = "_".join(parts[i:])
-            if suffix and suffix not in _SUFFIX_INDEX:
-                _SUFFIX_INDEX[suffix] = p
-    _SUFFIX_INDEX_BUILT = True
-
-
-def _normalise(name: str) -> str:
-    """'Skeleton Warrior' → 'skeleton_warrior'"""
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-
-
-def _find_icon(entity_name: str, image_hint: str = "") -> Path | None:
+def _resolve_icon(image_hint: str) -> Path | None:
     """
-    Resolve entity display name → icon Path.
+    Resolve a confirmed ``"npc/xxx.png"`` image path to a local file.
 
-    Priority:
-    1. Ground-truth ``image_hint`` from the NPC database or live memory
-       (e.g. ``"npc/troll_f.png"``).
-    2. Exact normalised name match against ``Icons/npc/``.
-    3. Strip "Foo the <type>" → use part after "the".
-    4. Progressively shorter word suffixes (left-trimmed).
-    5. Suffix index — finds icons whose filename *ends with* the normalised
-       name (e.g. "giant_spider" → ``spiderkin_spider_giant_spider.png``).
+    Only called with ground-truth paths (from live memory or the NPC db),
+    never with guesses — so no fuzzy matching is done.  Returns None if
+    the file is not present locally.
     """
-    _build_suffix_index()
-    key = _normalise(entity_name)
-    if key in _ICON_CACHE:
-        return _ICON_CACHE[key]
-
-    # 1. Ground-truth image hint (db or memory)
-    if image_hint:
-        stem = Path(image_hint).stem
-        p = _ICON_DIR / f"{stem}.png"
-        if p.exists():
-            _ICON_CACHE[key] = p
-            return p
-
-    candidates = [key]
-
-    # 2+3. Strip "Foo the <type>" prefix, shorter left-trimmed suffixes
-    if "_the_" in key:
-        candidates.append(key.split("_the_", 1)[1])
-    parts = key.split("_")
-    for i in range(1, len(parts)):
-        candidates.append("_".join(parts[i:]))
-
-    for c in candidates:
-        p = _ICON_DIR / f"{c}.png"
-        if p.exists():
-            _ICON_CACHE[key] = p
-            return p
-
-    # 4. Suffix index — icon stem ends with the candidate string
-    for c in candidates:
-        p = _SUFFIX_INDEX.get(c)
-        if p and p.exists():
-            _ICON_CACHE[key] = p
-            return p
-
-    _ICON_CACHE[key] = None
-    return None
+    if not image_hint:
+        return None
+    if image_hint in _ICON_CACHE:
+        return _ICON_CACHE[image_hint]
+    stem = Path(image_hint).stem
+    p = _ICON_DIR / f"{stem}.png"
+    result = p if p.exists() else None
+    _ICON_CACHE[image_hint] = result
+    return result
 
 # Rank → display colour
 _RANK_COLORS: dict[str, str] = {
@@ -175,13 +113,17 @@ class _EnemyCard(QFrame):
             f"}}"
         )
 
-        # Look up NPC record for ground-truth image and lore text.
+        # Look up NPC record for confirmed image path and lore text.
         npc: NpcRecord | None = get_npc_db().get(entity.name.lower())
 
-        # Image priority:
-        #   1. entity.image  — read live from memory (exact, works for addon NPCs)
-        #   2. npc.image     — from parsed game files (covers nice_tile entities)
-        #   3. fuzzy match   — _find_icon fallback
+        # Image source priority — only confirmed ground-truth paths used,
+        # no fuzzy guessing:
+        #   1. entity.image  — read live from the entity's Lua table in memory
+        #                      (exact for direct-image entities; empty for
+        #                      resolvers.nice_tile, which stores "invis.png")
+        #   2. npc.image     — parsed from game files (correct for nice_tile
+        #                      entities where memory gives nothing useful)
+        # If neither source has a path, no sprite is shown.
         image_hint = entity.image or (npc.image if npc else "")
 
         # Outer horizontal layout: [sprite] [info column]
@@ -190,7 +132,7 @@ class _EnemyCard(QFrame):
         outer.setSpacing(8)
 
         # ── Sprite ──
-        icon_path = _find_icon(entity.name, image_hint)
+        icon_path = _resolve_icon(image_hint)
         if icon_path:
             pix = QPixmap(str(icon_path)).scaled(
                 QSize(_ICON_SIZE, _ICON_SIZE),
