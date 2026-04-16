@@ -433,6 +433,7 @@ class EntityInfo:
     mental_save: float
     danger: str          # label: Trivial / Easy / Moderate / Dangerous / Deadly
     danger_score: float  # numeric score for sorting
+    image: str           # "npc/xxx.png" read directly from entity table, or ""
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -612,6 +613,14 @@ class MemoryReader:
             level = _tab_get_number(h, ptr, "level") or 0.0
             faction = _tab_get_string(h, ptr, "faction") or "?"
 
+            # Read image path directly from the entity's Lua table.
+            # Entities with a direct image field (e.g. image="npc/troll_f.png")
+            # return the path here.  Entities using resolvers.nice_tile store
+            # "invis.png" as their image; we filter those out so the NPC db
+            # lookup in enemy_panel can take over.
+            raw_image = _tab_get_string(h, ptr, "image") or ""
+            entity_image = raw_image if (raw_image.startswith("npc/") and raw_image != "npc/invis.png") else ""
+
             ent = EntityInfo(
                 name=name,
                 rank=rank or 0.0,
@@ -629,6 +638,7 @@ class MemoryReader:
                 mental_save=_tab_get_number(h, ptr, "combat_mentalresist") or 0.0,
                 danger="",
                 danger_score=0.0,
+                image=entity_image,
             )
             ent.danger, ent.danger_score = compute_danger(ent, player_stats)
             results.append(ent)

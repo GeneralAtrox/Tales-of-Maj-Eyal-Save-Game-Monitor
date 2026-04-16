@@ -80,14 +80,22 @@ def _build_db() -> dict[str, NpcRecord]:
     db: dict[str, NpcRecord] = {}
     try:
         with zipfile.ZipFile(_TOME_TEAM) as zf:
+            all_names = zf.namelist()
+            # Parse generic NPC families first (data/general/npcs/*.lua)
+            # then zone-specific files (data/zones/*/npcs.lua).
+            # Zone entries take priority — they override generic ones when
+            # a boss variant of the same name has a more specific image.
             npc_paths = [
-                n for n in zf.namelist()
+                n for n in all_names
                 if "general/npcs/" in n and n.endswith(".lua")
             ]
-            for path in npc_paths:
+            zone_paths = [
+                n for n in all_names
+                if re.match(r"data/zones/[^/]+/npcs\.lua", n)
+            ]
+            for path in npc_paths + zone_paths:
                 lua = zf.read(path).decode("utf-8", errors="replace")
                 for name, record in _parse_lua(lua):
-                    # Later entries override earlier ones (fine for duplicates).
                     db[name.lower()] = record
     except Exception:  # noqa: BLE001 — degrade silently
         pass
@@ -119,13 +127,17 @@ def _split_entities(lua: str) -> list[str]:
     return results
 
 
-_RE_NAME    = re.compile(r'\bname\s*=\s*"([^"]+)"')
-_RE_DESC_ML = re.compile(r'desc\s*=\s*_t\[\[(.*?)\]\]', re.DOTALL)
-_RE_DESC_SQ = re.compile(r'desc\s*=\s*_t"([^"]+)"')
-_RE_IMG     = re.compile(r'\bimage\s*=\s*"(npc/[^"]+\.png)"')
-_RE_ADD_MOS = re.compile(
+_RE_NAME       = re.compile(r'\bname\s*=\s*"([^"]+)"')
+_RE_DESC_ML    = re.compile(r'desc\s*=\s*_t\[\[(.*?)\]\]', re.DOTALL)
+_RE_DESC_SQ    = re.compile(r'desc\s*=\s*_t"([^"]+)"')
+_RE_IMG        = re.compile(r'\bimage\s*=\s*"(npc/[^"]+\.png)"')
+_RE_ADD_MOS    = re.compile(
     r'add_mos\s*=\s*\{\{[^}]*image\s*=\s*"(npc/[^"]+\.png)"'
 )
+# Matches BASE_NPC_… style define_as values — these are anonymous templates,
+# not real entities.  Zone bosses also have define_as but it's an identifier
+# like "NORGOS" or "THE_MASTER" — they still have a name and should be indexed.
+_RE_BASE_TMPL  = re.compile(r'define_as\s*=\s*"BASE_')
 
 
 def _parse_lua(lua: str) -> list[tuple[str, NpcRecord]]:
@@ -133,8 +145,8 @@ def _parse_lua(lua: str) -> list[tuple[str, NpcRecord]]:
     results: list[tuple[str, NpcRecord]] = []
 
     for block in _split_entities(lua):
-        # Skip base templates (define_as = "BASE_NPC_…")
-        if "define_as" in block:
+        # Skip anonymous base templates (define_as = "BASE_NPC_…")
+        if _RE_BASE_TMPL.search(block):
             continue
 
         name_m = _RE_NAME.search(block)

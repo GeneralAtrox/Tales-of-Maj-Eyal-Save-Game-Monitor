@@ -146,13 +146,19 @@ class _EnemyCard(QFrame):
         # Look up NPC record for ground-truth image and lore text.
         npc: NpcRecord | None = get_npc_db().get(entity.name.lower())
 
+        # Image priority:
+        #   1. entity.image  — read live from memory (exact, works for addon NPCs)
+        #   2. npc.image     — from parsed game files (covers nice_tile entities)
+        #   3. fuzzy match   — _find_icon fallback
+        image_hint = entity.image or (npc.image if npc else "")
+
         # Outer horizontal layout: [sprite] [info column]
         outer = QHBoxLayout(self)
         outer.setContentsMargins(8, 6, 10, 6)
         outer.setSpacing(8)
 
         # ── Sprite ──
-        icon_path = _find_icon(entity.name, npc.image if npc else "")
+        icon_path = _find_icon(entity.name, image_hint)
         if icon_path:
             pix = QPixmap(str(icon_path)).scaled(
                 QSize(_ICON_SIZE, _ICON_SIZE),
