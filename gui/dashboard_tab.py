@@ -89,6 +89,7 @@ class DashboardTab(QWidget):
         # Centre — enemy panel
         self._enemy_panel = EnemyPanel()
         self._enemies_ready.connect(self._enemy_panel.update_enemies)
+        self._enemy_panel.dump_requested.connect(self._dump_entities)
         splitter.addWidget(self._enemy_panel)
 
         # Right — output log (owned by MainWindow, parented here)
@@ -263,6 +264,26 @@ class DashboardTab(QWidget):
     def _scan_entities(self) -> None:
         entities = self._reader.read_entities(min_rank=1.5)
         self._enemies_ready.emit(entities)
+
+    def _dump_entities(self) -> None:
+        """Triggered by the Dump button — prints all entity fields to the log."""
+        threading.Thread(target=self._do_dump, daemon=True).start()
+
+    def _do_dump(self) -> None:
+        """Background: scan ALL actors (no rank filter) and print every field."""
+        entities = self._reader.read_entities(min_rank=0)
+        if not entities:
+            print("[dump] No entities found (game not attached?)")
+            return
+        print(f"[dump] --- {len(entities)} entities on level ---")
+        for ent in entities:
+            print(f"[dump] {ent.name!r}  rank={ent.rank:.1f}  lv={ent.level:.0f}"
+                  f"  type={ent.type_name!r}  sub={ent.subtype!r}"
+                  f"  image={ent.image!r}  unique={ent.unique}")
+            if ent.all_fields:
+                for k, v in sorted(ent.all_fields.items()):
+                    print(f"[dump]   {k}: {v!r}")
+        print("[dump] --- end ---")
 
     # ── Analysis ───────────────────────────────────────────────────────────
 

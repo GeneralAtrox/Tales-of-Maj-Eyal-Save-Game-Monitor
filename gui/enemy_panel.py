@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -289,6 +290,8 @@ class EnemyPanel(QWidget):
     entity list whenever the map changes.
     """
 
+    dump_requested = Signal()   # emitted when the user clicks "Dump"
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -310,6 +313,12 @@ class EnemyPanel(QWidget):
         self._count_label = QLabel("")
         self._count_label.setStyleSheet(f"color: {OVERLAY}; font-size: 11px;")
         hdr_row.addWidget(self._count_label)
+
+        dump_btn = QPushButton("Dump")
+        dump_btn.setFixedWidth(48)
+        dump_btn.setToolTip("Print all entity fields to the log panel")
+        dump_btn.clicked.connect(self.dump_requested)
+        hdr_row.addWidget(dump_btn)
 
         outer.addLayout(hdr_row)
 

@@ -226,20 +226,23 @@ _LJ_TFALSE = 0xFFFFFFFE
 _LJ_TNIL   = 0xFFFFFFFF
 
 
-def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
+def _tab_dump_flat(
+    h: int,
+    tab_ptr: int,
+    prefix: str = "",
+) -> dict[str, str | float | bool]:
     """
-    Scan the hash part of a Lua table and return every entry whose key is a
-    string and whose value is a string, number, or boolean.
+    Scan the hash part of one GCtab level and return every entry whose key is
+    a string and whose value is a string, number, or boolean.
 
-    Useful for a full entity field dump — catches every flat field without
-    needing to know the key names in advance.
+    ``prefix`` is prepended to every key (used when recursing into sub-tables).
     """
     node_ptr = _ru32(h, tab_ptr + 20)
     hmask    = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
         return {}
     total = (hmask + 1) * _NODE_SIZE
-    if total > 4 * 1024 * 1024:   # safety cap — entities shouldn't be huge
+    if total > 4 * 1024 * 1024:
         return {}
     bulk = _rpm(h, node_ptr, total)
     if not bulk:
@@ -248,8 +251,7 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
     out: dict[str, str | float | bool] = {}
     for i in range(hmask + 1):
         off = i * _NODE_SIZE
-        # key itype/value at +8/+12; val itype/value at +4/+0
-        key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+        key_it  = struct.unpack_from('<I', bulk, off + 12)[0]
         if key_it != _LJ_TSTR:
             continue
         key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
@@ -265,7 +267,7 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
         if not key_raw:
             continue
         try:
-            key = key_raw.decode('utf-8')
+            key = prefix + key_raw.decode('utf-8')
         except UnicodeDecodeError:
             continue
 
@@ -293,12 +295,39 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
             except UnicodeDecodeError:
                 pass
         elif val_it < _LJ_TNUMX:
-            # numeric TValue — read the full 8 bytes as double
             raw8 = bulk[off:off + 8]
             try:
                 out[key] = struct.unpack_from('<d', raw8)[0]
             except struct.error:
                 pass
+
+    return out
+
+
+# Sub-tables worth recursing into for a complete entity snapshot.
+_ENTITY_SUBTABLES = (
+    "stats",        # str/dex/mag/wil/cun/con base stats
+    "resists",      # damage type resistances  (keyed by DamageType int)
+    "combat",       # dam/atk/apr/damspeed/dammod
+    "inc_damage",   # % damage bonuses by type
+    "resists_pen",  # penetration values
+)
+
+
+def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
+    """
+    Full entity field snapshot.
+
+    Reads every flat string/number/bool from the entity table, then recurses
+    one level into known sub-tables (stats, resists, combat, inc_damage,
+    resists_pen), prefixing their keys as ``"subtable.key"``.
+    """
+    out = _tab_dump_flat(h, tab_ptr)
+
+    for sub in _ENTITY_SUBTABLES:
+        sub_ptr = _tab_get_table(h, tab_ptr, sub)
+        if sub_ptr:
+            out.update(_tab_dump_flat(h, sub_ptr, prefix=f"{sub}."))
 
     return out
 
