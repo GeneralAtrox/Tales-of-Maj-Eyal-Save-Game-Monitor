@@ -271,6 +271,7 @@ def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
 _LJ_TTRUE  = 0xFFFFFFFD
 _LJ_TFALSE = 0xFFFFFFFE
 _LJ_TNIL   = 0xFFFFFFFF
+_IMAGE_PREFIXES = ("npc/", "player/")
 
 
 def _tab_dump_flat(
@@ -758,6 +759,61 @@ class MemoryReader:
             mental_save=_tab_get_number(h, pt, "combat_mentalresist") or 0.0,
         )
 
+    def read_player_sprite(self) -> tuple[str, list[str]] | None:
+        """Return (image, sprite_layers) for the live player actor, or None."""
+        if not self._player_table or not self.attached:
+            self.read_player_hp()
+        if not self._player_table:
+            return None
+
+        h = self._handle
+        pt = self._player_table
+        all_fields = _tab_dump_all(h, pt)
+        image, sprite_layers = self._extract_actor_sprite(h, pt, all_fields)
+        if not image and not sprite_layers:
+            return None
+        return image, sprite_layers
+
+    def _extract_actor_sprite(
+        self,
+        h: int,
+        actor_ptr: int,
+        all_fields: dict[str, str | float | bool],
+    ) -> tuple[str, list[str]]:
+        """Resolve the representative image and ordered sprite layers for one actor."""
+        raw_image = str(all_fields.get("image") or "")
+        raw_usable = (
+            any(raw_image.startswith(prefix) for prefix in _IMAGE_PREFIXES)
+            and raw_image != "invis.png"
+            and "shadow" not in raw_image
+        )
+
+        actor_image = raw_image if raw_usable else ""
+        sprite_layers: list[str] = []
+
+        add_mos_tab = _tab_get_table(h, actor_ptr, "add_mos")
+        if add_mos_tab:
+            base_img = ""
+            for sub_ptr in _tab_get_ordered_tables(h, add_mos_tab):
+                sub = _tab_dump_flat(h, sub_ptr)
+                img = str(sub.get("image") or "")
+                if not any(img.startswith(prefix) for prefix in _IMAGE_PREFIXES):
+                    continue
+                if "shadow" in img:
+                    continue
+                sprite_layers.append(img)
+                if not base_img and sub.get("is_inate") == "base":
+                    base_img = img
+            if not actor_image:
+                actor_image = base_img or (sprite_layers[0] if sprite_layers else "")
+
+        if not actor_image:
+            attach = str(all_fields.get("attachement_spots") or "")
+            if any(attach.startswith(prefix) for prefix in _IMAGE_PREFIXES):
+                actor_image = attach
+
+        return actor_image, sprite_layers
+
     def read_entities(self, min_rank: float = 1.5) -> list[EntityInfo]:
         """
         Read all actors from game.level.entities with rank > min_rank.
@@ -821,42 +877,7 @@ class MemoryReader:
             #   attachement_spots: string field holding "npc/xxx.png" (random bosses).
             #   composite (golem): image = "player/…shadow…"; add_mos has ordered
             #                      integer-keyed layer entries for full compositing.
-            _IMAGE_PREFIXES = ("npc/", "player/")
-            raw_image = str(all_fields.get("image") or "")
-            # Exclude shadow/invis placeholders — real sprite is in add_mos
-            _raw_usable = (
-                any(raw_image.startswith(p) for p in _IMAGE_PREFIXES)
-                and raw_image != "invis.png"
-                and "shadow" not in raw_image
-            )
-
-            entity_image  = raw_image if _raw_usable else ""
-            sprite_layers: list[str] = []
-
-            # Collect ordered add_mos layers (integer-keyed 1..N in hash part)
-            add_mos_tab = _tab_get_table(h, ptr, "add_mos")
-            if add_mos_tab:
-                base_img = ""
-                for sub_ptr in _tab_get_ordered_tables(h, add_mos_tab):
-                    sub = _tab_dump_flat(h, sub_ptr)
-                    img = str(sub.get("image") or "")
-                    if not any(img.startswith(p) for p in _IMAGE_PREFIXES):
-                        continue
-                    if "shadow" in img:
-                        continue
-                    sprite_layers.append(img)
-                    if not base_img and sub.get("is_inate") == "base":
-                        base_img = img
-                # If raw image wasn't usable, use base (or first) layer as the
-                # representative single image
-                if not entity_image:
-                    entity_image = base_img or (sprite_layers[0] if sprite_layers else "")
-
-            # Fall back to attachement_spots (typo is in the game source)
-            if not entity_image:
-                attach = str(all_fields.get("attachement_spots") or "")
-                if any(attach.startswith(p) for p in _IMAGE_PREFIXES):
-                    entity_image = attach
+            entity_image, sprite_layers = self._extract_actor_sprite(h, ptr, all_fields)
 
             ent = EntityInfo(
                 name=name,

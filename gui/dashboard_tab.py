@@ -87,17 +87,24 @@ class DashboardTab(QWidget):
         splitter.addWidget(self._subtabs)
 
         # Centre — enemy panel
-        self._enemy_panel = EnemyPanel()
-        self._enemies_ready.connect(self._enemy_panel.update_enemies)
-        self._enemy_panel.dump_requested.connect(self._dump_entities)
-        splitter.addWidget(self._enemy_panel)
+        right_stack = QSplitter(Qt.Orientation.Vertical)
+        right_stack.setHandleWidth(1)
+        right_stack.setChildrenCollapsible(False)
 
-        # Right — output log (owned by MainWindow, parented here)
-        splitter.addWidget(log_panel)
+        self._enemy_panel = EnemyPanel()
+        self._enemies_ready.connect(self._handle_enemies_ready)
+        right_stack.addWidget(self._enemy_panel)
+
+        # Bottom of right stack — output log (owned by MainWindow, parented here)
+        right_stack.addWidget(log_panel)
+        right_stack.setStretchFactor(0, 3)
+        right_stack.setStretchFactor(1, 2)
+        right_stack.setSizes([520, 260])
+        splitter.addWidget(right_stack)
 
         splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setStretchFactor(2, 2)
+        splitter.setStretchFactor(1, 4)
+        splitter.setSizes([760, 980])
         root.addWidget(splitter)
 
     # ── Sub-tab builders ───────────────────────────────────────────────────
@@ -222,7 +229,9 @@ class DashboardTab(QWidget):
             threading.Thread(target=self._attach_reader, daemon=True).start()
         elif not active and self._reader.attached:
             self._reader.detach()
+            self._enemy_panel.set_loading(False)
             self._sheet_visual.clear_hp()
+            self._sheet_visual.clear_sprite()
 
     def _attach_reader(self) -> None:
         try:
@@ -238,6 +247,11 @@ class DashboardTab(QWidget):
             self._hp_fail_count = 0
             life, max_life = hp
             self._sheet_visual.set_hp(life, max_life)
+            sprite = self._reader.read_player_sprite()
+            if sprite is not None:
+                self._sheet_visual.set_sprite(*sprite)
+            else:
+                self._sheet_visual.clear_sprite()
             mana = self._reader.read_player_mana()
             if mana is not None:
                 self._sheet_visual.set_mana(*mana)
@@ -247,7 +261,9 @@ class DashboardTab(QWidget):
             self._hp_fail_count += 1
             if self._hp_fail_count >= 5 and not self._attach_pending:
                 self._reader.detach()
+                self._enemy_panel.set_loading(False)
                 self._sheet_visual.clear_hp()   # also clears mana via clear_hp
+                self._sheet_visual.clear_sprite()
                 self._hp_fail_count = 0
 
     def _poll_level_id(self) -> None:
@@ -259,31 +275,15 @@ class DashboardTab(QWidget):
         if level_id != self._last_level_id:
             self._last_level_id = level_id
             self._enemy_panel.set_map_name(level_id)
+            self._enemy_panel.set_loading(True)
             threading.Thread(target=self._scan_entities, daemon=True).start()
 
     def _scan_entities(self) -> None:
         entities = self._reader.read_entities(min_rank=1.5)
         self._enemies_ready.emit(entities)
 
-    def _dump_entities(self) -> None:
-        """Triggered by the Dump button — prints all entity fields to the log."""
-        threading.Thread(target=self._do_dump, daemon=True).start()
-
-    def _do_dump(self) -> None:
-        """Background: scan ALL actors (no rank filter) and print every field."""
-        entities = self._reader.read_entities(min_rank=0)
-        if not entities:
-            print("[dump] No entities found (game not attached?)")
-            return
-        print(f"[dump] --- {len(entities)} entities on level ---")
-        for ent in entities:
-            print(f"[dump] {ent.name!r}  rank={ent.rank:.1f}  lv={ent.level:.0f}"
-                  f"  type={ent.type_name!r}  sub={ent.subtype!r}"
-                  f"  image={ent.image!r}  unique={ent.unique}")
-            if ent.all_fields:
-                for k, v in sorted(ent.all_fields.items()):
-                    print(f"[dump]   {k}: {v!r}")
-        print("[dump] --- end ---")
+    def _handle_enemies_ready(self, entities: list) -> None:
+        self._enemy_panel.update_enemies(entities)
 
     # ── Analysis ───────────────────────────────────────────────────────────
 

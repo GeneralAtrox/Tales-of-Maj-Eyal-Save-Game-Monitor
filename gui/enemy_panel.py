@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -308,10 +307,10 @@ class EnemyPanel(QWidget):
     entity list whenever the map changes.
     """
 
-    dump_requested = Signal()   # emitted when the user clicks "Dump"
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._loading = False
+        self._throbber_frame = 0
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -326,17 +325,12 @@ class EnemyPanel(QWidget):
         self._map_label = QLabel("")
         self._map_label.setStyleSheet(f"color: {SUBTEXT0}; font-size: 11px;")
         hdr_row.addWidget(self._map_label)
-        hdr_row.addStretch()
 
         self._count_label = QLabel("")
         self._count_label.setStyleSheet(f"color: {OVERLAY}; font-size: 11px;")
         hdr_row.addWidget(self._count_label)
 
-        dump_btn = QPushButton("Dump")
-        dump_btn.setFixedWidth(48)
-        dump_btn.setToolTip("Print all entity fields to the log panel")
-        dump_btn.clicked.connect(self.dump_requested)
-        hdr_row.addWidget(dump_btn)
+        hdr_row.addStretch()
 
         outer.addLayout(hdr_row)
 
@@ -362,11 +356,40 @@ class EnemyPanel(QWidget):
         self._empty_label.setVisible(True)
         outer.addWidget(self._empty_label)
 
+        self._loading_label = QLabel("")
+        self._loading_label.setStyleSheet(f"color: {YELLOW}; font-size: 13px; font-weight: 700;")
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_label.setVisible(False)
+        outer.addWidget(self._loading_label)
+
+        self._throbber_timer = QTimer(self)
+        self._throbber_timer.setInterval(140)
+        self._throbber_timer.timeout.connect(self._advance_throbber)
+
     def set_map_name(self, level_id: str) -> None:
         self._map_label.setText(level_id)
 
+    def set_loading(self, loading: bool) -> None:
+        self._loading = loading
+        if loading:
+            self._throbber_frame = 0
+            self._empty_label.setVisible(False)
+            self._loading_label.setVisible(True)
+            self._advance_throbber()
+            self._throbber_timer.start()
+        else:
+            self._throbber_timer.stop()
+            self._loading_label.setText("")
+            self._loading_label.setVisible(False)
+
+    def _advance_throbber(self) -> None:
+        dots = "." * ((self._throbber_frame % 3) + 1)
+        self._loading_label.setText(f"Scanning{dots}")
+        self._throbber_frame += 1
+
     def update_enemies(self, enemies: list[EntityInfo]) -> None:
         """Replace the card list with fresh data."""
+        self.set_loading(False)
         # Clear old cards
         while self._card_layout.count() > 1:  # keep the stretch
             item = self._card_layout.takeAt(0)

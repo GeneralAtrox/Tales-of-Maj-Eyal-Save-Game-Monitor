@@ -21,6 +21,7 @@ from gui.theme import (
     BG, BLUE, BORDER, GREEN, MAUVE, OVERLAY, RED,
     SUBTEXT0, SUBTEXT1, SURFACE0, SURFACE1, SURFACE2, TEXT, YELLOW,
 )
+from gui.sprite_composer import compose_layers, get_sprite
 
 # ── Asset paths ───────────────────────────────────────────────────────────────
 _ROOT        = Path(__file__).parent.parent
@@ -423,6 +424,12 @@ class CharacterSheetView(QWidget):
     def clear_mana(self) -> None:
         self._header.clear_mana()
 
+    def set_sprite(self, image_hint: str, sprite_layers: list[str] | None = None) -> None:
+        self._header.set_sprite(image_hint, sprite_layers or [])
+
+    def clear_sprite(self) -> None:
+        self._header.clear_sprite()
+
     def load(self, data: dict, char_name: str = "") -> None:
         self._clear_left()
         char = data.get("Character", {})
@@ -516,9 +523,17 @@ class _HeaderBar(QWidget):
         lay.setContentsMargins(12, 6, 12, 6)
         lay.setSpacing(10)
 
+        self._sprite_icon = QLabel()
+        self._sprite_icon.setFixedSize(_ICON_CLASS, _ICON_CLASS)
+        self._sprite_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._default_sprite = _placeholder(_ICON_CLASS)
+        self._sprite_icon.setPixmap(self._default_sprite)
+
         self._class_icon = QLabel()
         self._class_icon.setFixedSize(_ICON_CLASS, _ICON_CLASS)
         self._class_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._default_class_icon = _placeholder(_ICON_CLASS)
+        self._class_icon.setPixmap(self._default_class_icon)
 
         self._info_lbl = QLabel("No character loaded")
         self._info_lbl.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0}; padding-left: 8px;")
@@ -541,6 +556,7 @@ class _HeaderBar(QWidget):
         self._mana_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._mana_lbl.setVisible(False)
 
+        lay.addWidget(self._sprite_icon)
         lay.addWidget(self._class_icon)
         lay.addWidget(self._info_lbl, 1)
         lay.addWidget(self._hp_lbl)
@@ -556,11 +572,37 @@ class _HeaderBar(QWidget):
         # Class icon
         if cls:
             icon_file = CLASS_ICONS / f"{_to_snake(cls)}_32_bg.png"
-            px = _load_pixmap(icon_file, _ICON_CLASS)
-            self._class_icon.setPixmap(px)
+            self._default_class_icon = _load_pixmap(icon_file, _ICON_CLASS)
+        else:
+            self._default_class_icon = _placeholder(_ICON_CLASS)
+        self._class_icon.setPixmap(self._default_class_icon)
 
         parts = [p for p in [char_name or cls, race, f"Level {level}" if level else "", mode] if p]
         self._info_lbl.setText("   ·   ".join(parts))
+
+    def set_sprite(self, image_hint: str, sprite_layers: list[str]) -> None:
+        pix: QPixmap | None = None
+        distinct_layers = list(dict.fromkeys(sprite_layers))
+        if distinct_layers:
+            pix = compose_layers(distinct_layers, size=_ICON_CLASS)
+
+        if pix is None and image_hint:
+            sprite_path = get_sprite(image_hint)
+            if sprite_path:
+                raw = QPixmap(str(sprite_path))
+                if not raw.isNull():
+                    pix = raw.scaled(
+                        _ICON_CLASS,
+                        _ICON_CLASS,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+
+        if pix is not None:
+            self._sprite_icon.setPixmap(pix)
+
+    def clear_sprite(self) -> None:
+        self._sprite_icon.setPixmap(self._default_sprite)
 
     _HP_STYLE   = "font-size: 13px; font-weight: 700; padding-left: 12px; padding-right: 8px;"
     _MANA_STYLE = "font-size: 13px; font-weight: 700; padding-left: 4px; padding-right: 12px;"
