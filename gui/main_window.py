@@ -5,10 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -17,7 +19,6 @@ from PySide6.QtWidgets import (
     QToolButton,
     QWidget,
     QWidgetAction,
-    QLabel,
 )
 
 from gui.bridge import InputBridge, LogBridge, MonitorThread
@@ -49,15 +50,22 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self.setCentralWidget(self._tabs)
 
-        # ── Corner widget: character dropdown + Actions button ──────────────
+        # ── Corner widget: status dots + character dropdown + Actions ─────────
         corner = QWidget()
         corner_lay = QHBoxLayout(corner)
         corner_lay.setContentsMargins(4, 2, 8, 2)
-        corner_lay.setSpacing(6)
+        corner_lay.setSpacing(10)
+
+        self._status_dot = QLabel("\u25cf Initializing")
+        self._status_dot.setProperty("status", "warn")
+        corner_lay.addWidget(self._status_dot)
+
+        self._game_dot = QLabel("\u25cf Game Inactive")
+        self._game_dot.setProperty("status", "error")
+        corner_lay.addWidget(self._game_dot)
 
         self._char_combo = QComboBox()
-        self._char_combo.setMinimumWidth(200)
-        self._char_combo.setPlaceholderText("Select character…")
+        self._char_combo.setPlaceholderText("Select character\u2026")
         corner_lay.addWidget(self._char_combo)
 
         self._actions_btn = QToolButton()
@@ -89,6 +97,7 @@ class MainWindow(QMainWindow):
         self._log_bridge.message_ready.connect(self._log_panel.append)
         self._char_combo.currentIndexChanged.connect(self._on_char_combo_changed)
         self._dashboard.analyze_requested.connect(self._run_analysis)
+        self._dashboard.game_status_changed.connect(self._set_game_status)
 
         # ── Start monitor thread ──
         self._monitor = MonitorThread(config_path, self._input_bridge)
@@ -110,7 +119,7 @@ class MainWindow(QMainWindow):
             return
 
         self._init_poll.stop()
-        self._dashboard.set_monitor_status(active=True)
+        self._set_monitor_status(active=True)
         self._dashboard.set_roots(config.character_sheets_root, config.backup_root)
         self.statusBar().showMessage("Monitor active")
 
@@ -131,6 +140,9 @@ class MainWindow(QMainWindow):
                 userData=char.folder_name,
             )
 
+        # Size combo to its longest entry
+        self._resize_combo()
+
         # Auto-select first character
         if self._char_combo.count() > 0:
             self._char_combo.setCurrentIndex(0)
@@ -140,6 +152,39 @@ class MainWindow(QMainWindow):
         self._watcher = QFileSystemWatcher(self)
         self._watcher.addPath(str(config.character_sheets_root))
         self._watcher.directoryChanged.connect(self._on_sheets_changed)
+
+    # ── Status helpers ─────────────────────────────────────────────────────
+
+    def _set_monitor_status(self, active: bool) -> None:
+        if active:
+            self._status_dot.setText("\u25cf Monitor Active")
+            self._status_dot.setProperty("status", "ok")
+        else:
+            self._status_dot.setText("\u25cf Stopped")
+            self._status_dot.setProperty("status", "error")
+        self._status_dot.style().unpolish(self._status_dot)
+        self._status_dot.style().polish(self._status_dot)
+
+    def _set_game_status(self, active: bool) -> None:
+        if active:
+            self._game_dot.setText("\u25cf Game Active")
+            self._game_dot.setProperty("status", "ok")
+        else:
+            self._game_dot.setText("\u25cf Game Inactive")
+            self._game_dot.setProperty("status", "error")
+        self._game_dot.style().unpolish(self._game_dot)
+        self._game_dot.style().polish(self._game_dot)
+
+    def _resize_combo(self) -> None:
+        """Set combo width to fit its longest item text."""
+        fm = QFontMetrics(self._char_combo.font())
+        max_w = max(
+            (fm.horizontalAdvance(self._char_combo.itemText(i))
+             for i in range(self._char_combo.count())),
+            default=160,
+        )
+        # Add padding for the dropdown arrow (~30 px) and a small margin
+        self._char_combo.setFixedWidth(max_w + 40)
 
     # ── Signal handlers ────────────────────────────────────────────────────
 
@@ -163,6 +208,7 @@ class MainWindow(QMainWindow):
                 self._char_combo.setItemText(
                     i, self._char_label(char.name, class_race, level)
                 )
+        self._resize_combo()
         self._dashboard.refresh_current()
         self.statusBar().showMessage("Character sheet updated", 4000)
 

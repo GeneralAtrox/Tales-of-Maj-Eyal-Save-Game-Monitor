@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from gui.enemy_panel import EnemyPanel
 from gui.memory_reader import MemoryReader
 from gui.sheet_view import CharacterSheetView
-from gui.theme import BORDER, GREEN, RED, SUBTEXT0, SURFACE0
+from gui.theme import BORDER, SURFACE0
 
 _MONO_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
 
@@ -29,8 +29,9 @@ _MONO_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
 class DashboardTab(QWidget):
     """Main monitor workspace: character sub-tabs | enemies | output log."""
 
-    analyze_requested = Signal(str, str)   # folder_name, question
-    _enemies_ready    = Signal(list)       # list[EntityInfo] — bg thread → main thread
+    analyze_requested    = Signal(str, str)  # folder_name, question
+    game_status_changed  = Signal(bool)      # True = active
+    _enemies_ready       = Signal(list)      # list[EntityInfo] — bg thread → main thread
 
     def __init__(
         self,
@@ -43,25 +44,8 @@ class DashboardTab(QWidget):
         self._chars: dict[str, str] = {}   # folder_name → display name
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 12)
-        root.setSpacing(8)
-
-        # ── Header row: status indicators ──────────────────────────────────
-        header_row = QHBoxLayout()
-        self._status_dot = QLabel("● Initializing")
-        self._status_dot.setProperty("status", "warn")
-        header_row.addWidget(self._status_dot)
-
-        self._game_dot = QLabel("● Game Inactive")
-        self._game_dot.setProperty("status", "error")
-        header_row.addWidget(self._game_dot)
-
-        self._hp_label = QLabel("")
-        self._hp_label.setStyleSheet(f"font-weight: 600; color: {SUBTEXT0};")
-        header_row.addWidget(self._hp_label)
-
-        header_row.addStretch()
-        root.addLayout(header_row)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
         # ── Memory reader ──────────────────────────────────────────────────
         self._reader = MemoryReader()
@@ -174,26 +158,6 @@ class DashboardTab(QWidget):
     def set_roots(self, sheets_root: Path, backups_root: Path) -> None:  # noqa: ARG002
         self._sheets_root = sheets_root
 
-    def set_monitor_status(self, active: bool) -> None:
-        if active:
-            self._status_dot.setText("● Monitor Active")
-            self._status_dot.setProperty("status", "ok")
-        else:
-            self._status_dot.setText("● Stopped")
-            self._status_dot.setProperty("status", "error")
-        self._status_dot.style().unpolish(self._status_dot)
-        self._status_dot.style().polish(self._status_dot)
-
-    def set_game_status(self, active: bool) -> None:
-        if active:
-            self._game_dot.setText("● Game Active")
-            self._game_dot.setProperty("status", "ok")
-        else:
-            self._game_dot.setText("● Game Inactive")
-            self._game_dot.setProperty("status", "error")
-        self._game_dot.style().unpolish(self._game_dot)
-        self._game_dot.style().polish(self._game_dot)
-
     def add_character(self, folder_name: str, name: str) -> None:
         self._chars[folder_name] = name
 
@@ -246,15 +210,14 @@ class DashboardTab(QWidget):
             active = "t-engine" in result.stdout.lower()
         except (OSError, subprocess.TimeoutExpired):
             active = False
-        self.set_game_status(active)
+        self.game_status_changed.emit(active)
 
         if active and not self._reader.attached and not self._attach_pending:
             self._attach_pending = True
-            self._hp_label.setText("Attaching...")
             threading.Thread(target=self._attach_reader, daemon=True).start()
         elif not active and self._reader.attached:
             self._reader.detach()
-            self._hp_label.setText("")
+            self._sheet_visual.clear_hp()
 
     def _attach_reader(self) -> None:
         try:
@@ -269,19 +232,13 @@ class DashboardTab(QWidget):
         if hp is not None:
             self._hp_fail_count = 0
             life, max_life = hp
-            pct = life / max_life if max_life > 0 else 0
-            color = GREEN if pct > 0.5 else ("#f9e2af" if pct > 0.25 else RED)
-            self._hp_label.setStyleSheet(f"font-weight: 600; color: {color};")
-            self._hp_label.setText(f"HP: {life:.0f} / {max_life:.0f}")
+            self._sheet_visual.set_hp(life, max_life)
         else:
             self._hp_fail_count += 1
             if self._hp_fail_count >= 5 and not self._attach_pending:
                 self._reader.detach()
-                self._hp_label.setText("")
+                self._sheet_visual.clear_hp()
                 self._hp_fail_count = 0
-            elif self._hp_fail_count >= 2:
-                self._hp_label.setStyleSheet(f"font-weight: 600; color: {SUBTEXT0};")
-                self._hp_label.setText("HP: --")
 
     def _poll_level_id(self) -> None:
         if not self._reader.attached:
