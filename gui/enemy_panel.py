@@ -46,7 +46,7 @@ from gui.theme import (
 
 # ── NPC sprite lookup ────────────────────────────────────────────────────────
 
-_ICON_DIR = Path(__file__).resolve().parent.parent / "Icons" / "npc"
+_ICONS_ROOT = Path(__file__).resolve().parent.parent / "Icons"
 _ICON_CACHE: dict[str, Path | None] = {}   # image_hint key → Path or None
 _ICON_SIZE = 32
 
@@ -56,19 +56,25 @@ _DESC_MAX_CHARS = 160
 
 def _resolve_icon(image_hint: str) -> Path | None:
     """
-    Resolve a confirmed ``"npc/xxx.png"`` image path to a local file.
+    Resolve a confirmed image path (e.g. ``"npc/troll_f.png"`` or
+    ``"player/runic_golem/base_02.png"``) to a local file under Icons/.
 
-    Only called with ground-truth paths (from live memory or the NPC db),
-    never with guesses — so no fuzzy matching is done.  Returns None if
-    the file is not present locally.
+    Only called with ground-truth paths from live memory or the NPC db —
+    no fuzzy matching.  Returns None if the file is not present locally.
     """
     if not image_hint:
         return None
     if image_hint in _ICON_CACHE:
         return _ICON_CACHE[image_hint]
+    # Full path match: Icons/<category>/<name>.png  (preserves subdirs)
+    p = _ICONS_ROOT / image_hint
+    if p.exists():
+        _ICON_CACHE[image_hint] = p
+        return p
+    # Stem-only fallback under Icons/npc/ (handles bare filenames)
     stem = Path(image_hint).stem
-    p = _ICON_DIR / f"{stem}.png"
-    result = p if p.exists() else None
+    p2 = _ICONS_ROOT / "npc" / f"{stem}.png"
+    result = p2 if p2.exists() else None
     _ICON_CACHE[image_hint] = result
     return result
 

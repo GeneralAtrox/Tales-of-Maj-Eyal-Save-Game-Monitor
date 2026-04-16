@@ -767,27 +767,45 @@ class MemoryReader:
             unique    = bool(all_fields.get("unique", False))
 
             # ── Image resolution ──────────────────────────────────────────
-            # Three patterns in ToME:
-            #   Direct:           image = "npc/troll_f.png"  → use directly.
-            #   nice_tile:        image = "invis.png"; real path in add_mos[1].image.
+            # Four patterns in ToME:
+            #   Direct:            image = "npc/troll_f.png"  → use directly.
+            #   nice_tile:         image = "invis.png"; real path in add_mos entries.
             #   attachement_spots: string field holding "npc/xxx.png" (random bosses).
+            #   composite (golem): image = "player/…"; add_mos has hash-keyed layer
+            #                      entries; use the one with is_inate="base".
+            _IMAGE_PREFIXES = ("npc/", "player/")
             raw_image = str(all_fields.get("image") or "")
-            if raw_image.startswith("npc/") and raw_image != "invis.png":
+            # Exclude shadow/invis placeholders — real sprite is in add_mos
+            _raw_usable = (
+                any(raw_image.startswith(p) for p in _IMAGE_PREFIXES)
+                and raw_image != "invis.png"
+                and "shadow" not in raw_image
+            )
+            if _raw_usable:
                 entity_image = raw_image
             else:
-                # Try add_mos[1].image first
                 entity_image = ""
+                # Walk all add_mos sub-tables via hash iteration (entries may be
+                # stored in the hash part, not the array part).
                 add_mos_tab = _tab_get_table(h, ptr, "add_mos")
                 if add_mos_tab:
-                    first = _tab_array_get_table(h, add_mos_tab, 1)
-                    if first:
-                        mos_img = _tab_get_string(h, first, "image") or ""
-                        if mos_img.startswith("npc/"):
-                            entity_image = mos_img
+                    base_img = ""
+                    first_img = ""
+                    for sub_ptr in _tab_iter_table_values(h, add_mos_tab):
+                        sub = _tab_dump_flat(h, sub_ptr)
+                        img = str(sub.get("image") or "")
+                        if not any(img.startswith(p) for p in _IMAGE_PREFIXES):
+                            continue
+                        if not first_img:
+                            first_img = img
+                        if sub.get("is_inate") == "base":
+                            base_img = img
+                            break
+                    entity_image = base_img or first_img
                 # Fall back to attachement_spots (typo is in the game source)
                 if not entity_image:
                     attach = str(all_fields.get("attachement_spots") or "")
-                    if attach.startswith("npc/"):
+                    if any(attach.startswith(p) for p in _IMAGE_PREFIXES):
                         entity_image = attach
 
             ent = EntityInfo(
