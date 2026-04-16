@@ -220,6 +220,53 @@ def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
     return results
 
 
+def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
+    """
+    Return GCtab* pointers from a table whose keys are integers (1..N),
+    sorted ascending by key.  Used for add_mos which is keyed 1, 2, 3 …
+
+    LuaJIT stores integer keys as 64-bit IEEE 754 doubles in the hash part
+    when the array part is absent (asize=0).  Each hash node is 24 bytes:
+      [val.lo u32][val.itype u32][key.lo u32][key.hi u32][next u32][pad u32]
+    A numeric key has key.hi < _LJ_TNUMX; the full double is at key_lo:key_hi.
+    """
+    node_ptr = _ru32(h, tab_ptr + 20)
+    hmask    = _ru32(h, tab_ptr + 28)
+    if not node_ptr or hmask is None or not _is_heap(node_ptr):
+        return []
+    total = (hmask + 1) * _NODE_SIZE
+    if total > 4 * 1024 * 1024:
+        return []
+    bulk = _rpm(h, node_ptr, total)
+    if not bulk:
+        return []
+
+    keyed: list[tuple[int, int]] = []
+    for i in range(hmask + 1):
+        off = i * _NODE_SIZE
+        # Value must be a table
+        val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+        if val_it != _LJ_TTAB:
+            continue
+        val_lo = struct.unpack_from('<I', bulk, off)[0]
+        if not _is_heap(val_lo):
+            continue
+        # Key must be a positive integer stored as a double
+        key_hi = struct.unpack_from('<I', bulk, off + 12)[0]
+        if key_hi >= _LJ_TNUMX:
+            continue  # not a number
+        try:
+            key_f = struct.unpack_from('<d', bulk, off + 8)[0]
+        except struct.error:
+            continue
+        if key_f < 1 or key_f != int(key_f):
+            continue
+        keyed.append((int(key_f), val_lo))
+
+    keyed.sort(key=lambda x: x[0])
+    return [ptr for _, ptr in keyed]
+
+
 # LuaJIT itype constants for bool values
 _LJ_TTRUE  = 0xFFFFFFFD
 _LJ_TFALSE = 0xFFFFFFFE
@@ -572,7 +619,8 @@ class EntityInfo:
     mental_save: float
     danger: str          # label: Trivial / Easy / Moderate / Dangerous / Deadly
     danger_score: float  # numeric score for sorting
-    image: str           # "npc/xxx.png" read directly from entity table, or ""
+    image: str           # representative single sprite path, or ""
+    sprite_layers: list[str]  # ordered add_mos layer paths for compositing (may be empty)
     # Extended fields
     type_name: str       # e.g. "insect"
     subtype: str         # e.g. "ant"
@@ -771,8 +819,8 @@ class MemoryReader:
             #   Direct:            image = "npc/troll_f.png"  → use directly.
             #   nice_tile:         image = "invis.png"; real path in add_mos entries.
             #   attachement_spots: string field holding "npc/xxx.png" (random bosses).
-            #   composite (golem): image = "player/…"; add_mos has hash-keyed layer
-            #                      entries; use the one with is_inate="base".
+            #   composite (golem): image = "player/…shadow…"; add_mos has ordered
+            #                      integer-keyed layer entries for full compositing.
             _IMAGE_PREFIXES = ("npc/", "player/")
             raw_image = str(all_fields.get("image") or "")
             # Exclude shadow/invis placeholders — real sprite is in add_mos
@@ -781,32 +829,34 @@ class MemoryReader:
                 and raw_image != "invis.png"
                 and "shadow" not in raw_image
             )
-            if _raw_usable:
-                entity_image = raw_image
-            else:
-                entity_image = ""
-                # Walk all add_mos sub-tables via hash iteration (entries may be
-                # stored in the hash part, not the array part).
-                add_mos_tab = _tab_get_table(h, ptr, "add_mos")
-                if add_mos_tab:
-                    base_img = ""
-                    first_img = ""
-                    for sub_ptr in _tab_iter_table_values(h, add_mos_tab):
-                        sub = _tab_dump_flat(h, sub_ptr)
-                        img = str(sub.get("image") or "")
-                        if not any(img.startswith(p) for p in _IMAGE_PREFIXES):
-                            continue
-                        if not first_img:
-                            first_img = img
-                        if sub.get("is_inate") == "base":
-                            base_img = img
-                            break
-                    entity_image = base_img or first_img
-                # Fall back to attachement_spots (typo is in the game source)
+
+            entity_image  = raw_image if _raw_usable else ""
+            sprite_layers: list[str] = []
+
+            # Collect ordered add_mos layers (integer-keyed 1..N in hash part)
+            add_mos_tab = _tab_get_table(h, ptr, "add_mos")
+            if add_mos_tab:
+                base_img = ""
+                for sub_ptr in _tab_get_ordered_tables(h, add_mos_tab):
+                    sub = _tab_dump_flat(h, sub_ptr)
+                    img = str(sub.get("image") or "")
+                    if not any(img.startswith(p) for p in _IMAGE_PREFIXES):
+                        continue
+                    if "shadow" in img:
+                        continue
+                    sprite_layers.append(img)
+                    if not base_img and sub.get("is_inate") == "base":
+                        base_img = img
+                # If raw image wasn't usable, use base (or first) layer as the
+                # representative single image
                 if not entity_image:
-                    attach = str(all_fields.get("attachement_spots") or "")
-                    if any(attach.startswith(p) for p in _IMAGE_PREFIXES):
-                        entity_image = attach
+                    entity_image = base_img or (sprite_layers[0] if sprite_layers else "")
+
+            # Fall back to attachement_spots (typo is in the game source)
+            if not entity_image:
+                attach = str(all_fields.get("attachement_spots") or "")
+                if any(attach.startswith(p) for p in _IMAGE_PREFIXES):
+                    entity_image = attach
 
             ent = EntityInfo(
                 name=name,
@@ -826,6 +876,7 @@ class MemoryReader:
                 danger="",
                 danger_score=0.0,
                 image=entity_image,
+                sprite_layers=sprite_layers,
                 type_name=type_name,
                 subtype=subtype,
                 size_category=size_cat,

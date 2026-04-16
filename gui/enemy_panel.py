@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from game_data.npc_db import NpcRecord, get_npc_db
+from gui.sprite_composer import compose_layers, get_sprite
 from gui.memory_reader import (
     DANGER_DEADLY,
     DANGER_DANGEROUS,
@@ -139,13 +140,24 @@ class _EnemyCard(QFrame):
         outer.setSpacing(8)
 
         # ── Sprite ──
-        icon_path = _resolve_icon(image_hint)
-        if icon_path:
-            pix = QPixmap(str(icon_path)).scaled(
-                QSize(_ICON_SIZE, _ICON_SIZE),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        # Composite entities (golem etc.) have ordered layers; single-sprite
+        # entities just have image_hint.  compose_layers handles both cases
+        # and extracts any missing PNGs from the gfx pack on demand.
+        pix: QPixmap | None = None
+        # Only composite when there are multiple distinct layers — single-layer
+        # entities (or layers that are all the same image) use the fast path below.
+        distinct_layers = list(dict.fromkeys(entity.sprite_layers))  # deduplicated, order kept
+        if len(distinct_layers) > 1:
+            pix = compose_layers(distinct_layers, size=_ICON_SIZE)
+        if pix is None and image_hint:
+            icon_path = _resolve_icon(image_hint)
+            if icon_path:
+                pix = QPixmap(str(icon_path)).scaled(
+                    QSize(_ICON_SIZE, _ICON_SIZE),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+        if pix is not None:
             icon_lbl = QLabel()
             icon_lbl.setPixmap(pix)
             icon_lbl.setFixedSize(_ICON_SIZE, _ICON_SIZE)
