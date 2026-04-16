@@ -220,6 +220,89 @@ def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
     return results
 
 
+# LuaJIT itype constants for bool values
+_LJ_TTRUE  = 0xFFFFFFFD
+_LJ_TFALSE = 0xFFFFFFFE
+_LJ_TNIL   = 0xFFFFFFFF
+
+
+def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
+    """
+    Scan the hash part of a Lua table and return every entry whose key is a
+    string and whose value is a string, number, or boolean.
+
+    Useful for a full entity field dump — catches every flat field without
+    needing to know the key names in advance.
+    """
+    node_ptr = _ru32(h, tab_ptr + 20)
+    hmask    = _ru32(h, tab_ptr + 28)
+    if not node_ptr or hmask is None or not _is_heap(node_ptr):
+        return {}
+    total = (hmask + 1) * _NODE_SIZE
+    if total > 4 * 1024 * 1024:   # safety cap — entities shouldn't be huge
+        return {}
+    bulk = _rpm(h, node_ptr, total)
+    if not bulk:
+        return {}
+
+    out: dict[str, str | float | bool] = {}
+    for i in range(hmask + 1):
+        off = i * _NODE_SIZE
+        # key itype/value at +8/+12; val itype/value at +4/+0
+        key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+        if key_it != _LJ_TSTR:
+            continue
+        key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+        if not _is_heap(key_gcs):
+            continue
+        slen_b = _rpm(h, key_gcs + 12, 4)
+        if not slen_b:
+            continue
+        slen = struct.unpack('<I', slen_b)[0]
+        if slen == 0 or slen > 128:
+            continue
+        key_raw = _rpm(h, key_gcs + 16, slen)
+        if not key_raw:
+            continue
+        try:
+            key = key_raw.decode('utf-8')
+        except UnicodeDecodeError:
+            continue
+
+        val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+        val_lo = struct.unpack_from('<I', bulk, off)[0]
+
+        if val_it == _LJ_TTRUE:
+            out[key] = True
+        elif val_it == _LJ_TFALSE:
+            out[key] = False
+        elif val_it == _LJ_TSTR:
+            if not _is_heap(val_lo):
+                continue
+            vslen_b = _rpm(h, val_lo + 12, 4)
+            if not vslen_b:
+                continue
+            vslen = struct.unpack('<I', vslen_b)[0]
+            if vslen == 0 or vslen > 256:
+                continue
+            val_raw = _rpm(h, val_lo + 16, vslen)
+            if not val_raw:
+                continue
+            try:
+                out[key] = val_raw.decode('utf-8')
+            except UnicodeDecodeError:
+                pass
+        elif val_it < _LJ_TNUMX:
+            # numeric TValue — read the full 8 bytes as double
+            raw8 = bulk[off:off + 8]
+            try:
+                out[key] = struct.unpack_from('<d', raw8)[0]
+            except struct.error:
+                pass
+
+    return out
+
+
 # ── Process / region helpers ─────────────────────────────────────────────────
 
 def _get_pid(name: str) -> int | None:
@@ -461,6 +544,13 @@ class EntityInfo:
     danger: str          # label: Trivial / Easy / Moderate / Dangerous / Deadly
     danger_score: float  # numeric score for sorting
     image: str           # "npc/xxx.png" read directly from entity table, or ""
+    # Extended fields
+    type_name: str       # e.g. "insect"
+    subtype: str         # e.g. "ant"
+    size_category: float # 1=tiny … 5=huge
+    unique: bool         # True if a named/random unique
+    # Full flat field dump (strings, numbers, bools) — for debug / tooltip
+    all_fields: dict[str, str | float | bool]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -634,27 +724,27 @@ class MemoryReader:
             if rank is not None and rank <= min_rank:
                 continue
 
-            name = _tab_get_string(h, ptr, "name") or "?"
-            life = _tab_get_number(h, ptr, "life") or 0.0
-            max_life = _tab_get_number(h, ptr, "max_life") or 0.0
-            level = _tab_get_number(h, ptr, "level") or 0.0
-            faction = _tab_get_string(h, ptr, "faction") or "?"
+            # Dump all flat fields first — single pass over the hash table
+            all_fields = _tab_dump_all(h, ptr)
 
-            # Read image path directly from the entity's Lua table.
-            #
-            # Two patterns exist in ToME:
-            #   Direct:    image = "npc/troll_f.png"
-            #              → entity.image is the real path, use it directly.
-            #
-            #   nice_tile: resolvers.nice_tile{image="invis.png",
-            #                add_mos={{image="npc/xxx.png", ...}}}
-            #              → entity.image == "invis.png" (placeholder);
-            #                real path is in entity.add_mos[1].image.
-            raw_image = _tab_get_string(h, ptr, "image") or ""
+            name      = (all_fields.get("name") or "?") if isinstance(all_fields.get("name"), str) else "?"
+            life      = float(all_fields.get("life") or 0.0)
+            max_life  = float(all_fields.get("max_life") or 0.0)
+            level     = float(all_fields.get("level") or 0.0)
+            faction   = (all_fields.get("faction") or "?") if isinstance(all_fields.get("faction"), str) else "?"
+            type_name = (all_fields.get("type") or "") if isinstance(all_fields.get("type"), str) else ""
+            subtype   = (all_fields.get("subtype") or "") if isinstance(all_fields.get("subtype"), str) else ""
+            size_cat  = float(all_fields.get("size_category") or 0.0)
+            unique    = bool(all_fields.get("unique", False))
+
+            # ── Image resolution ──────────────────────────────────────────
+            # Two patterns in ToME:
+            #   Direct:    image = "npc/troll_f.png"  → use directly.
+            #   nice_tile: image = "invis.png"; real path in add_mos[1].image.
+            raw_image = str(all_fields.get("image") or "")
             if raw_image.startswith("npc/") and raw_image != "invis.png":
                 entity_image = raw_image
             else:
-                # Try add_mos[1].image (nice_tile entities)
                 add_mos_tab = _tab_get_table(h, ptr, "add_mos")
                 if add_mos_tab:
                     first = _tab_array_get_table(h, add_mos_tab, 1)
@@ -668,7 +758,13 @@ class MemoryReader:
 
             if not entity_image:
                 import sys
-                print(f"[sprite] {name!r}: raw_image={raw_image!r}, add_mos={'yes' if _tab_get_table(h, ptr, 'add_mos') else 'no'}", file=sys.stderr)
+                has_mos = "yes" if _tab_get_table(h, ptr, "add_mos") else "no"
+                print(f"[sprite] {name!r}: raw_image={raw_image!r}, add_mos={has_mos}", file=sys.stderr)
+                print(f"[fields] {name!r}: " + ", ".join(
+                    f"{k}={v!r}" for k, v in sorted(all_fields.items())
+                    if k in ("type", "subtype", "image", "unique", "size_category",
+                             "ai", "autolevel", "rank", "level")
+                ), file=sys.stderr)
 
             ent = EntityInfo(
                 name=name,
@@ -678,16 +774,21 @@ class MemoryReader:
                 life=life,
                 max_life=max_life,
                 faction=faction,
-                x=_tab_get_number(h, ptr, "x") or 0.0,
-                y=_tab_get_number(h, ptr, "y") or 0.0,
-                armor=_tab_get_number(h, ptr, "combat_armor") or 0.0,
-                defense=_tab_get_number(h, ptr, "combat_def") or 0.0,
-                phys_save=_tab_get_number(h, ptr, "combat_physresist") or 0.0,
-                spell_save=_tab_get_number(h, ptr, "combat_spellresist") or 0.0,
-                mental_save=_tab_get_number(h, ptr, "combat_mentalresist") or 0.0,
+                x=float(all_fields.get("x") or 0.0),
+                y=float(all_fields.get("y") or 0.0),
+                armor=float(all_fields.get("combat_armor") or 0.0),
+                defense=float(all_fields.get("combat_def") or 0.0),
+                phys_save=float(all_fields.get("combat_physresist") or 0.0),
+                spell_save=float(all_fields.get("combat_spellresist") or 0.0),
+                mental_save=float(all_fields.get("combat_mentalresist") or 0.0),
                 danger="",
                 danger_score=0.0,
                 image=entity_image,
+                type_name=type_name,
+                subtype=subtype,
+                size_category=size_cat,
+                unique=unique,
+                all_fields=all_fields,
             )
             ent.danger, ent.danger_score = compute_danger(ent, player_stats)
             results.append(ent)

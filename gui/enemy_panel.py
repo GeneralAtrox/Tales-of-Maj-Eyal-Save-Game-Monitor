@@ -177,6 +177,13 @@ class _EnemyCard(QFrame):
         faction_lbl.setStyleSheet(f"color: {OVERLAY}; font-size: 11px;")
         top.addWidget(faction_lbl)
 
+        # type / subtype  (e.g. "insect · ant")
+        if entity.type_name or entity.subtype:
+            parts = [p for p in (entity.type_name, entity.subtype) if p]
+            type_lbl = QLabel(" · ".join(parts))
+            type_lbl.setStyleSheet(f"color: {OVERLAY}; font-size: 11px; font-style: italic;")
+            top.addWidget(type_lbl)
+
         top.addStretch()
 
         # Danger badge (right-aligned)
@@ -237,6 +244,22 @@ class _EnemyCard(QFrame):
             stats_lbl = QLabel("  |  ".join(stats_parts))
             stats_lbl.setStyleSheet(f"color: {OVERLAY}; font-size: 11px;")
             info.addWidget(stats_lbl)
+
+        # ── Full field dump tooltip ──
+        if entity.all_fields:
+            # Organised sections: key identity fields first, then everything else
+            priority = ("type", "subtype", "size_category", "unique", "ai",
+                        "autolevel", "image", "faction", "rank", "level",
+                        "life", "max_life", "combat_armor", "combat_def",
+                        "combat_physresist", "combat_spellresist", "combat_mentalresist")
+            lines: list[str] = []
+            for k in priority:
+                if k in entity.all_fields:
+                    lines.append(f"{k}: {entity.all_fields[k]!r}")
+            for k, v in sorted(entity.all_fields.items()):
+                if k not in priority:
+                    lines.append(f"{k}: {v!r}")
+            self.setToolTip("\n".join(lines))
 
         # ── Row 4: lore description (truncated) ──
         if npc and npc.desc:
