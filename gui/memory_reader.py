@@ -156,6 +156,33 @@ def _tab_get_string(h: int, tab_ptr: int, key: str) -> str | None:
         return None
 
 
+def _tab_array_get_table(h: int, tab_ptr: int, idx: int) -> int | None:
+    """
+    Return the GCtab* for array element [idx] (1-based) of a Lua table.
+
+    LuaJIT 2.0.2 GCtab layout (32-bit):
+      +8  MRef array  — pointer to array part
+      +24 uint32 asize — number of array slots
+
+    Each TValue is 8 bytes: [value:u32][itype:u32].
+    Array element [i] (1-based) lives at array_ptr + (i-1)*8.
+    """
+    if idx < 1:
+        return None
+    asize = _ru32(h, tab_ptr + 24)
+    if asize is None or idx > asize:
+        return None
+    array_ptr = _ru32(h, tab_ptr + 8)
+    if not array_ptr or not _is_heap(array_ptr):
+        return None
+    offset = (idx - 1) * 8
+    itype = _ru32(h, array_ptr + offset + 4)
+    if itype != _LJ_TTAB:
+        return None
+    v = _ru32(h, array_ptr + offset)
+    return v if (v and _is_heap(v)) else None
+
+
 def _tab_get_bool(h: int, tab_ptr: int, key: str) -> bool | None:
     """Look up a string key and return True/False, or None if missing."""
     node = _tab_find_strkey(h, tab_ptr, key)
@@ -614,12 +641,34 @@ class MemoryReader:
             faction = _tab_get_string(h, ptr, "faction") or "?"
 
             # Read image path directly from the entity's Lua table.
-            # Entities with a direct image field (e.g. image="npc/troll_f.png")
-            # return the path here.  Entities using resolvers.nice_tile store
-            # "invis.png" as their image; we filter those out so the NPC db
-            # lookup in enemy_panel can take over.
+            #
+            # Two patterns exist in ToME:
+            #   Direct:    image = "npc/troll_f.png"
+            #              → entity.image is the real path, use it directly.
+            #
+            #   nice_tile: resolvers.nice_tile{image="invis.png",
+            #                add_mos={{image="npc/xxx.png", ...}}}
+            #              → entity.image == "invis.png" (placeholder);
+            #                real path is in entity.add_mos[1].image.
             raw_image = _tab_get_string(h, ptr, "image") or ""
-            entity_image = raw_image if (raw_image.startswith("npc/") and raw_image != "npc/invis.png") else ""
+            if raw_image.startswith("npc/") and raw_image != "invis.png":
+                entity_image = raw_image
+            else:
+                # Try add_mos[1].image (nice_tile entities)
+                add_mos_tab = _tab_get_table(h, ptr, "add_mos")
+                if add_mos_tab:
+                    first = _tab_array_get_table(h, add_mos_tab, 1)
+                    if first:
+                        mos_img = _tab_get_string(h, first, "image") or ""
+                        entity_image = mos_img if mos_img.startswith("npc/") else ""
+                    else:
+                        entity_image = ""
+                else:
+                    entity_image = ""
+
+            if not entity_image:
+                import sys
+                print(f"[sprite] {name!r}: raw_image={raw_image!r}, add_mos={'yes' if _tab_get_table(h, ptr, 'add_mos') else 'no'}", file=sys.stderr)
 
             ent = EntityInfo(
                 name=name,
