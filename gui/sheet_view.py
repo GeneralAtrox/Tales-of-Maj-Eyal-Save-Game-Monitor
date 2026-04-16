@@ -515,10 +515,12 @@ class _HeaderBar(QWidget):
         self._class_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._info_lbl = QLabel("No character loaded")
-        self._info_lbl.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0};")
+        self._info_lbl.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0}; padding-left: 8px;")
 
         self._hp_lbl = QLabel("")
-        self._hp_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {SUBTEXT0};")
+        self._hp_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 12px; padding-right: 8px;"
+        )
         self._hp_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         lay.addWidget(self._class_icon)
@@ -540,19 +542,16 @@ class _HeaderBar(QWidget):
         parts = [p for p in [char_name or cls, race, f"Level {level}" if level else "", mode] if p]
         self._info_lbl.setText("   ·   ".join(parts))
 
+    _HP_STYLE = "font-size: 13px; font-weight: 700; padding-left: 12px; padding-right: 8px;"
+
     def set_hp(self, life: float, max_life: float) -> None:
         pct = life / max_life if max_life > 0 else 0
-        if pct > 0.5:
-            color = GREEN
-        elif pct > 0.25:
-            color = "#f9e2af"
-        else:
-            color = RED
-        self._hp_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {color};")
+        color = GREEN if pct > 0.5 else ("#f9e2af" if pct > 0.25 else RED)
+        self._hp_lbl.setStyleSheet(f"{self._HP_STYLE} color: {color};")
         self._hp_lbl.setText(f"HP  {life:.0f} / {max_life:.0f}")
 
     def clear_hp(self) -> None:
-        self._hp_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {SUBTEXT0};")
+        self._hp_lbl.setStyleSheet(f"{self._HP_STYLE} color: {SUBTEXT0};")
         self._hp_lbl.setText("")
 
 
