@@ -790,16 +790,6 @@ class MemoryReader:
                     if attach.startswith("npc/"):
                         entity_image = attach
 
-            if not entity_image:
-                import sys
-                has_mos = "yes" if _tab_get_table(h, ptr, "add_mos") else "no"
-                print(f"[sprite] {name!r}: raw_image={raw_image!r}, add_mos={has_mos}", file=sys.stderr)
-                print(f"[fields] {name!r}: " + ", ".join(
-                    f"{k}={v!r}" for k, v in sorted(all_fields.items())
-                    if k in ("type", "subtype", "image", "unique", "size_category",
-                             "ai", "autolevel", "rank", "level")
-                ), file=sys.stderr)
-
             ent = EntityInfo(
                 name=name,
                 rank=rank or 0.0,

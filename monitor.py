@@ -66,7 +66,6 @@ def auto_discover_characters(
             local_alive.append(CharacterConfig(folder_name=short_name, name=name))
 
     if not local_alive:
-        print("No new characters found")
         return existing_chars, False, []
 
     roster = get_vault_ids_from_profile(config.profile_id) if config.profile_id else {}
