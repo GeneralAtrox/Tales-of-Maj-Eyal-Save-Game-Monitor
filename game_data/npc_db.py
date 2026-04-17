@@ -25,7 +25,7 @@ import json
 import re
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -70,6 +70,33 @@ def get_npc_db_by_image() -> dict[str, NpcRecord]:
         db = get_npc_db()
         _image_db = {rec.image: rec for rec in db.values() if rec.image}
     return _image_db
+
+
+def lookup_by_sprite(image_hint: str) -> NpcRecord | None:
+    """Look up an NPC record by sprite path using two strategies.
+
+    1. Exact image index match — works when the entity's Lua block has an
+       explicit ``image=`` or ``add_mos=`` field (e.g. dúathedlen).
+    2. Shockbolt naming convention — sprite paths follow
+       ``npc/{type}_{subtype}_{name}.png``, so stripping the type/subtype
+       prefix and converting underscores to spaces gives the entity name
+       (e.g. ``npc/spiderkin_spider_faerlhing.png`` → ``"faerlhing"``).
+       Only accepted if the matched record has a non-empty description.
+    """
+    if not image_hint:
+        return None
+    rec = get_npc_db_by_image().get(image_hint)
+    if rec:
+        return rec
+    # Shockbolt convention: npc/{type}_{subtype}_{entity_name_underscored}.png
+    stem = PurePosixPath(image_hint).stem   # e.g. "spiderkin_spider_faerlhing"
+    parts = stem.split("_")
+    if len(parts) >= 3:
+        name = " ".join(parts[2:])
+        rec = get_npc_db().get(name)
+        if rec and rec.desc:
+            return rec
+    return None
 
 
 # ── Load / build ──────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from game_data.npc_db import NpcRecord, get_npc_db, get_npc_db_by_image
+from game_data.npc_db import NpcRecord, get_npc_db, lookup_by_sprite
 from gui.sprite_composer import compose_layers, get_sprite
 from gui.memory_reader import (
     DANGER_DEADLY,
@@ -156,16 +156,17 @@ class _EnemyCard(QFrame):
             f"}}"
         )
 
-        # Look up NPC record for confirmed image path and lore text.
-        # Primary: exact name match (works for generic mobs).
-        # Fallback: match any sprite layer path against the image index — catches
-        # named uniques like "Jaedemas the Guardian" whose name isn't in the DB
-        # but whose sprite (e.g. npc/demon_major_duathedlen.png) is.
+        # Look up NPC record for lore text, trying three strategies in order:
+        # 1. Exact name match (works for generic mobs with their Lua name).
+        # 2. Exact image path match (named uniques whose sprite has an explicit
+        #    image= field in their Lua block, e.g. dúathedlen → Jaedemas).
+        # 3. Shockbolt filename convention: npc/{type}_{subtype}_{name}.png —
+        #    catches entities like faerlhing whose Lua has no image= but whose
+        #    gfx-pack sprite path encodes the name (→ Neriyamira the Guardian).
         npc: NpcRecord | None = get_npc_db().get(entity.name.lower())
-        if npc is None and entity.sprite_layers:
-            img_db = get_npc_db_by_image()
+        if npc is None:
             for layer in entity.sprite_layers:
-                npc = img_db.get(layer)
+                npc = lookup_by_sprite(layer)
                 if npc:
                     break
 
