@@ -932,7 +932,8 @@ class _HeaderBar(QWidget):
         self._actions_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._actions_btn.setFixedWidth(105)
         self._actions_btn.setStyleSheet(
-            "QToolButton { text-align: center; }"
+            f"QToolButton {{ text-align: center; }}"
+            f"QToolButton:hover {{ background: {SURFACE2}; border-color: {BLUE}; }}"
             "QToolButton::menu-indicator { image: none; }"
         )
 

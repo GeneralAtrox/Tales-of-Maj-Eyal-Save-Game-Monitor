@@ -29,7 +29,7 @@ from gui.theme import TEXT
 class MainWindow(QMainWindow):
     def __init__(self, config_path: Path) -> None:
         super().__init__()
-        self.setWindowTitle("TOME Save Monitor")
+        self.setWindowTitle("ToME - Scrying Mirror")
         self.resize(1280, 760)
         self.setMinimumSize(900, 560)
 
