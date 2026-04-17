@@ -46,14 +46,30 @@ class NpcRecord:
 # ── Singleton ─────────────────────────────────────────────────────────────────
 
 _db: dict[str, NpcRecord] | None = None
+_image_db: dict[str, NpcRecord] | None = None
 
 
 def get_npc_db() -> dict[str, NpcRecord]:
-    """Return the NPC database, building or loading it on first call."""
+    """Return the NPC database keyed by lowercase entity name."""
     global _db
     if _db is None:
         _db = _load_or_build()
     return _db
+
+
+def get_npc_db_by_image() -> dict[str, NpcRecord]:
+    """Return a secondary index keyed by image path (e.g. 'npc/troll_f.png').
+
+    Useful for named uniques whose display name doesn't match any DB key but
+    whose sprite path does — e.g. 'Jaedemas the Guardian' uses the
+    dúathedlen sprite, so looking up the layer path recovers the lore text.
+    Only entries with a non-empty image field are included.
+    """
+    global _image_db
+    if _image_db is None:
+        db = get_npc_db()
+        _image_db = {rec.image: rec for rec in db.values() if rec.image}
+    return _image_db
 
 
 # ── Load / build ──────────────────────────────────────────────────────────────

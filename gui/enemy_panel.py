@@ -14,13 +14,12 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from game_data.npc_db import NpcRecord, get_npc_db
+from game_data.npc_db import NpcRecord, get_npc_db, get_npc_db_by_image
 from gui.sprite_composer import compose_layers, get_sprite
 from gui.memory_reader import (
     DANGER_DEADLY,
@@ -31,6 +30,7 @@ from gui.memory_reader import (
     EntityInfo,
 )
 from gui.theme import (
+    BLUE,
     BORDER,
     GREEN,
     MAUVE,
@@ -97,6 +97,19 @@ _DANGER_COLORS: dict[str, str] = {
     DANGER_DEADLY:    RED,
 }
 
+_RESIST_LABELS: dict[str, str] = {
+    "resists.ARCANE": "Arc",
+    "resists.BLIGHT": "Blight",
+    "resists.COLD": "Cold",
+    "resists.DARKNESS": "Dark",
+    "resists.FIRE": "Fire",
+    "resists.LIGHT": "Light",
+    "resists.LIGHTNING": "Lite",
+    "resists.NATURE": "Nature",
+    "resists.PHYSICAL": "Phys",
+    "resists.TEMPORAL": "Temp",
+}
+
 
 def _hp_color(pct: float) -> str:
     if pct > 0.5:
@@ -104,6 +117,29 @@ def _hp_color(pct: float) -> str:
     if pct > 0.25:
         return YELLOW
     return RED
+
+
+def _resist_state(value: float) -> tuple[str, str]:
+    if value >= 100:
+        return "Immune", MAUVE
+    if value >= 35:
+        return "Heavy", BLUE
+    if value <= -1:
+        return "Weak", RED
+    return "Neutral", SUBTEXT0
+
+
+def _resist_spans(entity: EntityInfo) -> list[str]:
+    spans: list[str] = []
+    for key, label in _RESIST_LABELS.items():
+        raw = entity.all_fields.get(key)
+        if not isinstance(raw, (int, float)):
+            continue
+        value = float(raw)
+        state, color = _resist_state(value)
+        text = f"{label} {'Imm' if state == 'Immune' else f'{value:.0f}%'}"
+        spans.append(f"<span style='color:{color};'>{text}</span>")
+    return spans
 
 
 class _EnemyCard(QFrame):
@@ -121,7 +157,17 @@ class _EnemyCard(QFrame):
         )
 
         # Look up NPC record for confirmed image path and lore text.
+        # Primary: exact name match (works for generic mobs).
+        # Fallback: match any sprite layer path against the image index — catches
+        # named uniques like "Jaedemas the Guardian" whose name isn't in the DB
+        # but whose sprite (e.g. npc/demon_major_duathedlen.png) is.
         npc: NpcRecord | None = get_npc_db().get(entity.name.lower())
+        if npc is None and entity.sprite_layers:
+            img_db = get_npc_db_by_image()
+            for layer in entity.sprite_layers:
+                npc = img_db.get(layer)
+                if npc:
+                    break
 
         # Image source priority — only confirmed ground-truth paths used,
         # no fuzzy guessing:
@@ -168,17 +214,19 @@ class _EnemyCard(QFrame):
         info.setContentsMargins(0, 0, 0, 0)
         info.setSpacing(3)
 
-        # Row 1: name + rank badge + level + faction
+        # Row 1: name + rank badge + danger badge + level + faction
         top = QHBoxLayout()
         top.setSpacing(8)
 
         rank_color = _RANK_COLORS.get(entity.rank_label, SUBTEXT0)
 
-        name_lbl = QLabel(entity.name)
-        bold = entity.rank_label in ("Unique", "Boss", "Elite Boss", "Rare")
-        weight = "700" if bold else "400"
-        name_lbl.setStyleSheet(f"font-weight: {weight}; font-size: 13px; color: {TEXT};")
-        top.addWidget(name_lbl)
+        danger_color = _DANGER_COLORS.get(entity.danger, OVERLAY)
+        danger_badge = QLabel(f" {entity.danger} ")
+        danger_badge.setStyleSheet(
+            f"background: {danger_color}; color: {SURFACE0}; font-size: 10px;"
+            f" font-weight: 700; border-radius: 3px; padding: 1px 6px;"
+        )
+        top.addWidget(danger_badge)
 
         rank_badge = QLabel(f" {entity.rank_label} ")
         rank_badge.setStyleSheet(
@@ -186,6 +234,12 @@ class _EnemyCard(QFrame):
             f" font-weight: 700; border-radius: 3px; padding: 1px 5px;"
         )
         top.addWidget(rank_badge)
+
+        name_lbl = QLabel(entity.name)
+        bold = entity.rank_label in ("Unique", "Boss", "Elite Boss", "Rare")
+        weight = "700" if bold else "400"
+        name_lbl.setStyleSheet(f"font-weight: {weight}; font-size: 13px; color: {TEXT};")
+        top.addWidget(name_lbl)
 
         lvl_lbl = QLabel(f"Lv {entity.level:.0f}")
         lvl_lbl.setStyleSheet(f"color: {SUBTEXT0}; font-size: 11px;")
@@ -204,44 +258,20 @@ class _EnemyCard(QFrame):
 
         top.addStretch()
 
-        # Danger badge (right-aligned)
-        danger_color = _DANGER_COLORS.get(entity.danger, OVERLAY)
-        danger_badge = QLabel(f" {entity.danger} ")
-        danger_badge.setStyleSheet(
-            f"background: {danger_color}; color: {SURFACE0}; font-size: 10px;"
-            f" font-weight: 700; border-radius: 3px; padding: 1px 6px;"
-        )
-        top.addWidget(danger_badge)
-
         info.addLayout(top)
 
-        # Row 2: HP bar
+        # Row 2: HP text
         pct = entity.life / entity.max_life if entity.max_life > 0 else 0
         hp_color = _hp_color(pct)
 
         hp_row = QHBoxLayout()
-        hp_row.setSpacing(6)
-
-        hp_bar = QProgressBar()
-        hp_bar.setRange(0, 1000)
-        hp_bar.setValue(int(pct * 1000))
-        hp_bar.setTextVisible(False)
-        hp_bar.setFixedHeight(10)
-        hp_bar.setStyleSheet(
-            f"QProgressBar {{"
-            f"  background: {SURFACE2}; border: none; border-radius: 4px;"
-            f"}}"
-            f"QProgressBar::chunk {{"
-            f"  background: {hp_color}; border-radius: 4px;"
-            f"}}"
-        )
-        hp_row.addWidget(hp_bar, stretch=1)
+        hp_row.setSpacing(8)
 
         hp_text = QLabel(f"{entity.life:.0f} / {entity.max_life:.0f}")
         hp_text.setStyleSheet(f"color: {hp_color}; font-size: 11px; font-weight: 600;")
-        hp_text.setFixedWidth(100)
-        hp_text.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        hp_text.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         hp_row.addWidget(hp_text)
+        hp_row.addStretch()
 
         info.addLayout(hp_row)
 
@@ -258,9 +288,16 @@ class _EnemyCard(QFrame):
         if entity.mental_save:
             stats_parts.append(f"Mind {entity.mental_save:.0f}")
 
-        if stats_parts:
-            stats_lbl = QLabel("  |  ".join(stats_parts))
-            stats_lbl.setStyleSheet(f"color: {OVERLAY}; font-size: 11px;")
+        resist_parts = _resist_spans(entity)
+        if stats_parts or resist_parts:
+            segments: list[str] = []
+            if stats_parts:
+                segments.append(f"<span style='color:{OVERLAY};'>{'  |  '.join(stats_parts)}</span>")
+            if resist_parts:
+                segments.append("  |  ".join(resist_parts))
+            stats_lbl = QLabel("  |  ".join(segments))
+            stats_lbl.setTextFormat(Qt.TextFormat.RichText)
+            stats_lbl.setStyleSheet("font-size: 11px;")
             info.addWidget(stats_lbl)
 
         # ── Full field dump tooltip ──
