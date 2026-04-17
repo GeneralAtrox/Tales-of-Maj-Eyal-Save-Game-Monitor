@@ -778,11 +778,29 @@ class CharacterSheetView(QWidget):
         self._left_lay.setSpacing(2)
         self._left_lay.addStretch()
         scroll.setWidget(self._left)
+
+        self._prodigy_scroll = QScrollArea()
+        self._prodigy_scroll.setWidgetResizable(True)
+        self._prodigy_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._prodigy_scroll.setStyleSheet(
+            f"QScrollArea {{ border: none; border-left: 1px solid {BORDER}; background: {BG}; }}"
+            f"QWidget {{ background: {BG}; }}"
+        )
+        self._prodigy_inner = QWidget()
+        self._prodigy_inner_lay = QVBoxLayout(self._prodigy_inner)
+        self._prodigy_inner_lay.setContentsMargins(12, 12, 12, 24)
+        self._prodigy_inner_lay.setSpacing(2)
+        self._prodigy_inner_lay.addStretch()
+        self._prodigy_scroll.setWidget(self._prodigy_inner)
+        self._prodigy_scroll.setVisible(False)
+
         splitter.addWidget(scroll)
+        splitter.addWidget(self._prodigy_scroll)
         splitter.addWidget(self._detail_panel)
-        splitter.setSizes([700, 300])
+        splitter.setSizes([700, 200, 300])
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 0)
         talents_root.addWidget(splitter)
         self._content_tabs.addTab(talents_tab, "Talents")
 
@@ -893,6 +911,39 @@ class CharacterSheetView(QWidget):
         self._live_transmog = None
         self._reload_current()
 
+    @staticmethod
+    def _char_level(char: dict) -> int:
+        """Parse integer character level from 'Level / Exp' field, e.g. '30 / 0%' → 30."""
+        raw = char.get("Level / Exp", "0")
+        try:
+            return int(str(raw).split("/")[0].strip())
+        except (ValueError, IndexError):
+            return 0
+
+    def _reload_prodigy_column(self, char: dict) -> None:
+        """Populate or hide the Prodigies side column."""
+        # Clear existing content (keep the trailing stretch)
+        while self._prodigy_inner_lay.count() > 1:
+            item = self._prodigy_inner_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        level = self._char_level(char)
+        prodigies_raw = self._current_data.get("Prodigies", {})
+        available = {
+            name: data
+            for name, data in prodigies_raw.items()
+            if isinstance(data, (dict, str)) and _is_zero_level(_level_of(data))
+        } if isinstance(prodigies_raw, dict) else {}
+
+        if level < 25 or not available:
+            self._prodigy_scroll.setVisible(False)
+            return
+
+        section = self._build_talent_section("Prodigies", available)
+        self._prodigy_inner_lay.insertWidget(0, section)
+        self._prodigy_scroll.setVisible(True)
+
     def _reload_current(self) -> None:
         self._clear_left()
         self._clear_player_box()
@@ -909,6 +960,9 @@ class CharacterSheetView(QWidget):
             if "Talents" not in key or not isinstance(value, dict) or not value:
                 continue
             self._insert(self._left_lay, self._build_talent_section(key, value))
+
+        # Prodigies column — only at level 25+
+        self._reload_prodigy_column(char)
 
         file_equipment = self._current_data.get("Equipment", [])
         inventory = self._current_data.get("Inventory", [])

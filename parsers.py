@@ -293,7 +293,7 @@ def extract_optimized_data(html_content: str, *, has_transmo: bool = True) -> Ag
             agent_data[section_title] = _parse_simple_key_value_section(content_list)
         elif section_title.startswith("Inscriptions"):
             agent_data[section_title] = _parse_inscriptions_section(content_list)
-        elif "Talents" in section_title:
+        elif "Talents" in section_title or section_title == "Prodigies":
             agent_data[section_title] = _parse_talent_section(content_list)
         elif section_title == "Effects":
             agent_data[section_title] = _parse_effects_section(content_list)
