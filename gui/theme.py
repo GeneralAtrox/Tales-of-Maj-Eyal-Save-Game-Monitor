@@ -39,7 +39,7 @@ QTabWidget::pane {{
 QTabBar::tab {{
     background: {SURFACE0};
     color: {SUBTEXT0};
-    padding: 8px 20px;
+    padding: 9px 22px;
     border: 1px solid {BORDER};
     border-bottom: none;
     border-top-left-radius: 4px;
@@ -47,9 +47,9 @@ QTabBar::tab {{
     margin-right: 2px;
 }}
 QTabBar::tab:selected {{
-    background: {SURFACE1};
+    background: {SURFACE2};
     color: {TEXT};
-    border-bottom: 2px solid {BLUE};
+    border-bottom: 3px solid {BLUE};
 }}
 QTabBar::tab:hover:!selected {{
     background: {SURFACE1};
