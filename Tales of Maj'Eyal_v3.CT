@@ -1,0 +1,370 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="28">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>192</ID>
+      <Description>"Script"</Description>
+      <Options moHideChildren="1" moDeactivateChildrenAsWell="1"/>
+      <LastState/>
+      <Color>FF0000</Color>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+
+aobscanmodule(tome_23,t-engine.exe,83 79 04 FF 74 36)
+alloc(tome_11,2048)
+label(tome_8)
+label(tome_6)
+label(tome_14)
+label(tome_5)
+label(tome_7)
+label(tome_13)
+label(tome_9)
+label(tome_12)
+label(tome_17)
+label(tome_15)
+registersymbol(tome_23)
+registersymbol(tome_15)
+registersymbol(tome_17)
+registersymbol(tome_12)
+registersymbol(tome_9)
+registersymbol(tome_13)
+registersymbol(tome_7)
+
+
+tome_11:
+ push ecx
+ mov ecx,[ecx+08]
+ cmp [ecx+14],7461635F
+ pop ecx
+ jne @f
+ mov [tome_7],ebp
+ jmp tome_14
+
+@@:
+ cmp ebp,[tome_7]
+ jne tome_14
+ push ecx
+ mov ecx,[ecx+08]
+ cmp [ecx+10],656D616E
+ pop ecx
+ jne @f
+ mov [tome_15],ecx
+ jmp tome_14
+
+@@:
+ cmp [tome_12],1
+ jne tome_14
+ pushad
+ xor edi,edi
+ mov ecx,[ecx+08]
+
+tome_8:
+ mov al,[ecx+edi+10]
+ mov bl,[tome_9+edi]
+ cmp al,bl
+ jne tome_6
+ cmp byte ptr [tome_9+edi],0
+ je @f
+ inc edi
+ jmp tome_8
+
+@@:
+ popad
+ cmp [tome_9],5F636E69
+ je @f
+ mov [tome_12],0
+ mov [tome_13],ecx
+ jmp tome_14
+
+@@:
+ mov [tome_12],0
+ mov [tome_17],ecx
+ jmp tome_14
+
+tome_6:
+ popad
+
+tome_14:
+ cmp dword ptr [ecx+04],-01
+ je tome_23+3C
+ jmp tome_5
+
+
+tome_7:
+ dd 7F7F7F7F
+
+tome_15:
+ db 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+tome_13:
+ dd 0
+
+tome_17:
+ dd 0
+
+tome_12:
+ dd 0
+
+tome_9:
+ db 6D 6F 6E 65 79 00
+
+tome_23:
+ jmp tome_11
+ nop
+
+tome_5:
+
+[DISABLE]
+	
+tome_23:
+ db 83 79 04 FF 74 36
+
+unregistersymbol(tome_23)
+unregistersymbol(tome_15)
+unregistersymbol(tome_12)
+unregistersymbol(tome_9)
+unregistersymbol(tome_17)
+unregistersymbol(tome_13)
+unregistersymbol(tome_7)
+dealloc(tome_11)
+
+</AssemblerScript>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>193</ID>
+          <Description>"Name"</Description>
+          <Color>0000FF</Color>
+          <VariableType>String</VariableType>
+          <Length>32</Length>
+          <Unicode>0</Unicode>
+          <CodePage>0</CodePage>
+          <ZeroTerminate>1</ZeroTerminate>
+          <Address>tome_15</Address>
+          <Offsets>
+            <Offset>10</Offset>
+            <Offset>0</Offset>
+          </Offsets>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>194</ID>
+          <Description>"-----&gt;"</Description>
+          <DropDownList ReadOnly="1" DescriptionOnly="1" DisplayValueAsItem="1">money:Gold
+inc_stats:+ Stats* [G]
+unused_stats:Stat Points
+life:Life
+max_life:Life Max
+life_regen:Life Regen
+max_air:Air Max
+air_regen:Air Regen
+max_stamina:Stamina Max
+stamina_regen:Stamina Regen
+max_mana:Mana Max
+mana_regen:Mana Regen
+max_psi:Psi Max
+psi_regen:Psi Regen
+max_positive:Positive Max
+positive_regen:Positive Regen
+max_negative:Negative Max
+negative_regen:Negative Regen
+max_insanity:Insanity Max
+insanity_regen:Insanity Regen
+max_steam:Steam Max
+steam_regen:Steam Regen
+max_soul:Soul Max
+soul_regen:Soul Regen
+max_hate:Hate Max
+hate_regen:Hate Regen
+max_vim:Vim Max
+vim_regen:Vim Regen
+paradox_regen:Paradox Regen
+equilibrium_regen:Equilibrium Regen
+exp_mod:EXP mod.
+lite:Light Radius [G]
+sight:Vision Range [G]
+heightened_senses:Heighten Senses [G]
+see_traps:Detect Traps [G]
+see_stealth:See Stealth [G]
+see_invisible:See Invisible [G]
+global_speed:Global Speed [G]
+movement_speed:Movement Speed [G]
+combat_spellspeed:Spell Speed [G]
+combat_physspeed:Attack Speed [G]
+combat_mindspeed:Mental Speed [G]
+healing_factor:Healing mod.[G]
+max_inscriptions:Inscriptions Max [G]
+combat_atk:Attack [A]
+combat_dam:Damage [A]
+combat_apr:APR [A]
+combat_physcrit:Phys.Crit.Chance [A]
+combat_spellpower:Spellpower [A]
+combat_spellcrit:Mag.Crit.Chance [A]
+spell_cooldown_reduction:Spell Cooldown [A]
+combat_mindpower:Mindpower [A]
+combat_mindcrit:Ment.Crit.Chance [A]
+combat_critical_power:Critical mult. [A]
+fatigue:Fatigue [D]
+combat_armor_hardiness:Armor Hardiness [D]
+combat_armor:Armor [D]
+combat_def:Defense [D]
+combat_def_ranged:Ranged Defense [D]
+ignore_direct_crits:Crit.Shrug Off [D]
+combat_physresist:Saves Physical [D]
+combat_spellresist:Saves Spell [D]
+combat_mentalresist:Saves Mental [D]
+disarm_immune:Disarm resist.[D]
+teleport_immune:Teleport resist.[D]
+confusion_immune:Confusion resist.[D]
+poison_immune:Poison resist.[D]
+disease_immune:Disease resist.[D]
+cut_immune:Bleed resist.[D]
+fear_immune:Fear resist.[D]
+knockback_immune:Knockback resist.[D]
+sleep_immune:Sleep resist.[D]
+stun_immune:Stun/Freeze resist.[D]
+pin_immune:Pinning resist.[D]
+instakill_immune:Instadeath resist.[D]
+blind_immune:Blind resist.[D]
+stone_immune:Stoning resist.[D]
+silence_immune:Silence resist.[D]
+negative_status_effect_immune:All resist.[D]
+generic_damage_penalty:Damage when Hit Pen.[D]
+unused_talents:Class Points [L]
+unused_talents_types:Category Points [L]
+unused_generics:Generic Points [L]
+unused_prodigies:Prodigies [L]
+max_encumber:Encumbrance Max [I]
+</DropDownList>
+          <ShowAsHex>1</ShowAsHex>
+          <Color>FF00FF</Color>
+          <VariableType>String</VariableType>
+          <Length>29</Length>
+          <Unicode>0</Unicode>
+          <CodePage>0</CodePage>
+          <ZeroTerminate>1</ZeroTerminate>
+          <Address>tome_9</Address>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>195</ID>
+              <Description>"Activ."</Description>
+              <DropDownList ReadOnly="1" DescriptionOnly="1" DisplayValueAsItem="1">1:Yes
+0:No
+</DropDownList>
+              <Color>FF8000</Color>
+              <VariableType>4 Bytes</VariableType>
+              <Address>tome_12</Address>
+              <CheatEntries>
+                <CheatEntry>
+                  <ID>196</ID>
+                  <Description>"&gt;&gt;&gt;"</Description>
+                  <ShowAsSigned>1</ShowAsSigned>
+                  <Color>008000</Color>
+                  <VariableType>Double</VariableType>
+                  <Address>tome_13</Address>
+                  <Offsets>
+                    <Offset>0</Offset>
+                  </Offsets>
+                </CheatEntry>
+              </CheatEntries>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>197</ID>
+          <Description>"------------------------------------------- .../+ Stats [G] -------------------------------------------"</Description>
+          <LastState Value="" RealAddress="00000000"/>
+          <Color>000080</Color>
+          <GroupHeader>1</GroupHeader>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>198</ID>
+              <Description>"Strength"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>8</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>199</ID>
+              <Description>"Dexterity"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>10</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>203</ID>
+              <Description>"Constitution"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>30</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>200</ID>
+              <Description>"Magic"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>18</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>201</ID>
+              <Description>"Willpower"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>20</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>202</ID>
+              <Description>"Cunning"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>28</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>204</ID>
+              <Description>"Luck"</Description>
+              <Color>008000</Color>
+              <VariableType>Double</VariableType>
+              <Address>tome_17</Address>
+              <Offsets>
+                <Offset>38</Offset>
+                <Offset>8</Offset>
+                <Offset>0</Offset>
+              </Offsets>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+  <UserdefinedSymbols/>
+  <Comments>AlexS
+</Comments>
+</CheatTable>

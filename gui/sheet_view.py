@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QToolButton,
@@ -82,6 +84,109 @@ def _load_pixmap(path: Path, size: int) -> QPixmap:
                 Qt.TransformationMode.SmoothTransformation,
             )
     return _placeholder(size)
+
+
+def _load_stat_pixmap(path: Path, size: int) -> QPixmap:
+    """Load stat icons with black matte pixels converted to transparency."""
+    if not path.exists():
+        return _placeholder(size)
+
+    image = QImage(str(path)).convertToFormat(QImage.Format.Format_ARGB32)
+    if image.isNull():
+        return _placeholder(size)
+
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() == 0:
+                continue
+            if color.red() <= 10 and color.green() <= 10 and color.blue() <= 10:
+                color.setAlpha(0)
+                image.setPixelColor(x, y, color)
+
+    # Some legacy stat icons include a bottom underline/shadow band. First
+    # strip dark pixels connected to the bottom edge, then detect and remove a
+    # residual thin bottom band regardless of colour.
+    width = image.width()
+    height = image.height()
+    queue: deque[tuple[int, int]] = deque()
+    seen: set[tuple[int, int]] = set()
+
+    def is_dark(x: int, y: int) -> bool:
+        color = image.pixelColor(x, y)
+        return (
+            color.alpha() > 0
+            and color.red() <= 40
+            and color.green() <= 40
+            and color.blue() <= 40
+        )
+
+    for x in range(width):
+        if is_dark(x, height - 1):
+            queue.append((x, height - 1))
+            seen.add((x, height - 1))
+
+    while queue:
+        x, y = queue.popleft()
+        color = image.pixelColor(x, y)
+        color.setAlpha(0)
+        image.setPixelColor(x, y, color)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx = x + dx
+            ny = y + dy
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            if (nx, ny) in seen or not is_dark(nx, ny):
+                continue
+            seen.add((nx, ny))
+            queue.append((nx, ny))
+
+    top = height
+    bottom = -1
+    left = width
+    right = -1
+    for y in range(height):
+        for x in range(width):
+            if image.pixelColor(x, y).alpha() == 0:
+                continue
+            left = min(left, x)
+            right = max(right, x)
+            top = min(top, y)
+            bottom = max(bottom, y)
+
+    if bottom >= top:
+        row_counts: list[int] = []
+        for y in range(top, bottom + 1):
+            count = 0
+            for x in range(left, right + 1):
+                if image.pixelColor(x, y).alpha() > 0:
+                    count += 1
+            row_counts.append(count)
+
+        bottom_band = row_counts[-1]
+        removable_rows = 0
+        if bottom_band >= max(8, int((right - left + 1) * 0.45)):
+            removable_rows = 1
+            if len(row_counts) >= 2 and row_counts[-2] >= max(8, int((right - left + 1) * 0.35)):
+                removable_rows = 2
+
+        if removable_rows:
+            above_index = len(row_counts) - removable_rows - 1
+            above_count = row_counts[above_index] if above_index >= 0 else 0
+            if above_count <= max(3, int(bottom_band * 0.45)):
+                for y in range(bottom - removable_rows + 1, bottom + 1):
+                    for x in range(left, right + 1):
+                        color = image.pixelColor(x, y)
+                        color.setAlpha(0)
+                        image.setPixelColor(x, y, color)
+
+    pixmap = _trim_transparent_bounds(QPixmap.fromImage(image))
+    return pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
 
 
 def _placeholder(size: int, letter: str = "?") -> QPixmap:
@@ -355,6 +460,8 @@ class _StatsRow(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent; border: none;")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(4, 0, 4, 4)
         lay.setSpacing(12)
@@ -376,8 +483,11 @@ class _StatsRow(QWidget):
             col.setSpacing(2)
             col.setContentsMargins(0, 0, 0, 0)
 
-            px = _load_pixmap(STAT_ICONS / f"{_STAT_ICONS[stat_name]}.png", _ICON_STAT)
+            px = _load_stat_pixmap(STAT_ICONS / f"{_STAT_ICONS[stat_name]}.png", _ICON_STAT)
             ico = QLabel()
+            ico.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            ico.setStyleSheet("background: transparent; border: none;")
+            ico.setFixedSize(_ICON_STAT, _ICON_STAT)
             ico.setPixmap(px)
             ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -396,6 +506,8 @@ class _StatsRow(QWidget):
             col.addWidget(abbr)
 
             w = QWidget()
+            w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            w.setStyleSheet("background: transparent; border: none;")
             w.setLayout(col)
             lay.addWidget(w, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -558,7 +670,7 @@ class _ItemListPanel(QWidget):
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(8, 6, 0, 0)
         root.setSpacing(6)
 
         title_lbl = QLabel(title)
@@ -903,7 +1015,7 @@ class _HeaderBar(QWidget):
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(12, 6, 12, 6)
-        lay.setSpacing(10)
+        lay.setSpacing(4)
 
         self._class_icon = QLabel()
         self._class_icon.setFixedSize(_ICON_CLASS, _ICON_CLASS)
@@ -914,13 +1026,12 @@ class _HeaderBar(QWidget):
         self._char_btn = QToolButton()
         self._char_btn.setText("No character loaded  \u25be")
         self._char_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._char_btn.setMinimumWidth(320)
+        self._char_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self._char_btn.setStyleSheet(
             f"QToolButton {{"
             f"  background: transparent;"
             f"  border: none;"
-            f"  padding: 0 8px;"
-            f"  text-align: left;"
+            f"  padding: 0 4px;"
             f"  color: {SUBTEXT0};"
             f"}}"
             f"QToolButton:hover {{ color: {TEXT}; }}"
@@ -939,30 +1050,35 @@ class _HeaderBar(QWidget):
 
         self._hp_lbl = QLabel("")
         self._hp_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 12px; padding-right: 8px;"
+            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 8px; padding-right: 4px;"
         )
+        self._hp_lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self._hp_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         # Divider between HP and mana
         self._resource_sep = QLabel("|")
-        self._resource_sep.setStyleSheet(f"color: {SURFACE2}; font-size: 13px; padding: 0 2px;")
+        self._resource_sep.setStyleSheet(f"color: {SURFACE2}; font-size: 13px; padding: 0;")
+        self._resource_sep.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self._resource_sep.setVisible(False)
 
         self._mana_lbl = QLabel("")
         self._mana_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 4px; padding-right: 12px;"
+            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 2px; padding-right: 4px;"
         )
+        self._mana_lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self._mana_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._mana_lbl.setVisible(False)
 
         self._exp_sep = QLabel("|")
-        self._exp_sep.setStyleSheet(f"color: {SURFACE2}; font-size: 13px; padding: 0 2px;")
+        self._exp_sep.setStyleSheet(f"color: {SURFACE2}; font-size: 13px; padding: 0;")
+        self._exp_sep.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self._exp_sep.setVisible(False)
 
         self._exp_lbl = QLabel("")
         self._exp_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 4px; padding-right: 12px;"
+            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 2px; padding-right: 4px;"
         )
+        self._exp_lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self._exp_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._exp_lbl.setVisible(False)
 
@@ -971,7 +1087,8 @@ class _HeaderBar(QWidget):
             0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
-        lay.addWidget(self._char_btn, 1)
+        lay.addWidget(self._char_btn, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        lay.addStretch(1)
         lay.addWidget(self._actions_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(self._hp_lbl, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(self._resource_sep, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -997,8 +1114,8 @@ class _HeaderBar(QWidget):
         label = "   ·   ".join(parts) if parts else "No character loaded"
         self._char_btn.setText(f"{label}  \u25be")
 
-    _HP_STYLE   = "font-size: 13px; font-weight: 700; padding-left: 12px; padding-right: 8px;"
-    _MANA_STYLE = "font-size: 13px; font-weight: 700; padding-left: 4px; padding-right: 12px;"
+    _HP_STYLE   = "font-size: 13px; font-weight: 700; padding-left: 8px; padding-right: 4px;"
+    _MANA_STYLE = "font-size: 13px; font-weight: 700; padding-left: 2px; padding-right: 4px;"
 
     def set_hp(self, life: float, max_life: float) -> None:
         pct = life / max_life if max_life > 0 else 0
@@ -1022,7 +1139,7 @@ class _HeaderBar(QWidget):
         self._mana_lbl.setVisible(False)
         self._mana_lbl.setText("")
 
-    _EXP_STYLE = "font-size: 13px; font-weight: 700; padding-left: 4px; padding-right: 12px;"
+    _EXP_STYLE = "font-size: 13px; font-weight: 700; padding-left: 2px; padding-right: 4px;"
 
     def set_exp(self, exp: float, needed: float) -> None:
         pct = int(exp / needed * 100) if needed > 0 else 0

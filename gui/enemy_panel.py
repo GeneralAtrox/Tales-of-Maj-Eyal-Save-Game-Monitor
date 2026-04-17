@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -49,6 +49,7 @@ from gui.theme import (
 _ICONS_ROOT = Path(__file__).resolve().parent.parent / "Icons"
 _ICON_CACHE: dict[str, Path | None] = {}   # image_hint key → Path or None
 _ICON_SIZE = 32
+_PREVIEW_SIZE = 160
 
 # Truncate lore text longer than this in the card (full text goes to tooltip).
 _DESC_MAX_CHARS = 160
@@ -142,6 +143,68 @@ def _resist_spans(entity: EntityInfo) -> list[str]:
     return spans
 
 
+def _build_enemy_pixmap(
+    entity: EntityInfo,
+    image_hint: str,
+    size: int,
+) -> QPixmap | None:
+    """Build a sprite pixmap for an enemy card at the requested size."""
+    pix: QPixmap | None = None
+    distinct_layers = list(dict.fromkeys(entity.sprite_layers))
+    if len(distinct_layers) > 1:
+        pix = compose_layers(distinct_layers, size=size)
+    if pix is None and image_hint:
+        icon_path = _resolve_icon(image_hint)
+        if icon_path:
+            pix = QPixmap(str(icon_path)).scaled(
+                QSize(size, size),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+    return pix
+
+
+class _HoverPreviewLabel(QLabel):
+    """Enemy portrait label that shows a larger sprite preview while hovered."""
+
+    def __init__(self, pixmap: QPixmap, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._preview = QLabel(
+            None,
+            Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint,
+        )
+        self._preview.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview.setStyleSheet(
+            f"background: {SURFACE0};"
+            f"border: 1px solid {BORDER};"
+            f"border-radius: 6px;"
+            f"padding: 8px;"
+        )
+        self._preview.setPixmap(pixmap)
+        self._preview.adjustSize()
+
+    def enterEvent(self, event) -> None:  # type: ignore[override]
+        self._move_preview()
+        self._preview.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # type: ignore[override]
+        self._preview.hide()
+        super().leaveEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        self._move_preview()
+        super().mouseMoveEvent(event)
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        self._preview.hide()
+        super().hideEvent(event)
+
+    def _move_preview(self) -> None:
+        self._preview.move(QCursor.pos() + QPoint(18, 18))
+
+
 class _EnemyCard(QFrame):
     """Single enemy row — sprite + name, HP bar, rank badge, key stats, lore."""
 
@@ -155,6 +218,7 @@ class _EnemyCard(QFrame):
             f"  border-radius: 4px;"
             f"}}"
         )
+        self.setToolTip("")
 
         # Look up NPC record for lore text, trying three strategies in order:
         # 1. Exact name match (works for generic mobs with their Lua name).
@@ -163,10 +227,18 @@ class _EnemyCard(QFrame):
         # 3. Shockbolt filename convention: npc/{type}_{subtype}_{name}.png —
         #    catches entities like faerlhing whose Lua has no image= but whose
         #    gfx-pack sprite path encodes the name (→ Neriyamira the Guardian).
-        npc: NpcRecord | None = get_npc_db().get(entity.name.lower())
+        npc_db = get_npc_db()
+        entity_name = entity.name.lower()
+        npc: NpcRecord | None = npc_db.get(entity_name)
+        if npc is None and " (" in entity_name:
+            npc = npc_db.get(entity_name.split(" (", 1)[0].strip())
         if npc is None:
-            for layer in entity.sprite_layers:
-                npc = lookup_by_sprite(layer)
+            sprite_hints = []
+            if entity.image:
+                sprite_hints.append(entity.image)
+            sprite_hints.extend(entity.sprite_layers)
+            for hint in dict.fromkeys(sprite_hints):
+                npc = lookup_by_sprite(hint)
                 if npc:
                     break
 
@@ -189,26 +261,16 @@ class _EnemyCard(QFrame):
         # Composite entities (golem etc.) have ordered layers; single-sprite
         # entities just have image_hint.  compose_layers handles both cases
         # and extracts any missing PNGs from the gfx pack on demand.
-        pix: QPixmap | None = None
-        # Only composite when there are multiple distinct layers — single-layer
-        # entities (or layers that are all the same image) use the fast path below.
-        distinct_layers = list(dict.fromkeys(entity.sprite_layers))  # deduplicated, order kept
-        if len(distinct_layers) > 1:
-            pix = compose_layers(distinct_layers, size=_ICON_SIZE)
-        if pix is None and image_hint:
-            icon_path = _resolve_icon(image_hint)
-            if icon_path:
-                pix = QPixmap(str(icon_path)).scaled(
-                    QSize(_ICON_SIZE, _ICON_SIZE),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+        pix = _build_enemy_pixmap(entity, image_hint, _ICON_SIZE)
+        preview_pix = _build_enemy_pixmap(entity, image_hint, _PREVIEW_SIZE)
         if pix is not None:
-            icon_lbl = QLabel()
+            icon_lbl = _HoverPreviewLabel(preview_pix or pix)
             icon_lbl.setPixmap(pix)
             icon_lbl.setFixedSize(_ICON_SIZE, _ICON_SIZE)
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            outer.addWidget(icon_lbl, alignment=Qt.AlignmentFlag.AlignTop)
+            icon_lbl.setMouseTracking(True)
+            icon_lbl.setToolTip("")
+            outer.addWidget(icon_lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         # ── Info column ──
         info = QVBoxLayout()
@@ -301,22 +363,6 @@ class _EnemyCard(QFrame):
             stats_lbl.setStyleSheet("font-size: 11px;")
             info.addWidget(stats_lbl)
 
-        # ── Full field dump tooltip ──
-        if entity.all_fields:
-            # Organised sections: key identity fields first, then everything else
-            priority = ("type", "subtype", "size_category", "unique", "ai",
-                        "autolevel", "image", "faction", "rank", "level",
-                        "life", "max_life", "combat_armor", "combat_def",
-                        "combat_physresist", "combat_spellresist", "combat_mentalresist")
-            lines: list[str] = []
-            for k in priority:
-                if k in entity.all_fields:
-                    lines.append(f"{k}: {entity.all_fields[k]!r}")
-            for k, v in sorted(entity.all_fields.items()):
-                if k not in priority:
-                    lines.append(f"{k}: {v!r}")
-            self.setToolTip("\n".join(lines))
-
         # ── Row 4: lore description (truncated) ──
         if npc and npc.desc:
             full_desc = npc.desc
@@ -331,9 +377,6 @@ class _EnemyCard(QFrame):
             desc_lbl.setStyleSheet(
                 f"color: {SUBTEXT0}; font-size: 11px; font-style: italic;"
             )
-            if len(one_line) > _DESC_MAX_CHARS:
-                # Full text as tooltip
-                self.setToolTip(full_desc)
             info.addWidget(desc_lbl)
 
         outer.addLayout(info, stretch=1)
@@ -351,7 +394,7 @@ class EnemyPanel(QWidget):
         self._throbber_frame = 0
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setContentsMargins(8, 6, 0, 0)
         outer.setSpacing(6)
 
         # ── Header ──

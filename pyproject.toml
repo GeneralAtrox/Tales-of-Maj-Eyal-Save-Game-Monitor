@@ -8,6 +8,8 @@ dependencies = [
     "beautifulsoup4",
     "requests",
     "PySide6",
+    "pyuac",
+    "pypiwin32",
 ]
 
 [tool.ruff]

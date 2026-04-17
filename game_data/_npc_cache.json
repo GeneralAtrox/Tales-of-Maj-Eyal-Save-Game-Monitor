@@ -1,0 +1,2326 @@
+{
+  "sandworm": {
+    "desc": "A huge worm coloured as the sand it inhabits. It seems quite unhappy about you being in its lair.",
+    "image": ""
+  },
+  "sandworm destroyer": {
+    "desc": "A huge worm coloured as the sand it inhabits. This particular sandworm seems to have been bred for one purpose only: the eradication of everything that is non-sandworm, such as... you.",
+    "image": ""
+  },
+  "sand-drake": {
+    "desc": "This unholy creature looks like a wingless dragon in shape, but it is sand-colored, making it all the more dangerous for its prey.",
+    "image": ""
+  },
+  "gigantic sandworm tunneler": {
+    "desc": "The ground shakes as this huge worm burrows towards you, its gigantic mouth just as capable of devouring flesh as stone.",
+    "image": "npc/vermin_sandworm_gigantic_sandworm_tunneler.png"
+  },
+  "gigantic gravity worm": {
+    "desc": "Space and time seem to bend around this huge worm.",
+    "image": "npc/vermin_sandworm_gigantic_gravity_worm.png"
+  },
+  "gigantic corrosive tunneler": {
+    "desc": "This huge worm burrows through the earth using its powerful corrosive saliva.",
+    "image": "npc/vermin_sandworm_gigantic_corrosive_tunneler.png"
+  },
+  "wisp": {
+    "desc": "A floating orb of magical energy. It shines with a radiant light. They explode upon contact.",
+    "image": ""
+  },
+  "red crystal": {
+    "desc": "A formation of red crystal. It emits bright red, scorching light.",
+    "image": "npc/crystal_red.png"
+  },
+  "white crystal": {
+    "desc": "A formation of white crystal. It emits bright white, chilling light.",
+    "image": ""
+  },
+  "black crystal": {
+    "desc": "A formation of black crystal. It absorbs all light around it.",
+    "image": "npc/crystal_black.png"
+  },
+  "crimson crystal": {
+    "desc": "A formation of crimson crystal. It emits a crimson light reminiscent of blood.",
+    "image": "npc/crystal_darkred.png"
+  },
+  "blue crystal": {
+    "desc": "A formation of blue crystal. Its light shines like the ocean's waves.",
+    "image": "npc/crystal_blue.png"
+  },
+  "multi-hued crystal": {
+    "desc": "A formation of multi-hued crystal. It shines with all the colors of the rainbow.",
+    "image": "npc/crystal_violet.png"
+  },
+  "shimmering crystal": {
+    "desc": "A formation of shimmering crystal. Orbs of light circle around it.",
+    "image": ""
+  },
+  "cutpurse": {
+    "desc": "The lowest of the thieves, this cutpurse is just learning the tricks of the trade.",
+    "image": ""
+  },
+  "rogue": {
+    "desc": "Stealthy fighters trying to achieve victory with trickery. Be careful or they will steal your sight!",
+    "image": ""
+  },
+  "thief": {
+    "desc": "He eyes you and your belongings, then suddenly vanishes... strange, why is your pack lighter?",
+    "image": ""
+  },
+  "bandit": {
+    "desc": "These ruffians often employ brute force over thievery, but they are capable of stealing as well.",
+    "image": ""
+  },
+  "bandit lord": {
+    "desc": "He is the leader of a gang of bandits. Watch out for his underlings.",
+    "image": ""
+  },
+  "assassin": {
+    "desc": "Before you looms a pair of eyes... a glint of steel... death.",
+    "image": ""
+  },
+  "shadowblade": {
+    "desc": "Stealthy fighters trying to achieve victory with trickery. Be careful or they will steal your life!",
+    "image": ""
+  },
+  "rogue sapper": {
+    "desc": "Stealthy tricksters that leave a wake of deadfalls and other hazards.  They really just make a mess of things.",
+    "image": "npc/humanoid_human_assassin.png"
+  },
+  "venom drake hatchling": {
+    "desc": "A corrosive venom drake hatchling; not too powerful by itself, but it usually comes with its brothers and sisters.",
+    "image": ""
+  },
+  "venom drake": {
+    "desc": "A mature corrosive venom drake, armed with deadly breath and nasty claws.",
+    "image": ""
+  },
+  "venom wyrm": {
+    "desc": "An old and powerful corrosive venom drake, armed with deadly breath and nasty claws.",
+    "image": ""
+  },
+  "naga myrmidon": {
+    "desc": "Before you stands a tall figure -- a very tall figure, propped high by a thick serpent's tail in place of where his legs should rightly be. His torso is human-like, with bulging muscles beneath fitted armour, and large hands gripping a fiercely sharp trident. He glares at you with dark intensity, like a wolf about to pounce on unsuspecting prey.",
+    "image": "npc/naga_myrmidon.png"
+  },
+  "naga tide huntress": {
+    "desc": "Though the sharp point of an arrow pointed steadily at your head is of concern, more unnerving is the creature that wields it: a slim and lithe woman from the waist up, but a terrifying giant serpent beneath, her tail stretching for several feet behind her. Her eyes turn cold and ice seems to magically condense on the tip of her barbed arrow. Suddenly it is of concern again.",
+    "image": "npc/naga_tide_huntress.png"
+  },
+  "naga psyren": {
+    "desc": "Such a mix of enchanting beauty and revolting horror you have never before seen combined. Above, a beautiful, ethereal woman, of scant form and entrancing grace. Below, the thick, smooth scales of a snake, its stretched tail gently waving back and forth in the air behind her. The movement is eye-catching and hypnotic, and whilst you watch a mysterious smile plays across her seductive lips.",
+    "image": "npc/naga_psyren.png"
+  },
+  "giant white ant": {
+    "desc": "It's a large white ant.",
+    "image": "npc/white_ant.png"
+  },
+  "giant brown ant": {
+    "desc": "It's a large brown ant.",
+    "image": "npc/brown_ant.png"
+  },
+  "giant carpenter ant": {
+    "desc": "It's a large black ant with huge mandibles.",
+    "image": "npc/carpenter_ant.png"
+  },
+  "giant green ant": {
+    "desc": "It's a large green ant.",
+    "image": "npc/green_ant.png"
+  },
+  "giant red ant": {
+    "desc": "It's a large red ant.",
+    "image": "npc/red_ant.png"
+  },
+  "giant blue ant": {
+    "desc": "It's a large blue ant.",
+    "image": "npc/blue_ant.png"
+  },
+  "giant yellow ant": {
+    "desc": "It's a large yellow ant.",
+    "image": "npc/yellow_ant.png"
+  },
+  "giant black ant": {
+    "desc": "It's a large black ant.",
+    "image": "npc/black_ant.png"
+  },
+  "giant fire ant": {
+    "desc": "It's a large red ant, wreathed in flames.",
+    "image": "npc/fire_ant.png"
+  },
+  "giant ice ant": {
+    "desc": "It's a large white ant. The air is frigid around it.",
+    "image": "npc/ice_ant.png"
+  },
+  "giant lightning ant": {
+    "desc": "It's a large yellow ant with sparks arcing across its body.",
+    "image": "npc/lightning_ant.png"
+  },
+  "giant acid ant": {
+    "desc": "It's a large black ant.  Its porous skin oozes acid.",
+    "image": "npc/acid_ant.png"
+  },
+  "giant army ant": {
+    "desc": "It's a large ant with a heavy exoskeleton, geared for war.",
+    "image": "npc/army_ant.png"
+  },
+  "queen ant": {
+    "desc": "Queen of the ants, queen of the biting death!",
+    "image": "npc/insect_ant_queen_ant.png"
+  },
+  "gwelgoroth": {
+    "desc": "Gwelgoroth are mighty air elementals, a pure incarnation of lightning and thunder.",
+    "image": ""
+  },
+  "greater gwelgoroth": {
+    "desc": "Gwelgoroth are mighty air elementals, a pure incarnation of lightning and thunder.",
+    "image": "npc/elemental_air_greater_gwelgoroth.png"
+  },
+  "ultimate gwelgoroth": {
+    "desc": "Gwelgoroth are mighty air elementals, a pure incarnation of lightning and thunder.",
+    "image": "npc/elemental_air_ultimate_gwelgoroth.png"
+  },
+  "telugoroth": {
+    "desc": "A temporal elemental, rarely encountered except by those who travel through time itself.  Its blurred form constantly shifts before your eyes.",
+    "image": ""
+  },
+  "greater telugoroth": {
+    "desc": "A temporal elemental, rarely encountered except by those who travel through time itself.  Its blurred form constantly shifts before your eyes.",
+    "image": "npc/elemental_temporal_greater_telugoroth.png"
+  },
+  "ultimate telugoroth": {
+    "desc": "A temporal elemental, rarely encountered except by those who travel through time itself.  Its blurred form constantly shifts before your eyes.",
+    "image": "npc/elemental_temporal_ultimate_telugoroth.png"
+  },
+  "teluvorta": {
+    "desc": "Time and space collapse in upon this erratically-moving time elemental.",
+    "image": ""
+  },
+  "greater teluvorta": {
+    "desc": "Time and space collapse in upon this erratically-moving time elemental.",
+    "image": "npc/elemental_temporal_greater_teluvorta.png"
+  },
+  "ultimate teluvorta": {
+    "desc": "Time and space collapse in upon this erratically-moving time elemental.",
+    "image": "npc/elemental_temporal_ultimate_teluvorta.png"
+  },
+  "water imp": {
+    "desc": "A small water demon, lobbing spells at you.",
+    "image": ""
+  },
+  "walrog": {
+    "desc": "Walrog, the lord of Water, is fearsome to behold. The water writhes around him as if trying to escape, making his form indistinct. He does not seem surprised to see you.",
+    "image": "npc/aquatic_demon_walrog.png"
+  },
+  "green ooze": {
+    "desc": "It's green and it's oozing.",
+    "image": ""
+  },
+  "red ooze": {
+    "desc": "It's red and it's oozing.",
+    "image": ""
+  },
+  "blue ooze": {
+    "desc": "It's blue and it's oozing.",
+    "image": ""
+  },
+  "white ooze": {
+    "desc": "It's white and it's oozing.",
+    "image": ""
+  },
+  "yellow ooze": {
+    "desc": "It's yellow and it's oozing.",
+    "image": ""
+  },
+  "black ooze": {
+    "desc": "It's black and it's oozing.",
+    "image": ""
+  },
+  "gelatinous cube": {
+    "desc": "It is a strange, vast gelatinous structure that assumes cubic proportions as it lines all four walls of the corridors it patrols.\nThrough its transparent jelly structure you can see treasures it has engulfed, and a few corpses as well.",
+    "image": ""
+  },
+  "crimson ooze": {
+    "desc": "It's reddish and it's oozing.",
+    "image": ""
+  },
+  "brittle clear ooze": {
+    "desc": "It's translucent and it's oozing.",
+    "image": ""
+  },
+  "slimy ooze": {
+    "desc": "It's very slimy and it's oozing.",
+    "image": ""
+  },
+  "poison ooze": {
+    "desc": "It's very slimy and it's oozing.",
+    "image": ""
+  },
+  "morphic ooze": {
+    "desc": "Its shape changes every few seconds.",
+    "image": ""
+  },
+  "midge swarm": {
+    "desc": "A swarm of midges; they want blood.",
+    "image": "npc/midge_swarm.png"
+  },
+  "bee swarm": {
+    "desc": "They buzz at you threateningly, as you have gotten too close to their hive.",
+    "image": "npc/bee_swarm.png"
+  },
+  "hornet swarm": {
+    "desc": "You have intruded on their ground, and they will defend it at all costs.",
+    "image": "npc/hornet_swarm.png"
+  },
+  "hummerhorn": {
+    "desc": "A giant buzzing wasp, its stinger dripping venom.",
+    "image": "npc/hummerhorn.png"
+  },
+  "giant white mouse": {
+    "desc": "",
+    "image": ""
+  },
+  "giant brown mouse": {
+    "desc": "",
+    "image": ""
+  },
+  "giant white rat": {
+    "desc": "",
+    "image": ""
+  },
+  "giant brown rat": {
+    "desc": "",
+    "image": ""
+  },
+  "giant rabbit": {
+    "desc": "Kill the wabbit, kill the wabbit, kill the wabbbbbiiiiiit.",
+    "image": ""
+  },
+  "giant crystal rat": {
+    "desc": "Instead of fur, this rat has crystals growing on its back, which provide extra protection.",
+    "image": ""
+  },
+  "giant grey mouse": {
+    "desc": "",
+    "image": ""
+  },
+  "giant grey rat": {
+    "desc": "",
+    "image": ""
+  },
+  "broken golem": {
+    "desc": "This golem is badly damaged.",
+    "image": ""
+  },
+  "golem": {
+    "desc": "This golem's eyes glow with magical energies.",
+    "image": ""
+  },
+  "alchemist golem": {
+    "desc": "This golem's eyes glow with magical energies.",
+    "image": ""
+  },
+  "spire dragon": {
+    "desc": "A monstrous, coiled wyrm, patient and hateful. Its hide, studded with spikes and crests and blades, turns aside steel and sorcery with equal ease.",
+    "image": "npc/dragon_wild_spire_dragon.png"
+  },
+  "blinkwyrm": {
+    "desc": "A shifting, writhing, snake-like dragon, blinking in and out of existence, just waiting for you to turn your back.",
+    "image": "npc/dragon_wild_blinkwyrm.png"
+  },
+  "giant venus flytrap": {
+    "desc": "This flesh-eating plant has grown to enormous proportions and seeks to quell its hunger.",
+    "image": ""
+  },
+  "treant": {
+    "desc": "A very strong near-sentient tree, which has become hostile to other living things.",
+    "image": "npc/immovable_plants_treant.png"
+  },
+  "poison ivy": {
+    "desc": "This harmless little plant makes you all itchy.",
+    "image": ""
+  },
+  "honey tree": {
+    "desc": "As you approach it, you hear a high-pitched buzzing sound.",
+    "image": ""
+  },
+  "ziguranth warrior": {
+    "desc": "A Ziguranth warrior, clad in heavy armour.",
+    "image": ""
+  },
+  "ziguranth summoner": {
+    "desc": "A Ziguranth wilder, attuned to nature.",
+    "image": ""
+  },
+  "ziguranth wyrmic": {
+    "desc": "A Ziguranth wilder, attuned to nature.",
+    "image": ""
+  },
+  "lesser vampire": {
+    "desc": "This vampire has only just begun its new life. It has not yet fathomed its newfound power, yet it still has a thirst for blood.",
+    "image": "npc/lesser_vampire.png"
+  },
+  "vampire": {
+    "desc": "It is a humanoid with an aura of power. You notice a sharp set of front teeth.",
+    "image": "npc/vampire.png"
+  },
+  "master vampire": {
+    "desc": "It is a humanoid form dressed in robes. Power emanates from its chilling frame.",
+    "image": "npc/master_vampire.png"
+  },
+  "elder vampire": {
+    "desc": "A terrible robed undead figure, this creature has existed in its unlife for many centuries by stealing the life of others.\nIt can summon the very shades of its victims from beyond the grave to come enslaved to its aid.",
+    "image": "npc/elder_vampire.png"
+  },
+  "vampire lord": {
+    "desc": "A foul wind chills your bones as this ghastly figure approaches.",
+    "image": "npc/vampire_lord.png"
+  },
+  "forest troll": {
+    "desc": "Green-skinned and ugly, this massive humanoid glares at you, clenching wart-covered green fists.",
+    "image": "npc/troll_f.png"
+  },
+  "stone troll": {
+    "desc": "A giant troll with scabrous black skin. With a shudder, you notice the belt of dwarf skulls around his massive waist.",
+    "image": "npc/troll_s.png"
+  },
+  "cave troll": {
+    "desc": "This huge troll wields a massive spear and has a disturbingly intelligent look in its piggy eyes.",
+    "image": "npc/troll_c.png"
+  },
+  "mountain troll": {
+    "desc": "A large and athletic troll with an extremely tough and warty hide.",
+    "image": "npc/troll_m.png"
+  },
+  "mountain troll thunderer": {
+    "desc": "A large and athletic troll with an extremely tough and warty hide.",
+    "image": "npc/troll_mt.png"
+  },
+  "patchwork troll": {
+    "desc": "A disgusting and mismatched construct of necromantically-enhanced troll bits and shattered weapons. Confused and furious, it rends and shatters its surroundings with impossible strength, moving with speed found nowhere in nature.",
+    "image": ""
+  },
+  "forest troll hedge-wizard": {
+    "desc": "This old-looking troll glares at you with malice. His muscles appear atrophied, but a certain power surrounds him nonetheless.",
+    "image": ""
+  },
+  "lich": {
+    "desc": "Having thought to discover life eternal, these beings have allowed undeath to rob them of the joys of life. Now they seek to destroy it as well.",
+    "image": "npc/undead_lich_lich.png"
+  },
+  "ancient lich": {
+    "desc": "An elder being from a now-forgotten age, filled and fueled by its hate and rage toward all things living, it seeks to deprive all others of a prize it cannot have... life.",
+    "image": "npc/undead_lich_ancient_lich.png"
+  },
+  "archlich": {
+    "desc": "Blacker than the deepest night, this cold cruel form of darkness approaches.  Long ago it laid aside its mortality, but it has not forgotten its power; rather, its malice and hate have bent this undead entity on the destruction of all things living.",
+    "image": "npc/undead_lich_archlich.png"
+  },
+  "blood lich": {
+    "desc": "The seething, pumping, disembodied blood of a horrendously powerful necromancer. To strike it is to bathe in the rivers of the Fearscape itself.",
+    "image": ""
+  },
+  "orc fighter": {
+    "desc": "An orc clad in massive armour, wielding a shield and a deadly axe.",
+    "image": ""
+  },
+  "orc elite fighter": {
+    "desc": "An orc clad in massive armour, wielding a shield and a deadly axe.",
+    "image": ""
+  },
+  "orc berserker": {
+    "desc": "An orc clad in massive armour, wielding a huge axe.",
+    "image": ""
+  },
+  "orc elite berserker": {
+    "desc": "An orc clad in massive armour, wielding a huge axe.",
+    "image": ""
+  },
+  "faeros": {
+    "desc": "Faeros are highly intelligent fire elementals, rarely seen outside volcanoes. They are probably not native to this world.",
+    "image": ""
+  },
+  "greater faeros": {
+    "desc": "Faeros are highly intelligent fire elementals, rarely seen outside volcanoes. They are probably not native to this world.",
+    "image": ""
+  },
+  "ultimate faeros": {
+    "desc": "Faeros are highly intelligent fire elementals, rarely seen outside volcanoes. They are probably not native to this world.",
+    "image": "npc/elemental_fire_ultimate_faeros.png"
+  },
+  "elven guard": {
+    "desc": "An elven guard.",
+    "image": ""
+  },
+  "mean looking elven guard": {
+    "desc": "An elven guard, scarred and sullen.",
+    "image": ""
+  },
+  "elven warrior": {
+    "desc": "An elven warrior, clad in heavy armour.",
+    "image": ""
+  },
+  "elven elite warrior": {
+    "desc": "An elven warrior, clad in heavy armour.",
+    "image": ""
+  },
+  "necrotic mass": {
+    "desc": "This putrid mass of rotting flesh shifts and quivers, but shows no signs of intelligence or mobility.",
+    "image": "npc/undead_horror_necrotic_mass.png"
+  },
+  "necrotic abomination": {
+    "desc": "This monstrous form of putrid, torn flesh and chipped bone drags its mass towards you, spurting blood and viscera along the way.",
+    "image": "npc/undead_horror_necrotic_abomination.png"
+  },
+  "bone horror": {
+    "desc": "The massive ribcage in the middle beats with loud, audible cracks, as many a skeletal hand protrude forth, entwining, fusing, forming long skeletal appendages to support itself, while others crumble and collapse inward. During all this, somehow, it seems they grasp for you.",
+    "image": "npc/undead_horror_bone_horror.png"
+  },
+  "sanguine horror": {
+    "desc": "This pulsing, quivering form is a deep crimson, and appears to be composed entirely of thick, virulent blood. Waves rhythmically ripple across its surface, indicating a still beating heart somewhere in its body.",
+    "image": "npc/undead_horror_sanguine_horror.png"
+  },
+  "animated blood": {
+    "desc": "This crimson shape drips ceaselessly, spattering the nearby ground. The droplets seem to continue moving of their own volition.",
+    "image": "npc/undead_horror_animated_blood.png"
+  },
+  "snow cat": {
+    "desc": "A large cat with a grey fur matted with black.",
+    "image": "npc/animal_feline_snow_cat.png"
+  },
+  "panther": {
+    "desc": "A large black cat, slender and muscular.",
+    "image": ""
+  },
+  "tiger": {
+    "desc": "A truly magnificent beast, with fur striped black and yellow.",
+    "image": ""
+  },
+  "sabertooth tiger": {
+    "desc": "This cat is simply enormous, and has fangs with the size and sharpness of short swords.",
+    "image": ""
+  },
+  "skeletal rat": {
+    "desc": "The diminutive skeleton of a giant rat, charged with evil energies. Nobody understands the usefulness of undead rodents until several of them come after you.",
+    "image": ""
+  },
+  "ghoulish rat": {
+    "desc": "Layers of rotting skin are peeling off of this rat. One of the eye sockets appears empty.",
+    "image": ""
+  },
+  "spectral rat": {
+    "desc": "An eerie haze surrounds this translucent rat.",
+    "image": ""
+  },
+  "vampire rat": {
+    "desc": "Looks much like a normal rat. That is, other than the very large fangs.",
+    "image": ""
+  },
+  "gigantic bone rat": {
+    "desc": "This massive beast appears to be a rat composed of countless bones fused together.",
+    "image": "npc/undead_rodent_gigantic_bone_rat.png"
+  },
+  "rat lich": {
+    "desc": "The master of the pit is before you. It squeaks with menace as it and a horde of minions approach you.",
+    "image": ""
+  },
+  "elven mage": {
+    "desc": "An elven mage, dressed in dark robes.",
+    "image": ""
+  },
+  "elven tempest": {
+    "desc": "An elven mage, dressed in crackling blue robes, and smelling of ozone.",
+    "image": ""
+  },
+  "elven cultist": {
+    "desc": "An elven cultist, dressed in sickening green robes.",
+    "image": ""
+  },
+  "elven blood mage": {
+    "desc": "An elven blood mage, dressing in dark, bloodied robes.",
+    "image": ""
+  },
+  "elven corruptor": {
+    "desc": "An elven corruptor, drawn to these blighted lands.",
+    "image": ""
+  },
+  "giant eel": {
+    "desc": "A snake-like being, moving toward you.",
+    "image": ""
+  },
+  "electric eel": {
+    "desc": "A snake-like being, radiating electricity.",
+    "image": ""
+  },
+  "dragon turtle": {
+    "desc": "A huge, elongated sea-green reptile.",
+    "image": ""
+  },
+  "ancient dragon turtle": {
+    "desc": "A huge, elongated sea-green reptile, it looks old and impenetrable.",
+    "image": "npc/aquatic_critter_ancient_dragon_turtle.png"
+  },
+  "squid": {
+    "desc": "Darting its many tentacles toward you, it tries to lock you down.",
+    "image": ""
+  },
+  "ink squid": {
+    "desc": "Darting its many tentacles toward you, it tries to blind you with its murky ink.",
+    "image": ""
+  },
+  "shivgoroth": {
+    "desc": "Shivgoroth are mighty ice elementals, torn away from their home world by a powerful magic.",
+    "image": "npc/elemental_ice_shivgoroth.png"
+  },
+  "greater shivgoroth": {
+    "desc": "Shivgoroth are mighty ice elementals, torn away from their home world by a powerful magic.",
+    "image": "npc/elemental_ice_greater_shivgoroth.png"
+  },
+  "ultimate shivgoroth": {
+    "desc": "Shivgoroth are mighty ice elementals, torn away from their home world by a powerful magic.",
+    "image": "npc/elemental_ice_ultimate_shivgoroth.png"
+  },
+  "umber hulk": {
+    "desc": "This bizarre creature has glaring eyes and large mandibles capable of slicing through rock.",
+    "image": ""
+  },
+  "xorn": {
+    "desc": "A huge creature of the element Earth. Able to merge with its element, it has four huge arms protruding from its enormous torso.",
+    "image": ""
+  },
+  "xaren": {
+    "desc": "It is a tougher relative of the Xorn. Its hide glitters with metal ores.",
+    "image": ""
+  },
+  "the fragmented essence of harkor'zun": {
+    "desc": "Fragmented essence... maybe it'd be best if it stayed fragmented.",
+    "image": "npc/elemental_xorn_fragmented_harkor_zun.png"
+  },
+  "harkor'zun": {
+    "desc": "A gigantic demon composed of elemental Earth, resembling a twisted Xaren but much, much larger.  It doesn't seem pleased with your presence.",
+    "image": "npc/elemental_xorn_harkor_zun.png"
+  },
+  "drem": {
+    "desc": "A small faceless humanoid with vaguely Dwarven features.  Its waraxe and shield look battered, rusted, and generally in ill repair.",
+    "image": "npc/horror_corrupted_dremling.png"
+  },
+  "dremling": {
+    "desc": "A giant black-skinned humanoid covered in spikey scabrous deposits.  Its face is featureless; its eyesockets, empty and hollow.",
+    "image": "npc/horror_corrupted_drem.png"
+  },
+  "drem master": {
+    "desc": "A disfigured humanoid with vaguely Dwarven features dressed in patched-together and rusted mail armor.  It seems to be in command of others, though its mouth is sewn shut.",
+    "image": ""
+  },
+  "brecklorn": {
+    "desc": "A giant hairless bat with the face of a Dwarf twisted into a constant scream.  Pustulant sores cover its malformed body, and your heart weakens as it nears.",
+    "image": ""
+  },
+  "grannor'vor": {
+    "desc": "A large sluglike creature that moves slowly, leaving a trail of acid in its wake.  Its head has strangely humanoid features.",
+    "image": ""
+  },
+  "grannor'vin": {
+    "desc": "A large sluglike creature with the face of a man.  Shadows seem to be drawn to its massive form, and your light dims as it approaches.",
+    "image": ""
+  },
+  "minotaur": {
+    "desc": "It is a cross between a human and a bull.",
+    "image": "npc/giant_minotaur_minotaur.png"
+  },
+  "maulotaur": {
+    "desc": "A belligerent minotaur with a destructive magical arsenal, and armed with a hammer.",
+    "image": "npc/giant_minotaur_maulotaur.png"
+  },
+  "dredgling": {
+    "desc": "A small pink-skinned humanoid with large bulbous eyes.",
+    "image": ""
+  },
+  "dredge": {
+    "desc": "A hulking pink-skinned creature with long arms as thick as tree trunks.  It drags its knuckles on the ground as it lumbers toward you.",
+    "image": ""
+  },
+  "dredge captain": {
+    "desc": "A thin pink-skinned creature with long spindly arms.  Half its body is old and wrinkly, and the other half appears quite young.",
+    "image": ""
+  },
+  "temporal stalker": {
+    "desc": "A slender metallic monstrosity with long claws in place of fingers, and razor-sharp teeth.",
+    "image": "npc/horror_temporal_temporal_stalker.png"
+  },
+  "void horror": {
+    "desc": "It looks like a hole in spacetime, but you get the impression it's somehow more than that.",
+    "image": ""
+  },
+  "wolf": {
+    "desc": "Lean, mean, and shaggy, it stares at you with hungry eyes.",
+    "image": "npc/canine_w.png"
+  },
+  "great wolf": {
+    "desc": "Larger than a normal wolf, it prowls and snaps at you.",
+    "image": "npc/canine_gw.png"
+  },
+  "dire wolf": {
+    "desc": "Easily as big as a horse, this wolf menaces you with its claws and fangs.",
+    "image": "npc/canine_dw.png"
+  },
+  "white wolf": {
+    "desc": "A large and muscled wolf from the northern wastes. Its breath is cold and icy, and its fur coated in frost.",
+    "image": "npc/canine_ww.png"
+  },
+  "warg": {
+    "desc": "It is a large wolf with eyes full of cunning.",
+    "image": "npc/canine_warg.png"
+  },
+  "fox": {
+    "desc": "The quick brown fox jumps over the lazy dog.",
+    "image": "npc/canine_fox.png"
+  },
+  "rungof the warg titan": {
+    "desc": "It is a large wolf with eyes full of cunning, thrice the size of a normal warg.",
+    "image": "npc/canine_rungof.png"
+  },
+  "phoenix": {
+    "desc": "Ever burning, ever dying, ever reviving, the Phoenix swoops down upon you, seeking to share its fiery fate with you.",
+    "image": ""
+  },
+  "human": {
+    "desc": "",
+    "image": ""
+  },
+  "thalore": {
+    "desc": "",
+    "image": ""
+  },
+  "shalore": {
+    "desc": "",
+    "image": ""
+  },
+  "halfling": {
+    "desc": "",
+    "image": ""
+  },
+  "dwarf": {
+    "desc": "",
+    "image": ""
+  },
+  "giant": {
+    "desc": "",
+    "image": ""
+  },
+  "storm drake hatchling": {
+    "desc": "A drake hatchling. Not too powerful by itself, but it usually comes with its brothers and sisters.",
+    "image": ""
+  },
+  "storm drake": {
+    "desc": "A mature storm drake, armed with deadly breath and nasty claws.",
+    "image": ""
+  },
+  "storm wyrm": {
+    "desc": "An old and powerful storm drake, armed with deadly breath and nasty claws.",
+    "image": "npc/dragon_storm_storm_wyrm.png"
+  },
+  "giant spider": {
+    "desc": "A huge arachnid.",
+    "image": ""
+  },
+  "spitting spider": {
+    "desc": "A huge arachnid, it sprays venom at its prey.",
+    "image": ""
+  },
+  "chitinous spider": {
+    "desc": "A huge arachnid with a massive exoskeleton.",
+    "image": ""
+  },
+  "gaeramarth": {
+    "desc": "These cunning spiders terrorize those who enter the ever-growing borders of their lairs.  Those who encounter them rarely return.",
+    "image": ""
+  },
+  "ninurlhing": {
+    "desc": "The air reeks with noxious fumes and the ground around it decays.",
+    "image": ""
+  },
+  "faerlhing": {
+    "desc": "This spider seems to command the flow of mana, which pulses freely through its body.",
+    "image": ""
+  },
+  "ungolmor": {
+    "desc": "Largest of all the spiderkin, its folds of skin seem nearly impenetrable.",
+    "image": ""
+  },
+  "losselhing": {
+    "desc": "The air seems to freeze solid around this frigid spider.",
+    "image": ""
+  },
+  "weaver young": {
+    "desc": "A tiny arachnid that phases in and out of reality.",
+    "image": ""
+  },
+  "weaver patriarch": {
+    "desc": "A large blue arachnid with white markings on its thorax.  It shifts and shimmers as though only partially connected to the timeline.",
+    "image": ""
+  },
+  "weaver matriarch": {
+    "desc": "A large dark blue arachnid with a shifting yellow and white pattern on its thorax.  It shifts and shimmers as though only partially connected to the timeline.",
+    "image": "npc/spiderkin_spider_weaver_matriarch.png"
+  },
+  "ninandra, the great weaver": {
+    "desc": "A huge blue and white spiderkin whose form shifts and shimmers in and out of reality.  She spins the threads of fate and binds the destiny of all within her web.",
+    "image": "npc/spiderkin_spider_ninandra_the_great_weaver.png"
+  },
+  "ritch larva": {
+    "desc": "",
+    "image": ""
+  },
+  "ritch hunter": {
+    "desc": "",
+    "image": ""
+  },
+  "ritch hive mother": {
+    "desc": "",
+    "image": ""
+  },
+  "orc pyromancer": {
+    "desc": "An orc dressed in bright red robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "orc high pyromancer": {
+    "desc": "An orc dressed in bright red robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "orc cryomancer": {
+    "desc": "An orc dressed in cold blue robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "orc high cryomancer": {
+    "desc": "An orc dressed in cold blue robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "cold drake hatchling": {
+    "desc": "A drake hatchling. Not too powerful by itself, but it usually comes with its brothers and sisters.",
+    "image": ""
+  },
+  "cold drake": {
+    "desc": "A mature cold drake, armed with deadly breath and nasty claws.",
+    "image": ""
+  },
+  "ice wyrm": {
+    "desc": "An old and powerful cold drake, armed with deadly breath and nasty claws.",
+    "image": "npc/dragon_cold_ice_wyrm.png"
+  },
+  "brown bear": {
+    "desc": "The weakest of bears, covered in brown shaggy fur.",
+    "image": "npc/brown_bear.png"
+  },
+  "black bear": {
+    "desc": "Do you smell like honey? 'Cause this bear wants honey.",
+    "image": "npc/black_bear.png"
+  },
+  "cave bear": {
+    "desc": "It has come down from its cave foraging for food. Unfortunately, it found you.",
+    "image": "npc/cave_bear.png"
+  },
+  "war bear": {
+    "desc": "Bears with tusks, trained to kill.",
+    "image": "npc/war_bear.png"
+  },
+  "grizzly bear": {
+    "desc": "A huge, beastly bear, more savage than most of its kind.",
+    "image": "npc/grizzly_bear.png"
+  },
+  "polar bear": {
+    "desc": "This huge white bear has wandered south in search of food.",
+    "image": "npc/polar_bear.png"
+  },
+  "white worm mass": {
+    "desc": "",
+    "image": ""
+  },
+  "green worm mass": {
+    "desc": "",
+    "image": ""
+  },
+  "carrion worm mass": {
+    "desc": "",
+    "image": ""
+  },
+  "grey mold": {
+    "desc": "A strange grey growth on the dungeon floor.",
+    "image": ""
+  },
+  "brown mold": {
+    "desc": "A strange brown growth on the dungeon floor.",
+    "image": ""
+  },
+  "shining mold": {
+    "desc": "A strange luminescent growth on the dungeon floor.",
+    "image": ""
+  },
+  "green mold": {
+    "desc": "A strange sickly green growth on the dungeon floor.",
+    "image": ""
+  },
+  "z'quikzshl the skeletal mold": {
+    "desc": "Steeped in fungal malevolence, this mold refused to die.  How a mold becomes a skeleton, though, is beyond you.  Are those its own bones, or the bones of hapless adventurers?",
+    "image": "npc/immovable_molds_skeletal_mold.png"
+  },
+  "fire drake hatchling": {
+    "desc": "A drake hatchling; not too powerful by itself, but it usually comes with its brothers and sisters.",
+    "image": ""
+  },
+  "fire drake": {
+    "desc": "A mature fire drake, armed with deadly breath and nasty claws.",
+    "image": ""
+  },
+  "fire wyrm": {
+    "desc": "An old and powerful fire drake, armed with deadly breath and nasty claws.",
+    "image": "npc/dragon_fire_fire_wyrm.png"
+  },
+  "orc warrior": {
+    "desc": "A fierce soldier-orc.",
+    "image": ""
+  },
+  "orc archer": {
+    "desc": "He is a hardy, well-weathered survivor.",
+    "image": ""
+  },
+  "orc soldier": {
+    "desc": "A fierce soldier-orc.",
+    "image": ""
+  },
+  "fiery orc wyrmic": {
+    "desc": "A fierce soldier-orc trained in the discipline of dragons.",
+    "image": ""
+  },
+  "icy orc wyrmic": {
+    "desc": "A fierce soldier-orc trained in the discipline of dragons.",
+    "image": ""
+  },
+  "orc assassin": {
+    "desc": "An orc trained in the secret ways of assassination, stealthy and deadly.",
+    "image": ""
+  },
+  "orc master assassin": {
+    "desc": "An orc trained in the secret ways of assassination, stealthy and deadly.",
+    "image": ""
+  },
+  "orc grand master assassin": {
+    "desc": "An orc trained in the secret ways of assassination, stealthy and deadly.",
+    "image": ""
+  },
+  "kra'tor the gluttonous": {
+    "desc": "A morbidly obese orc with greasy pockmarked skin and oily long black hair.  He's clad in plate mail and carries a huge granite battleaxe that's nearly as large as he is.",
+    "image": "npc/humanoid_orc_kra_tor_the_gluttonous.png"
+  },
+  "degenerated skeleton warrior": {
+    "desc": "A haphazard collection of crumbling bones, with jerky movements that remind you of a child playing with a marionette.  It only has one arm, but that's all it needs to hold a sword.",
+    "image": "npc/degenerated_skeleton_warrior.png"
+  },
+  "degenerated skeleton archer": {
+    "desc": "A frail skeleton; just about the only bones that aren't cracked are its arms.  It's missing a hand, but a notch has been carved into its wrist to let it pull back a bowstring regardless.",
+    "image": ""
+  },
+  "skeleton mage": {
+    "desc": "",
+    "image": "npc/skeleton_mage.png"
+  },
+  "skeleton warrior": {
+    "desc": "The forces binding this skeleton together are resilient enough to let it hold a shield and swing a weapon as well as it could have in life.  It's still wearing its old armor, in rusty but servicable condition.",
+    "image": "npc/skeleton_warrior.png"
+  },
+  "skeleton archer": {
+    "desc": "Nobody scavenged the high-quality bow from this archer before it was raised from the dead.  You're about to wish the world had more grave-robbers.",
+    "image": "npc/skeleton_archer.png"
+  },
+  "skeleton magus": {
+    "desc": "This skeleton has been imbued with far more magical energy than normal, and serves as a conduit of its master's spellcasting prowess.",
+    "image": ""
+  },
+  "armoured skeleton warrior": {
+    "desc": "It feels no pain.  It moves with fluidity and strength that would tear natural muscles apart.  It must be from a fresh corpse, since its bones, armor, and weapon are all in pristine condition.  And it's furious.",
+    "image": "npc/armored_skeleton_warrior.png"
+  },
+  "skeleton master archer": {
+    "desc": "This skeleton can fire arrows and nock new ones with blinding speed.  Arcane forces pull its bones with unnatural precision - its arms will never tremble or get tired.",
+    "image": "npc/master_skeleton_archer.png"
+  },
+  "skeleton assassin": {
+    "desc": "Most skeletons announce their presence with a chorus of rattling bones; this one's been charred black and has enough cartilage between its joints to muffle its approach.  The first you'll see of it will be the flash of its blade.",
+    "image": ""
+  },
+  "ogre guard": {
+    "desc": "A maul-wield ogre. Ready to CRUSH!",
+    "image": ""
+  },
+  "ogre warmaster": {
+    "desc": "A master of combat, she is impatient to test her newfound skills.",
+    "image": ""
+  },
+  "ogre mauler": {
+    "desc": "Crush! Destroy! Maim!",
+    "image": ""
+  },
+  "ogre pounder": {
+    "desc": "This ogre closes in fast on you, arms open for the hug of death.",
+    "image": ""
+  },
+  "ogre rune-spinner": {
+    "desc": "A towering ogre guard, her skin covered in runes.",
+    "image": ""
+  },
+  "orc necromancer": {
+    "desc": "An orc dressed in black robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "orc blood mage": {
+    "desc": "An orc dressed in blood-stained robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "orc corruptor": {
+    "desc": "An orc dressed in putrid robes. He mumbles in a harsh tongue.",
+    "image": ""
+  },
+  "ghoul": {
+    "desc": "Flesh is falling off in chunks from this decaying abomination.",
+    "image": ""
+  },
+  "ghast": {
+    "desc": "This vile abomination is a relative of ghouls, and often leads packs of them. It smells foul, and its bite carries a rotting disease.",
+    "image": ""
+  },
+  "ghoulking": {
+    "desc": "Stench rises from this rotting abomination. Its brow is adorned with gold, and it moves at you with hatred gleaming in its eyes.",
+    "image": ""
+  },
+  "risen corpse": {
+    "desc": "A body raised through dark magic.",
+    "image": "npc/undead_ghoul_ghoul.png"
+  },
+  "large brown snake": {
+    "desc": "This large snake hisses at you, angry at being disturbed.",
+    "image": "npc/umber-snake.png"
+  },
+  "large white snake": {
+    "desc": "This large snake hisses at you, angry at being disturbed.",
+    "image": "npc/white-snake.png"
+  },
+  "copperhead snake": {
+    "desc": "It has a copper head and sharp venomous fangs.",
+    "image": "npc/salmon-snake.png"
+  },
+  "rattlesnake": {
+    "desc": "As you approach, the snake coils up and rattles its tail threateningly.",
+    "image": "npc/firebrick-snake.png"
+  },
+  "king cobra": {
+    "desc": "It is a large snake with a hooded face.",
+    "image": "npc/green-snake.png"
+  },
+  "black mamba": {
+    "desc": "It has glistening black skin, a sleek body, and highly venomous fangs.",
+    "image": "npc/darkgrey-snake.png"
+  },
+  "anaconda": {
+    "desc": "You recoil in fear as you notice this gigantic snake.  It seeks to crush the life out of you.",
+    "image": "npc/yellow-green-snake.png"
+  },
+  "snow giant": {
+    "desc": "A towering creature, humanoid but huge. It wields a giant maul and does not look friendly.",
+    "image": "npc/giant_ice_snow_giant.png"
+  },
+  "snow giant thunderer": {
+    "desc": "A towering creature, humanoid but huge. It wields a giant maul and does not look friendly. Lightning crackles over its body.",
+    "image": "npc/giant_ice_snow_giant_thunderer.png"
+  },
+  "snow giant boulder thrower": {
+    "desc": "A towering creature, humanoid but huge. It wields a giant maul and does not look friendly.",
+    "image": "npc/giant_ice_snow_giant_boulder_thrower.png"
+  },
+  "snow giant chieftain": {
+    "desc": "A towering creature, humanoid but huge. It wields a giant maul and does not look friendly.",
+    "image": "npc/giant_ice_snow_giant_chieftain.png"
+  },
+  "burb the snow giant champion": {
+    "desc": "A maddened, enraged snow giant that towers over his comrades. You've heard legends mentioning this particular monstrosity; they say that when he's not rampaging around frothing at the mouth, he sits, almost childlike, engraving stories and mysterious patterns on any flat stone surface he can find.",
+    "image": "npc/giant_ice_burb_the_snow_giant_champion.png"
+  },
+  "dolleg": {
+    "desc": "A monstrous demon, covered in acidic thorns.",
+    "image": "npc/demon_major_dolleg.png"
+  },
+  "dúathedlen": {
+    "desc": "Under a shroud of darkness you discern an evil shape.",
+    "image": "npc/demon_major_duathedlen.png"
+  },
+  "uruivellas": {
+    "desc": "This demon would look like a minotaur, if a minotaur had a fiery aura surrounding it and horns all over its body.\nOh, and it is twice as big, too.",
+    "image": "npc/demon_major_uruivellas.png"
+  },
+  "thaurhereg": {
+    "desc": "This terrible demon is covered in blood, which flows *on* its skin in ever-changing patterns that disturb you simply when looking at it.",
+    "image": "npc/demon_major_thaurhereg.png"
+  },
+  "daelach": {
+    "desc": "You can only guess at the real shape of this demon. Its body is surrounded by a cloud of fiery darkness.\nIt moves swiftly toward you, casting terrible spells and swinging its weapons at you.",
+    "image": "npc/demon_major_daelach.png"
+  },
+  "champion of urh'rok": {
+    "desc": "One of Urh'Rok's own champions. A thousand nightmares made flesh and screaming steel tower before you in the form of a massive, armored humanoid.",
+    "image": "npc/demon_major_champion_of_urh_rok.png"
+  },
+  "forge-giant": {
+    "desc": "A burning giant wielding a forge hammer of the underworld in each hand -- weapons imbued by Urh'Rok himself with the power to crush and shape felsteel. Enter their range at your peril.",
+    "image": "npc/demon_major_forge_giant.png"
+  },
+  "khulmanar, general of urh'rok": {
+    "desc": "This massive form, sheathed in dark flames, stands tall above a legion of lesser demons. In his hands he holds a massive blackened battleaxe, flames dancing around the blades.",
+    "image": "npc/demon_major_general_of_urh_rok.png"
+  },
+  "orc summoner": {
+    "desc": "A fierce orc attuned to the wilds.",
+    "image": ""
+  },
+  "orc grand summoner": {
+    "desc": "A fierce orc attuned to the wilds.",
+    "image": ""
+  },
+  "orc master wyrmic": {
+    "desc": "A fierce soldier-orc highly trained in the discipline of dragons.",
+    "image": ""
+  },
+  "orc mage-hunter": {
+    "desc": "An orc clad in massive armour. Magic seems to die down all around him.",
+    "image": ""
+  },
+  "yaech diver": {
+    "desc": "Yaeches are an aquatic subspecies of yeeks. They share the same psionic powers, but they refuse to take part in the Way.",
+    "image": ""
+  },
+  "yaech hunter": {
+    "desc": "Yaeches are an aquatic subspecies of yeeks. They share the same psionic powers, but they refuse to take part in the Way.",
+    "image": ""
+  },
+  "yaech mindslayer": {
+    "desc": "Yaeches are an aquatic subspecies of yeeks. They share the same psionic powers, but they refuse to take part in the Way.",
+    "image": ""
+  },
+  "yaech psion": {
+    "desc": "Yaeches are an aquatic subspecies of yeeks. They share the same psionic powers, but they refuse to take part in the Way.",
+    "image": ""
+  },
+  "dread": {
+    "desc": "It is a form that screams its presence against the eye. Death incarnate, its hideous black body seems to struggle against reality as the universe itself strives to banish it.",
+    "image": "npc/dread.png"
+  },
+  "dreadmaster": {
+    "desc": "It is an unlife of power almost unequaled. An affront to existence, its very touch abuses and disrupts the flow of life, and its unearthly limbs, of purest black, crumble rock and wither flesh with ease.",
+    "image": "npc/dreadmaster.png"
+  },
+  "banshee": {
+    "desc": "It is a ghostly woman's form that wails mournfully.",
+    "image": "npc/banshee.png"
+  },
+  "ruin banshee": {
+    "desc": "A vengeful, screaming soul given form with the breath of Urh'Rok himself. The vapors of the Fearscape seep from its dimension-bending form, withering and searing.",
+    "image": ""
+  },
+  "forest wight": {
+    "desc": "It is a ghostly apparition with a humanoid form.",
+    "image": "npc/forest_wight.png"
+  },
+  "grave wight": {
+    "desc": "It is a ghostly form with eyes that haunt you.",
+    "image": "npc/grave_wight.png"
+  },
+  "barrow wight": {
+    "desc": "It is a ghostly nightmare of an entity.",
+    "image": "npc/barrow_wight.png"
+  },
+  "emperor wight": {
+    "desc": "Your life force is torn from your body as this powerful unearthly being approaches.",
+    "image": "npc/emperor_wight.png"
+  },
+  "human guard": {
+    "desc": "A stern-looking guard, he will not let you disturb the town.",
+    "image": ""
+  },
+  "elven archer": {
+    "desc": "A stern-looking guard, he will not let you disturb the town.",
+    "image": ""
+  },
+  "human sun-paladin": {
+    "desc": "A Human in shiny plate armour.",
+    "image": ""
+  },
+  "elven sun-mage": {
+    "desc": "An elf dressed in glowing robes.",
+    "image": ""
+  },
+  "green jelly": {
+    "desc": "A strange green blob on the dungeon floor.",
+    "image": "npc/jelly-green.png"
+  },
+  "red jelly": {
+    "desc": "A strange red blob on the dungeon floor.",
+    "image": "npc/jelly-red.png"
+  },
+  "blue jelly": {
+    "desc": "A strange blue blob on the dungeon floor.",
+    "image": "npc/jelly-blue.png"
+  },
+  "white jelly": {
+    "desc": "A strange white blob on the dungeon floor.",
+    "image": "npc/jelly-white.png"
+  },
+  "yellow jelly": {
+    "desc": "A strange yellow blob on the dungeon floor.",
+    "image": "npc/jelly-yellow.png"
+  },
+  "black jelly": {
+    "desc": "A strange black blob on the dungeon floor.",
+    "image": "npc/jelly-darkgrey.png"
+  },
+  "malevolent dimensional jelly": {
+    "desc": "A strange black blob on the dungeon floor; through it you seem to be able to see other times and places. As you stare you see things moving out of it.",
+    "image": ""
+  },
+  "fire imp": {
+    "desc": "A small demon, lobbing spells at you.",
+    "image": ""
+  },
+  "wretchling": {
+    "desc": "Acid oozes all over this small demon's skin.  Beware, they tend to hunt in packs.",
+    "image": ""
+  },
+  "onilug": {
+    "desc": "A gaunt vaguely humanoid shape featuring unadorned grey leathery skin. Its arms and legs seem somehow too long and it stands tall, projecting an ominous shadow even in darkness.\nIts glowing red eyes shine with both cruelty and a deep frightening intellect.",
+    "image": ""
+  },
+  "quasit": {
+    "desc": "A small, heavily armoured demon, rushing toward you.",
+    "image": ""
+  },
+  "bone giant": {
+    "desc": "A towering creature, made from the bones of dozens of dead bodies. It is covered by an unholy aura.",
+    "image": "npc/undead_giant_bone_giant.png"
+  },
+  "eternal bone giant": {
+    "desc": "A towering creature, made from the bones of hundreds of dead bodies. It is covered by an unholy aura.",
+    "image": "npc/undead_giant_eternal_bone_giant.png"
+  },
+  "heavy bone giant": {
+    "desc": "A towering creature, made from the bones of hundreds of dead bodies. It is covered by an unholy aura.",
+    "image": "npc/undead_giant_heavy_bone_giant.png"
+  },
+  "runed bone giant": {
+    "desc": "A towering creature, made from the bones of hundreds of dead bodies, rune-etched and infused with hateful sorceries.",
+    "image": "npc/undead_giant_runed_bone_giant.png"
+  },
+  "entrenched horror": {
+    "desc": "This massive stony structure shifts and pulsates, its many long, thin tentacles probing the nearby water for food.",
+    "image": "npc/horror_aquatic_entrenched_horror.png"
+  },
+  "swarming horror": {
+    "desc": "This tiny fish-like creature moves erratically, but is constantly surrounded by others of its kind.",
+    "image": "npc/horror_aquatic_swarming_horror.png"
+  },
+  "ravenous horror": {
+    "desc": "A vile looking liquid flows from the teeth of this agile monster. It glides through the water towards you, spined fins jutting outwards.",
+    "image": "npc/horror_aquatic_ravenous_horror.png"
+  },
+  "boiling horror": {
+    "desc": "This frothing ball of water rages with an intense heat.",
+    "image": "npc/horror_aquatic_boiling_horror.png"
+  },
+  "swarm hive": {
+    "desc": "This titanic mass of flesh pulsates and churns as tiny monsters burst from its orifices.",
+    "image": "npc/horror_aquatic_swarm_hive.png"
+  },
+  "abyssal horror": {
+    "desc": "This pitch black form is shrouded in darkness. All you can make out are a pair of deep red eyes, hidden behind a mass of tentacles.",
+    "image": "npc/horror_aquatic_abyssal_horror.png"
+  },
+  "worm that walks": {
+    "desc": "A bulging rotten robe seems to tear at the seams, with masses of bloated worms spilling out all around the moving form.  Two arm-like appendages, each made up of overlapping mucous-drenched maggots, grasp tightly around the handles of bile-coated waraxes.\nEach swing drips pustulant fluid before it, and each droplet writhes and wriggles in the air before splashing against the ground.",
+    "image": ""
+  },
+  "bloated horror": {
+    "desc": "A bulbous humanoid form floats here. Its bald, child-like head is disproportionately large compared to its body, and its skin is pock-marked with nasty red sores.",
+    "image": ""
+  },
+  "nightmare horror": {
+    "desc": "A shifting form of darkest night that seems to reflect your deepest fears.",
+    "image": ""
+  },
+  "headless horror": {
+    "desc": "A headless gangly humanoid with a large distended stomach. Was captured and tamed by the first master of the arena.",
+    "image": ""
+  },
+  "luminous horror": {
+    "desc": "A lanky humanoid shape composed of yellow light.",
+    "image": ""
+  },
+  "radiant horror": {
+    "desc": "A lanky four-armed humanoid shape composed of bright golden light.  It's so bright it's hard to look at, and you can feel heat radiating outward from it.",
+    "image": ""
+  },
+  "devourer": {
+    "desc": "A headless, round creature with stubby legs and arms.  Its body seems to be all teeth.",
+    "image": ""
+  },
+  "blade horror": {
+    "desc": "Blades whirl in the air around this thin, floating figure. The air around it swirls with force, threatening to tear apart anything that approches, if the blades don't do it first.",
+    "image": "npc/horror_eldritch_blade_horror.png"
+  },
+  "oozing horror": {
+    "desc": "A massive, amorphous blob of green slime crawls on the ground towards you. Eyes drift through the viscous mass, scanning for potential prey.",
+    "image": ""
+  },
+  "umbral horror": {
+    "desc": "A dark shifting shape stalks through the shadows, blending in seamlessly.",
+    "image": "npc/horror_eldritch_umbral_horror.png"
+  },
+  "dreaming horror": {
+    "desc": "A vaguely tentacled yet constantly changing form rests here apparently oblivious to your existence.\nWith each slow breath it takes reality distorts around it.  Blue twirls into red, green twists into yellow, and the air sings softly before bursting into a myriad of pastel shapes and colors.",
+    "image": ""
+  },
+  "dream seed": {
+    "desc": "A pinkish bubble floats here, reflecting the world not as it is, but as it would be in that surreal place that exists only in our dreams.",
+    "image": "npc/dream_seed.png"
+  },
+  "maelstrom": {
+    "desc": "This powerful vortex of ice and lightning somehow gives you the impression of claws, teeth and intense hunger...",
+    "image": ""
+  },
+  "parasitic horror": {
+    "desc": "You don't want to think about what sort of creature this lamprey-like horror was feeding on to grow so large.  Its skin pulsates and writhes, like things are moving underneath...",
+    "image": ""
+  },
+  "mass of parasitic leeches": {
+    "desc": "Dozens - hundreds maybe? - of blood-gorged worms, of varying shapes and sizes, making a writhing, ichor-soaked sea of tooth-lined maws and sickly green skin, ready to latch onto you and drink until they burst or your veins run dry.",
+    "image": ""
+  },
+  "grgglck the devouring darkness": {
+    "desc": "A horror from the deepest pits of the earth. It looks like a huge pile of tentacles all trying to reach for you.\nYou can discern a huge round mouth covered in razor-sharp teeth.",
+    "image": "npc/horror_eldritch_grgglck.png"
+  },
+  "grgglck's tentacle": {
+    "desc": "This is one of Grgglck's tentacles. It looks more vulnerable than the main body.",
+    "image": ""
+  },
+  "ak'gishil": {
+    "desc": "This Blade Horror has been infused with intense temporal magic, causing its power to increase dramatically. Rifts in space open around it constantly, summoning and banishing blades before vanishing as quickly as they appear.",
+    "image": ""
+  },
+  "animated sword": {
+    "desc": "Time seems to warp and bend around this floating weapon.",
+    "image": ""
+  },
+  "distorted animated sword": {
+    "desc": "This floating weapon shifts and shimmers, time and space warping and bending as it moves. It appears to vibrate, as if it may explode at any moment.",
+    "image": ""
+  },
+  "losgoroth": {
+    "desc": "",
+    "image": ""
+  },
+  "manaworm": {
+    "desc": "Manaworms are losgoroth which feed on the mana of arcane users. If they ever come in contact with a spellcaster, they latch on and start draining mana away.",
+    "image": ""
+  },
+  "multi-hued drake hatchling": {
+    "desc": "A drake hatchling. Not too powerful by itself, but it usually comes with its brothers and sisters.",
+    "image": ""
+  },
+  "multi-hued drake": {
+    "desc": "A mature multi-hued drake, armed with many deadly breath weapons and nasty claws.",
+    "image": ""
+  },
+  "greater multi-hued wyrm": {
+    "desc": "An old and powerful multi-hued drake, armed with many deadly breath weapons and nasty claws.",
+    "image": "npc/dragon_multihued_greater_multi_hued_wyrm.png"
+  },
+  "ureslak the prismatic": {
+    "desc": "A huge multi-hued drake. It seems to shift color rapidly.",
+    "image": "npc/drake_multi_ureslak.png"
+  },
+  "elvala guard": {
+    "desc": "A stern-looking guard, he will not let you disturb the town.",
+    "image": ""
+  },
+  "shalore rune master": {
+    "desc": "A tall Elf, his skin covered in runes.",
+    "image": ""
+  },
+  "brotoq the reaver": {
+    "desc": "A huge orc blocks your way to the Iron Council. You must pass.",
+    "image": "npc/humanoid_orc_brotoq_the_reaver.png"
+  },
+  "norgan": {
+    "desc": "Norgan and you are the sole survivors of the Reknor expedition; your duty is to make sure the news makes it back to the Iron Council.",
+    "image": ""
+  },
+  "the withering thing": {
+    "desc": "This deformed beast might have been a wolf before, but now it is just... terrible.",
+    "image": ""
+  },
+  "the dreaming one": {
+    "desc": "This strange globe of blue light seems to be alive and asleep. Nothing about it moves, yet you can feel the crushing power of its dreams assaulting your mind.",
+    "image": "npc/seed_of_dreams.png"
+  },
+  "thalore hunter": {
+    "desc": "A stern-looking guard, he will not let you disturb the town.",
+    "image": ""
+  },
+  "thalore wilder": {
+    "desc": "A tall elf, his skin covered in green moss.",
+    "image": "npc/humanoid_thalore_thalore_wilder.png"
+  },
+  "grushnak, battlemaster of the pride": {
+    "desc": "An old orc, covered in battle scars, he looks fierce and very, very, dangerous.",
+    "image": ""
+  },
+  "vor, grand geomancer of the pride": {
+    "desc": "An old orc, wearing multi-colored robes. Ice shards fly around him, leaving a trail of fire and lightning bursts.",
+    "image": ""
+  },
+  "dwarven guard": {
+    "desc": "A stocky dwarf, he looks angry.",
+    "image": ""
+  },
+  "dwarven earthwarden": {
+    "desc": "A stocky dwarf, he looks angry.",
+    "image": ""
+  },
+  "last hope guard": {
+    "desc": "A stern-looking guard, he will not let you disturb the town.",
+    "image": ""
+  },
+  "halfling guard": {
+    "desc": "A Halfling, with a sling. Beware.",
+    "image": ""
+  },
+  "human citizen": {
+    "desc": "A clean-looking Human resident of Last Hope.",
+    "image": ""
+  },
+  "halfling citizen": {
+    "desc": "A clean-looking Halfling resident of Last Hope.",
+    "image": ""
+  },
+  "rantha the worm": {
+    "desc": "Claws and teeth. Ice and death. Dragons are not all extinct it seems...",
+    "image": "npc/dragon_ice_rantha_the_worm.png"
+  },
+  "varsha the writhing": {
+    "desc": "Claws and teeth. Fire and death. Dragons are not all extinct it seems...",
+    "image": "npc/dragon_fire_varsha_the_writhing.png"
+  },
+  "massok the dragonslayer": {
+    "desc": "A huge and heavily-scarred orc with a gigantic sword. His helm is fashioned from a dragon's skull.",
+    "image": "npc/humanoid_orc_massok_the_dragonslayer.png"
+  },
+  "gerlyk, the creator": {
+    "desc": "During the Age of Haze nearly all gods were destroyed by the Sher'tul Godslayers. However, a small number escaped.\nGerlyk, the creator of the Human race, prefered to flee into the void between the stars than to face death. He has been trapped ever since.\nThe sorcerers tried to bring him back and nearly succeeded.\nNow you have come to finish what the Sher'tul began. Become a Godslayer yourself.",
+    "image": ""
+  },
+  "nain the guide": {
+    "desc": "A pitchfork-wielding human with a welcoming smile.",
+    "image": "npc/humanoid_human_human_farmer.png"
+  },
+  "half-dead forest troll": {
+    "desc": "Green-skinned and ugly, this massive humanoid glares at you, clenching wart-covered green fists.\nHe looks hurt.",
+    "image": ""
+  },
+  "lone wolf": {
+    "desc": "It is a large wolf with eyes full of cunning, only 3 times bigger than a normal wolf. It looks hungry. You look tasty!",
+    "image": "npc/animal_canine_lone_wolf.png"
+  },
+  "orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "quick-healing orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "robe-clad elf": {
+    "desc": "An elf that looks as though he spends a good amount of his time wiggling his fingers and chanting.",
+    "image": "npc/humanoid_shalore_elven_blood_mage.png"
+  },
+  "stubborn orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "obstinate orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "pushy orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "rude orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "troll": {
+    "desc": "",
+    "image": "npc/troll_c.png"
+  },
+  "ugly troll": {
+    "desc": "",
+    "image": "npc/troll_c_02.png"
+  },
+  "gross troll": {
+    "desc": "",
+    "image": "npc/troll_f.png"
+  },
+  "ghastly troll": {
+    "desc": "",
+    "image": "npc/troll_m.png"
+  },
+  "forum troll": {
+    "desc": "",
+    "image": "npc/troll_mt.png"
+  },
+  "pushy elf": {
+    "desc": "",
+    "image": "npc/humanoid_shalore_elven_cultist.png"
+  },
+  "blustering elf": {
+    "desc": "",
+    "image": "npc/humanoid_shalore_elven_blood_mage.png"
+  },
+  "breezy elf": {
+    "desc": "",
+    "image": "npc/humanoid_shalore_elven_mage.png"
+  },
+  "chittering spider": {
+    "desc": "A huge, chittering arachnid.",
+    "image": "npc/spiderkin_spider_chitinous_spider.png"
+  },
+  "hairy spider": {
+    "desc": "A huge, hairy arachnid.",
+    "image": "npc/spiderkin_spider_ninurlhing.png"
+  },
+  "bored elf": {
+    "desc": "",
+    "image": "npc/humanoid_shalore_elven_cultist.png"
+  },
+  "idle elf": {
+    "desc": "",
+    "image": "npc/humanoid_shalore_elven_mage.png"
+  },
+  "loitering elf": {
+    "desc": "",
+    "image": "npc/humanoid_shalore_elven_blood_mage.png"
+  },
+  "dull-eyed orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "keen-eyed orc": {
+    "desc": "",
+    "image": "npc/humanoid_orc_orc_child.png"
+  },
+  "corrupted daelach": {
+    "desc": "Shadow and flames. The huge beast of fire moves speedily toward you, its huge shadowy wings deployed.",
+    "image": "npc/demon_major_corrupted_daelach.png"
+  },
+  "limmir the jeweler": {
+    "desc": "An Elven Anorithil, specializing in the art of jewelry.",
+    "image": ""
+  },
+  "the mouth": {
+    "desc": "\"From bellow, it devours.\"",
+    "image": "npc/horror_corrupted_the_mouth.png"
+  },
+  "slimy crawler": {
+    "desc": "This disgusting... thing crawls on the floor toward you with great speed.\nIt seems to come from the digestive system of the mouth.",
+    "image": ""
+  },
+  "the abomination": {
+    "desc": "A horrid mass of pustulent flesh, sinew, and bone; this creature seems to constantly be in pain. Two heads glare malevolently at you, an intruder in its domain.",
+    "image": "npc/horror_corrupted_the_abomination.png"
+  },
+  "horned horror": {
+    "desc": "Some horrible power has twisted this brutish minotaur into something altogether more terrifying. Huge tentacles undulate from its back as it clenches and unclenches its powerful fists.",
+    "image": "npc/horror_corrupted_horner_horror.png"
+  },
+  "minotaur of the labyrinth": {
+    "desc": "A fearsome bull-headed monster, he swings a mighty axe as he curses all who defy him.",
+    "image": "npc/giant_minotaur_minotaur_of_the_labyrinth.png"
+  },
+  "nimisil": {
+    "desc": "Covered by eerie luminescent growths and protuberances, this spider now haunts the maze's silent passageways.",
+    "image": ""
+  },
+  "assassin lord": {
+    "desc": "He is the leader of a gang of bandits; watch out for his men.",
+    "image": ""
+  },
+  "lost merchant": {
+    "desc": "",
+    "image": ""
+  },
+  "grand corruptor": {
+    "desc": "An Elven corruptor, drawn to these blighted lands.",
+    "image": ""
+  },
+  "protector myssil": {
+    "desc": "A Halfling Ziguranth, clad in dark steel plates. She is the current leader of Zigur.",
+    "image": ""
+  },
+  "briagh, great sand wyrm": {
+    "desc": "A towering sand drake stands before you. This wingless worm is mighty and could easily crush you.",
+    "image": "npc/dragon_sand_briagh__great_sand_wyrm.png"
+  },
+  "celia": {
+    "desc": "A tall woman stands before you in a stained robe. Her sallow skin is marked by pox and open sores, but her eyes are bright and keen. The bulge around her abdomen would indicate that she is several months pregnant.",
+    "image": "npc/humanoid_human_celia.png"
+  },
+  "orc baby": {
+    "desc": "Crawling on all fours, this green-skinned creature is far from cute, with vicious little sharp teeth and nails, and slime still sticking to its skin.",
+    "image": ""
+  },
+  "orc child": {
+    "desc": "This small orc has a malicious and greedy look in its eyes. Its veins pulse with new life and it moves with surprising speed. Though not fully developed you can still see the muscles forming on its long limbs, leading to clawed fingers and toes.",
+    "image": ""
+  },
+  "young orc": {
+    "desc": "This young orc is almost fully formed, with hard muscles prominently visible beneath its thick skin. Whilst it has lost some of the wild energy of its younger siblings you can see the gleams of intelligence and cold calculation behind its dark eyes.",
+    "image": ""
+  },
+  "orc mother": {
+    "desc": "This giant, bloated form towers above you. Mucus and slime ooze from every orifice, dripping onto the cavern floor. Orc children fight over the right to feed from her distended teats whilst small babies are regularly emerge from folds of flesh. The sight and the smell make you retch.\nHere stands a tremendous form almost the size of a dragon. Bloated skin rises in thick folds, seeping viscous slime from its wide pores. Hundreds of hanging teats feed a small army of squabbling, fighting young orcs - only the toughest of them are able to gain the precious nutrients to grow stronger, the weaker ones left to wither on the mouldy floor. At the top of this towering hulk is a shrivelled head coated in long tangled hair. Dazed eyes peer out with a mixture of sadness and pain, but as they fix on you they turn to anger, the creature's face contorted with the fierce desire to protect its young.",
+    "image": "npc/humanoid_orc_orc_mother.png"
+  },
+  "orc greatmother": {
+    "desc": "This giant, bloated form towers above you. Mucus and slime ooze from every orifice, dripping onto the cavern floor. Orc children fight over the right to feed from her distended teats whilst small babies are regularly emerge from folds of flesh. The sight and the smell make you retch.\nHere stands a tremendous form almost the size of a dragon. Bloated skin rises in thick folds, seeping viscous slime from its wide pores. Hundreds of hanging teats feed a small army of squabbling, fighting young orcs - only the toughest of them are able to gain the precious nutrients to grow stronger, the weaker ones left to wither on the mouldy floor. At the top of this towering hulk is a shrivelled head coated in long tangled hair. Dazed eyes peer out with a mixture of sadness and pain, but as they fix on you they turn to anger, the creature's face contorted with the fierce desire to protect its young.",
+    "image": "npc/humanoid_orc_orc_greatmother.png"
+  },
+  "shardskin": {
+    "desc": "This crystalline structure seems to be filled with a malevolent aura. Through the crystal surface you can still see the remains of what once was a huge tree.",
+    "image": "npc/immovable_crystal_golden_crystal.png"
+  },
+  "wrathroot": {
+    "desc": "The ancient grey willow tree, ruler of the Old Forest. He despises trespassers in his territory.",
+    "image": "npc/giant_treant_wrathroot.png"
+  },
+  "cute little bunny": {
+    "desc": "It looks at you with cute little eyes before jumping at you with razor sharp teeth.",
+    "image": ""
+  },
+  "snaproot": {
+    "desc": "This ancient Treant's bark is scorched almost black. It sees humanity as a scourge, to be purged.",
+    "image": "npc/giant_treant_snaproot.png"
+  },
+  "kryl-feijan": {
+    "desc": "This huge demon is covered in darkness. The ripped flesh of its \"mother\" still hangs from its sharp claws.",
+    "image": "npc/demon_major_kryl_feijan.png"
+  },
+  "melinda": {
+    "desc": "Enjoying a lovely day at the beach.",
+    "image": ""
+  },
+  "acolyte of the sect of kryl-feijan": {
+    "desc": "Black-robed Elves with a mad look in their eyes.",
+    "image": "npc/humanoid_shalore_elven_corruptor.png"
+  },
+  "naga tidewarden": {
+    "desc": "",
+    "image": "npc/humanoid_naga_naga_tidewarden.png"
+  },
+  "naga tidecaller": {
+    "desc": "A slithering noise accompanies the movement of this strange creature, whose snake-like tail gives rise to the body of a beautiful elf-like woman. As she moves her delicate hands water rises from the ground, and you feel that here is no mere monster, but a creature of awe and power.",
+    "image": "npc/humanoid_naga_naga_tidecaller.png"
+  },
+  "naga nereid": {
+    "desc": "Green eyes stare out from behind strands of long, golden hair, which falls down in waves over smooth, pale skin. Your eyes are drawn to the bare flesh, but as they look further they see dark scales stretching out into a long serpent's tail. You look up as she moves, her hair parting to reveal a slim and beautiful face with high cheekbones and full lips. Yet for all the allure of this wondrous creature the terror of the serpentine tail sends shivers down your spine.",
+    "image": ""
+  },
+  "lady zoisla the tidebringer": {
+    "desc": "Water circles slowly on the ground around this naga's tail, some droplets leaping up now and then as if they are impatient to do their mistress' bidding. Her dark tail is coiled tight, making her look short, but her calm and confident stare assure you that she will not be easily overcome. As the water begins to rise around her the air starts to shimmer, and you feel her dark eyes are penetrating into you deeper than is comfortable.",
+    "image": "npc/humanoid_naga_lady_zoisla_the_tidebringer.png"
+  },
+  "rak'shor, grand necromancer of the pride": {
+    "desc": "An old orc, wearing black robes. He commands his undead armies to destroy you.",
+    "image": ""
+  },
+  "rotting titan": {
+    "desc": "This gigantic mass of flesh and stone moves slowly, the ground rumbling with each step it takes. Its body seems to constantly pulsate and reform. Massive stones at the end of each limb form massive blunt weapons.",
+    "image": "npc/undead_ghoul_rotting_titan.png"
+  },
+  "glacial legion": {
+    "desc": "A massive, shifting, ethereal form floats in the air around an orb of frozen blood.  The air around it condenses into freezing pools on the floor beneath it.",
+    "image": "npc/undead_ghost_glacial_legion.png"
+  },
+  "heavy sentinel": {
+    "desc": "A towering creature, made from the bones of countless bodies. An aura of flame billows from within its chest.",
+    "image": "npc/undead_giant_heavy_sentinel.png"
+  },
+  "arch zephyr": {
+    "desc": "The robes of this ancient vampire billow with intense winds. Bolts of lightning arc along its body. In its hand it holds a bow, electricity streaking across it.",
+    "image": "npc/undead_vampire_arch_zephyr.png"
+  },
+  "void spectre": {
+    "desc": "Intense Arcane energy whirls in the air around this ethereal form.",
+    "image": "npc/undead_wight_void_spectre.png"
+  },
+  "atamathon the giant golem": {
+    "desc": "This giant golem was constructed by the Halflings during the Pyre Wars to fight the orcs, but was felled by Garkul the Devourer. Someone foolish has tried to reconstruct it, but has lost control of it, and now it rampages in search of its original creators, who are long dead. Its body is made of marble, its joints of solid voratun, and its eyes of purest ruby. At over 40 feet tall, it towers above you, and its crimson orbs seem to glow with rage.",
+    "image": "npc/atamathon.png"
+  },
+  "fillarel aldaren": {
+    "desc": "An Elven woman. She wears a tight robe decorated with symbols of the Sun and the Moon and wields a staff.",
+    "image": "npc/humanoid_elf_fillarel_aldaren.png"
+  },
+  "krogar": {
+    "desc": "An orc clad in mail armour, he wields a staff and looks menacing.",
+    "image": "npc/humanoid_orc_krogar.png"
+  },
+  "homeless fighter": {
+    "desc": "Will fight for a meal.",
+    "image": ""
+  },
+  "golden crystal": {
+    "desc": "A formation of golden crystal. It emits a golden radiance equalling the sun itself.",
+    "image": ""
+  },
+  "master alchemist": {
+    "desc": "Deadly fighters using explosive gems to attack.",
+    "image": ""
+  },
+  "multihued wyrmic": {
+    "desc": "A powerful wyrmic with mastery over several elements.",
+    "image": ""
+  },
+  "master slinger": {
+    "desc": "Expert slingers on hire by the arena. They are great at their jobs.",
+    "image": ""
+  },
+  "gladiator": {
+    "desc": "A menacing man in heavy armor, wielding a mace. He looks battle-hardened.",
+    "image": ""
+  },
+  "reaver": {
+    "desc": "A warrior of death.",
+    "image": ""
+  },
+  "ryal": {
+    "desc": "A gargantuan bone giant resembling a wingless wyrm. He is fully sentient and surprisingly fast.",
+    "image": "npc/undead_giant_ryal.png"
+  },
+  "fryjia loren": {
+    "desc": "A young girl with skin pale as snow. She is small, but deadly in battle, unleashing a constant barrage of ice shards.",
+    "image": ""
+  },
+  "riala shalarak": {
+    "desc": "A strong female magician. Years of experience make her a dangerous combatant.",
+    "image": ""
+  },
+  "valfren loren": {
+    "desc": "A massive suit of armor with a massive axe containing a massively cursed person. He is cursed to fight eternally.",
+    "image": "npc/humanoid_human_valfred_loren.png"
+  },
+  "rej arkatis": {
+    "desc": "A Cornac fighter of respectable talent. He emerged from nowhere and became the true master of fighting.",
+    "image": "npc/humanoid_human_rej_arkatis.png"
+  },
+  "slinger": {
+    "desc": "Ranged fighters coming to the arena looking for wealth and glory, just like you.",
+    "image": ""
+  },
+  "high slinger": {
+    "desc": "Ranged fighters coming to the arena looking for wealth and glory, just like you.",
+    "image": ""
+  },
+  "alchemist": {
+    "desc": "Deadly fighters using explosive gems to attack.",
+    "image": ""
+  },
+  "blood mage": {
+    "desc": "A man dressed in black robes. You feel weak as you hear his ominous chanting.",
+    "image": ""
+  },
+  "hexer": {
+    "desc": "A man dressed in black robes. You feel a thousand curses being put on you.",
+    "image": ""
+  },
+  "trickster": {
+    "desc": "Stealthy ranged fighters trying to achieve victory with trickery. Be careful or they will shoot your heart!",
+    "image": ""
+  },
+  "fire wyrmic": {
+    "desc": "A fire wyrmic aspiring to win the tournament. He comes paired with an ice wyrmic.",
+    "image": ""
+  },
+  "ice wyrmic": {
+    "desc": "An ice wyrmic aspiring to win the tournament. He comes paired with a fire wyrmic.",
+    "image": ""
+  },
+  "sand wyrmic": {
+    "desc": "A sand wyrmic aspiring to win the tournament. He comes paired with a storm wyrmic.",
+    "image": ""
+  },
+  "storm wyrmic": {
+    "desc": "A storm wyrmic aspiring to win the tournament. He comes paired with a sand wyrmic.",
+    "image": ""
+  },
+  "high gladiator": {
+    "desc": "Mercenaries hired by the arena for the sole purpose of entertainment. They make a living beating people up.",
+    "image": ""
+  },
+  "great gladiator": {
+    "desc": "Mercenaries hired by the arena for the sole purpose of entertainment. They make a living beating people up.",
+    "image": "npc/humanoid_human_great_gladiator.png"
+  },
+  "martyr": {
+    "desc": "A devout soldier.",
+    "image": ""
+  },
+  "anorithil": {
+    "desc": "Warriors from afar. They use the power of light and darkness against you!",
+    "image": ""
+  },
+  "sun paladin": {
+    "desc": "Warriors from afar. They wield the power of light, and a mean sword.",
+    "image": "npc/humanoid_human_human_sun_paladin.png"
+  },
+  "star crusader": {
+    "desc": "Warriors from afar. They wield the power of light, and a mean sword. Darkness, too.",
+    "image": ""
+  },
+  "rhaloren inquisitor": {
+    "desc": "This tall elf rushes at you, wielding both her greatsword and magical spells.",
+    "image": ""
+  },
+  "ritch flamespitter": {
+    "desc": "",
+    "image": ""
+  },
+  "ritch impaler": {
+    "desc": "",
+    "image": ""
+  },
+  "chitinous ritch": {
+    "desc": "",
+    "image": ""
+  },
+  "ritch great hive mother": {
+    "desc": "This huge ritch seems to be the mother of all those here. Her sharp, fiery, claws dart toward you!",
+    "image": "npc/insect_ritch_ritch_hive_mother.png"
+  },
+  "blood master": {
+    "desc": "This small humanoid is covered in silky white fur. Its bulging eyes stare deep into your mind.",
+    "image": ""
+  },
+  "spectator": {
+    "desc": "A spectator, who probably paid a lot to watch this bloody \"game\".",
+    "image": ""
+  },
+  "slave combatant": {
+    "desc": "This humanoid has been enslaved by the yaech's mental powers.",
+    "image": ""
+  },
+  "slaver": {
+    "desc": "A slaver.",
+    "image": ""
+  },
+  "enthralled slave": {
+    "desc": "A slave.",
+    "image": ""
+  },
+  "greater mummy lord": {
+    "desc": "The wrappings of this mummy radiate with so much power it feels like wind is blowing from them.",
+    "image": ""
+  },
+  "ancient elven mummy": {
+    "desc": "An animated corpse in mummy wrappings.",
+    "image": ""
+  },
+  "animated mummy wrappings": {
+    "desc": "An animated set of mummy wrappings, without a corpse inside; it seems like it cannot move.",
+    "image": ""
+  },
+  "rotting mummy": {
+    "desc": "A rotting animated corpse in mummy wrappings.",
+    "image": ""
+  },
+  "greater mummy": {
+    "desc": "An animated corpse in mummy wrappings, both very well preserved.",
+    "image": "npc/undead_mummy_greater_mummy.png"
+  },
+  "derth guard": {
+    "desc": "A stern-looking guard, he will not let you disturb the town.",
+    "image": ""
+  },
+  "halfling slinger": {
+    "desc": "A Halfling slinger. He seems adept at combat.",
+    "image": ""
+  },
+  "human farmer": {
+    "desc": "A weather-worn Human farmer.",
+    "image": ""
+  },
+  "halfling gardener": {
+    "desc": "A Halfling, he seems to be looking for plants.",
+    "image": ""
+  },
+  "shady cornac man": {
+    "desc": "",
+    "image": ""
+  },
+  "epoch": {
+    "desc": "A huge being composed of sparking blue and yellow energy stands before you.  It shifts and flows as it moves, at once erratic and graceful.",
+    "image": ""
+  },
+  "rak'shor cultist": {
+    "desc": "An old orc, wearing black robes. He seems to be responsible for the creation of the shades.",
+    "image": ""
+  },
+  "prox the mighty": {
+    "desc": "A huge troll, he might move slowly but he does look dangerous nonetheless.",
+    "image": "npc/giant_troll_prox_the_mighty.png"
+  },
+  "shax the slimy": {
+    "desc": "A huge troll, he seems to be adapted to aquatic life.",
+    "image": "npc/giant_troll_prox_the_mighty.png"
+  },
+  "bill the stone troll": {
+    "desc": "Big, brawny, powerful and with a taste for Halfling.\nHe is wielding a small tree trunk and lumbering toward you.\nThis is the troll the notes spoke about, no doubt.",
+    "image": "npc/troll_bill.png"
+  },
+  "aluin the fallen": {
+    "desc": "His once-shining armour now dull and bloodstained, this Sun Paladin has given in to despair.",
+    "image": ""
+  },
+  "yeek mindslayer": {
+    "desc": "A mindslayer in training.",
+    "image": "npc/humanoid_yeek_yeek_mindslayer.png"
+  },
+  "yeek psionic": {
+    "desc": "You can literaly feel the mental energies emitted by this yeek.",
+    "image": ""
+  },
+  "gem crafter": {
+    "desc": "This yeek has all sorts of gems to sell.",
+    "image": "npc/humanoid_yeek_yeek_psionic.png"
+  },
+  "two hander weapons crafter": {
+    "desc": "This yeek has all sorts of two handed weapons to sell.",
+    "image": "npc/humanoid_yeek_yeek_commoner_06.png"
+  },
+  "one hander weapons crafter": {
+    "desc": "This yeek has all sorts of one handed weapons to sell.",
+    "image": "npc/humanoid_yeek_yeek_commoner_08.png"
+  },
+  "tailor": {
+    "desc": "This yeek has all sorts of cloth to sell.",
+    "image": "npc/humanoid_yeek_yeek_commoner_04.png"
+  },
+  "tanner": {
+    "desc": "This yeek has all sorts of leathers to sell.",
+    "image": "npc/humanoid_yeek_yeek_commoner_07.png"
+  },
+  "natural infusions": {
+    "desc": "This yeek has all sorts of infusions to sell.",
+    "image": "npc/humanoid_yeek_yeek_summoner.png"
+  },
+  "warmaster gnarg": {
+    "desc": "This ugly orc looks really nasty and vicious. He wields a huge two-handed sword and means to use it.",
+    "image": ""
+  },
+  "overpowered greater multi-hued wyrm": {
+    "desc": "",
+    "image": "npc/dragon_multihued_greater_multi_hued_wyrm.png"
+  },
+  "urkis, the high tempest": {
+    "desc": "Lightning crackles around this middle-aged man. He radiates power.",
+    "image": "npc/humanoid_human_urkis__the_high_tempest.png"
+  },
+  "high sun paladin aeryn": {
+    "desc": "A beautiful woman, clad in shining plate armour. Power radiates from her.",
+    "image": "npc/humanoid_human_high_sun_paladin_aeryn.png"
+  },
+  "subject z": {
+    "desc": "This seems to be the 'subject Z' the notes spoke about. He looks human, but this cannot be -- he would be about five thousand years old!",
+    "image": ""
+  },
+  "yeek wayist": {
+    "desc": "This creature is about as tall as a halfling. It is covered in white silky fur and has a disproportionate head. The weirdest thing about it though, its weapon simply floats in front of it.",
+    "image": ""
+  },
+  "ben cruthdar, the abomination": {
+    "desc": "This crazed madman seems twisted and corrupted by temporal energy, his body shifting and phasing in and out of reality.",
+    "image": "npc/humanoid_human_ben_cruthdar__the_cursed.png"
+  },
+  "rantha the abomination": {
+    "desc": "Claws and teeth. Ice and death. Dragons are not all extinct it seems...  and this one seems to have been corrupted by the time rift.",
+    "image": "npc/dragon_temporal_rantha_the_abomination.png"
+  },
+  "chronolith twin": {
+    "desc": "A six-armed creature, dressed in robes, with black insectile eyes.",
+    "image": "npc/horror_temporal_cronolith_twin.png"
+  },
+  "chronolith clone": {
+    "desc": "A six-armed creature, dressed in robes, with black insectile eyes.",
+    "image": "npc/horror_temporal_cronolith_clone.png"
+  },
+  "sun paladin guren": {
+    "desc": "A Human warrior, clad in shining plate armour. Power radiates from him.",
+    "image": ""
+  },
+  "spellblaze crystal": {
+    "desc": "A formation of purple crystal. It seems strangely aware.",
+    "image": "npc/spellblaze_crystal.png"
+  },
+  "spellblaze simulacrum": {
+    "desc": "A formation of purple crystal, but where the others could only be described as polyhedral, this construct seems to strangely resemble... you, if you were much, much larger.",
+    "image": "npc/spellblaze_simulacrum.png"
+  },
+  "the eidolon": {
+    "desc": "A ripple in the void that somehow seems... alive, this creature stares at you with interest.",
+    "image": "npc/unknown_unknown_the_eidolon.png"
+  },
+  "yeek illusion": {
+    "desc": "What?!",
+    "image": ""
+  },
+  "lost wife": {
+    "desc": "Your wife has been turned into a giant, bloated form that towers above you. Mucus and slime ooze from every orifice, dripping onto the floor. The sight and the smell make you retch.",
+    "image": "npc/humanoid_orc_orc_mother.png"
+  },
+  "guardian of reality": {
+    "desc": "A stern-looking guardian, ever vigilant against the threats of the paradox.",
+    "image": ""
+  },
+  "monstrous losgoroth": {
+    "desc": "",
+    "image": "npc/elemental_void_losgoroth.png"
+  },
+  "zemekkys, grand keeper of reality": {
+    "desc": "A timeless elf stands before you. Even though his age is impossible to determine, you feel he has seen many things.",
+    "image": "npc/humanoid_elf_high_chronomancer_zemekkys.png"
+  },
+  "temporal defiler": {
+    "desc": "A huge, slender, metallic monstrosity with long claws in place of fingers, and razor-sharp teeth. It seems to seek something here.",
+    "image": "npc/horror_temporal_temporal_defiler.png"
+  },
+  "mindworm": {
+    "desc": "This tall Thalore's eyes are lost in the distance; you can sense that he barely sees you.",
+    "image": ""
+  },
+  "high sun-paladin rodmour": {
+    "desc": "A Human in shiny plate armour.",
+    "image": ""
+  },
+  "elandar": {
+    "desc": "Renegade mages from Angolwen, the Sorcerers have set up in the Far East, slowly growing corrupt. Now they must be stopped.",
+    "image": "npc/humanoid_shalore_elandar.png"
+  },
+  "argoniel": {
+    "desc": "Renegade mages from Angolwen, the Sorcerers have set up in the Far East, slowly growing corrupt. Now they must be stopped.",
+    "image": "npc/humanoid_human_argoniel.png"
+  },
+  "fyrk, faeros high guard": {
+    "desc": "Faeros are highly intelligent fire elementals, rarely seen outside volcanoes. They are probably not native to this world.\nThis one looks even nastier and looks toward you with what seems to be disdain. Flames swirl all around him.",
+    "image": "npc/elemental_fire_fyrk__faeros_high_guard.png"
+  },
+  "caravan merchant": {
+    "desc": "A caravan merchant.",
+    "image": "npc/humanoid_human_spectator02.png"
+  },
+  "caravan guard": {
+    "desc": "A caravan guard.",
+    "image": "npc/humanoid_human_spectator.png"
+  },
+  "caravan porter": {
+    "desc": "A caravan porter.",
+    "image": "npc/humanoid_human_spectator03.png"
+  },
+  "war dog": {
+    "desc": "This is a large dog, bred and trained for fighting.",
+    "image": "npc/canine_dw.png"
+  },
+  "corrupted war dog": {
+    "desc": "This is a large dog, bred and trained for fighting. Something about the way it moves doesn't look normal.",
+    "image": "npc/canine_dw.png"
+  },
+  "shadow claw": {
+    "desc": "A shadow, almost humanoid in shape. At times its form seems to be a force of will rather than something real.",
+    "image": "npc/shadow-caster.png"
+  },
+  "shadow stalker": {
+    "desc": "A shadow, almost humanoid in shape. It seems to move carefully and with cunning before swiftly striking.",
+    "image": "npc/shadow-stalker.png"
+  },
+  "companion warrior": {
+    "desc": "This elf is a companion of Berethh. He's dressed in light armor and wields a sword.",
+    "image": "npc/humanoid_elenulach_thief.png"
+  },
+  "companion archer": {
+    "desc": "This elf is a companion of Berethh. He's dressed in light armor and wields a bow.",
+    "image": "npc/humanoid_elf_elven_archer.png"
+  },
+  "kyless": {
+    "desc": "This is Kyless, your old friend. He seems dirtier than you recall and a good bit more dangerous.",
+    "image": ""
+  },
+  "berethh": {
+    "desc": "This is Berethh, your old friend. He is dressed in well-worn leather and skillfully wields a bow. There is something noble about the way he carries himself but his expression carries no emotion.",
+    "image": ""
+  },
+  "ben cruthdar, the cursed": {
+    "desc": "This madman looks extremely dangerous. He wields a big axe and means to use it.\nA gloomy aura emanates from him.",
+    "image": ""
+  },
+  "lumberjack": {
+    "desc": "A lumberjack. Cutting wood is his job, dream and passion.",
+    "image": ""
+  },
+  "murgol, the yaech lord": {
+    "desc": "You can feel the psionic waves of power come from this yaech.",
+    "image": ""
+  },
+  "lady nashva the streambender": {
+    "desc": "Water circles slowly on the ground around this naga's tail. Her dark tail is coiled tight, making her look short, but her calm and confident stare assure you that she will not be easily overcome. As the water begins to rise around her the air starts to shimmer, and you feel her dark eyes are penetrating into you deeper than is comfortable.",
+    "image": "npc/humanoid_naga_lady_nashva_the_streambender.png"
+  },
+  "degenerated ogric mass": {
+    "desc": "This huge mass of deformed flesh was probably once an ogre, but something had gone wrong.",
+    "image": ""
+  },
+  "ogric abomination": {
+    "desc": "This ogre seems to have tried to graft golem parts on its own body. To various interresting results.",
+    "image": ""
+  },
+  "ogre sentry": {
+    "desc": "This greatsword-wielding ogre looks at you with contempt and hatred.",
+    "image": ""
+  },
+  "healer astelrid": {
+    "desc": "An enormous ogre, clad in a tattered set of robes with an officer's badge.  She clutches a healer's staff, wrapped in casting plaster and scalpels for use as a massive spiked club.",
+    "image": ""
+  },
+  "linaniil, supreme archmage of angolwen": {
+    "desc": "A tall, pale woman dressed in a revealing silk robe. Her gaze is so intense it seems to burn.",
+    "image": "npc/humanoid_human_linaniil_supreme_archmage.png"
+  },
+  "archmage tarelion": {
+    "desc": "A tall Shalore in a flowing robe, he looks calm and at peace, but you can feel his tremendous power.",
+    "image": ""
+  },
+  "apprentice mage": {
+    "desc": "An apprentice, learning the ways of the arcane arts.",
+    "image": ""
+  },
+  "pyromancer": {
+    "desc": "An archmage specializing in fire magic.",
+    "image": "npc/humanoid_human_pyromancer.png"
+  },
+  "cryomancer": {
+    "desc": "An archmage specializing in ice magic.",
+    "image": "npc/humanoid_human_cryomancer.png"
+  },
+  "geomancer": {
+    "desc": "An archmage specializing in earth magic.",
+    "image": "npc/humanoid_human_geomancer.png"
+  },
+  "tempest": {
+    "desc": "An archmage specializing in lightning magic.",
+    "image": "npc/humanoid_human_tempest.png"
+  },
+  "draebor, the imp": {
+    "desc": "An intensely irritating git of a monster.",
+    "image": ""
+  },
+  "fallen sun paladin aeryn": {
+    "desc": "A beautiful woman, clad in shining plate armour. Power radiates from her.",
+    "image": "npc/humanoid_human_fallen_sun_paladin_aeryn.png"
+  },
+  "caldizar": {
+    "desc": "A creature stands before you, with long tentacle-like appendages and a squat bump in place of a head. An intense aura of power radiates from this being unlike anything you've ever felt before. It can only be a Sher'Tul. A living Sher'Tul!",
+    "image": "npc/horror_sher_tul_caldizar.png"
+  },
+  "tannen": {
+    "desc": "The traitor has been revealed, and he does not intend to let you escape to tell the tale.",
+    "image": ""
+  },
+  "drolem": {
+    "desc": "This is Tannen's construct, a HUGE golem in the rough shape of a dragon.\nIt is so huge that it blocks sight beyond it.",
+    "image": "npc/construct_golem_drolem.png"
+  },
+  "weirdling beast": {
+    "desc": "A roughly humanoid creature, with tentacle-like appendages in the place of arms and legs. You gasp in horror as you notice it has no head. Putrid warts form quickly on its skin and explode as quickly.",
+    "image": ""
+  },
+  "fortress shadow": {
+    "desc": "The shadow created by the fortress, it resembles somewhat the horrors you saw previously, but it is not the same.",
+    "image": ""
+  },
+  "training dummy": {
+    "desc": "Training dummy.",
+    "image": "npc/lure.png"
+  },
+  "pumpkin, the little kitty": {
+    "desc": "An orange kitty with a white star blaze on his chest. Has a strange affinity for licking your face whenever possible.",
+    "image": "npc/sage_kitty.png"
+  },
+  "ukruk the fierce": {
+    "desc": "This ugly orc looks really nasty and vicious. He is obviously looking for something and bears an unknown symbol on his shield.",
+    "image": ""
+  },
+  "corrupted oozemancer": {
+    "desc": "This blight-ridden troll was once a proud defender of Nature. His corruption is spreading, eating away at the forest around him.",
+    "image": ""
+  },
+  "ungolë": {
+    "desc": "A huge spider, shrouded in darkness, her red glowing eyes darting to fix on you. She looks hungry.",
+    "image": "npc/spiderkin_spider_ungole.png"
+  },
+  "xhaiak arachnomancer": {
+    "desc": "A strange looking humanoid spiderkin, its body half covered by a light flowing robe. It looks like tiny spiders are crawling on his skin.",
+    "image": ""
+  },
+  "shiaak venomblade": {
+    "desc": "A strange looking humanoid, covered in black chitinous skin. He dual wields sinuous daggers and seems bent on plunging them in your body.",
+    "image": ""
+  },
+  "spacial disturbance": {
+    "desc": "A hole in the fabric of space, it seems to be the source of the expanse instability.",
+    "image": ""
+  },
+  "ukllmswwik the wise": {
+    "desc": "It looks like a cross between a shark and a dragon, only nastier.",
+    "image": ""
+  },
+  "arcane blade": {
+    "desc": "A Human Arcane Blade. His body shows multiple scars from battle.",
+    "image": ""
+  },
+  "necromancer": {
+    "desc": "A Human dressed in black robes. He mumbles in a harsh tongue. He seems to think you are his slave.",
+    "image": ""
+  },
+  "half-finished bone giant": {
+    "desc": "A towering creature, made from the bones of hundreds of dead bodies. It is covered by an unholy aura.\nThis specimen looks like it was hastily assembled and is not really complete yet.",
+    "image": "npc/undead_giant_half_finished_bone_giant.png"
+  },
+  "fleshy experiment": {
+    "desc": "This pile of rotting flesh twitches and makes horrid noises.",
+    "image": ""
+  },
+  "boney experiment": {
+    "desc": "This pile of bones appears to move on its own, but it can't seem to organise itself into something dangerous.",
+    "image": ""
+  },
+  "sanguine experiment": {
+    "desc": "It looks like a giant blood clot. Is that what its creator intended?",
+    "image": ""
+  },
+  "gorbat, supreme wyrmic of the pride": {
+    "desc": "An orc with scaly skin, claws and a pair of small wings on his back.",
+    "image": "npc/humanoid_orc_gorbat__supreme_wyrmic_of_the_pride.png"
+  },
+  "the shade of telos": {
+    "desc": "Everybody thought Telos dead and his spirit destroyed, but it seems he still lingers in his old place of power.",
+    "image": ""
+  },
+  "slasul": {
+    "desc": "This towering naga exudes power, and radiates a certain charismatic charm as well. His masculine face stares at you with great intensity, and you struggle to meet his gaze. His torso is bare apart from an exquisite pearl set directly in his chest, and in his muscular arms he holds ready a heavy mace and shield. You sense there is more to him also, as if the very power of the ocean were concentrated in this great creature, and that the wrath of it may come flooding out at any moment.",
+    "image": "npc/humanoid_naga_slasul.png"
+  },
+  "the shade": {
+    "desc": "This skeleton looks nasty. There are red flames in its empty eye sockets. It wields a nasty sword and strides toward you, throwing spells.",
+    "image": ""
+  },
+  "the possessed": {
+    "desc": "He is the leader of a gang of bandits that killed the Shade of Kor'Pul, however it is obvious the Shade was merely displaced. It is now possessing the corpse of his killer.",
+    "image": "npc/humanoid_human_the_possessed.png"
+  },
+  "kor's fury": {
+    "desc": "The Shade's colossal will keeps it anchored to this world, now as a vengeful, insane spirit.",
+    "image": ""
+  },
+  "weaver hatchling": {
+    "desc": "A nearly translucent spider hatchling.",
+    "image": "npc/spiderkin_spider_weaver_young.png"
+  },
+  "orb spinner": {
+    "desc": "A large brownish arachnid, its fangs drip with a strange fluid.",
+    "image": ""
+  },
+  "orb weaver": {
+    "desc": "A large brownish arachnid spinning its web.  It doesn't look pleased that you've disturbed its work.",
+    "image": ""
+  },
+  "fate spinner": {
+    "desc": "Easily as big as a horse, this giant spider menaces at you with claws and fangs.",
+    "image": ""
+  },
+  "fate weaver": {
+    "desc": "A large white spider.",
+    "image": ""
+  },
+  "weaver queen": {
+    "desc": "A large white spider.",
+    "image": "npc/spiderkin_spider_weaver_queen.png"
+  },
+  "norgos, the frozen": {
+    "desc": "This ancient bear long guarded the western side of the forest, but as of late he started growing mad, attacking even the Thaloren.\nIt seems to have fallen prey to the shivgoroth invading the area. Dead and frozen, it seems like a statue, animated by the elementals.",
+    "image": "npc/animal_bear_norgos_the_frozen.png"
+  },
+  "norgos, the guardian": {
+    "desc": "This ancient bear long guarded the western side of the forest, but as of late he started growing mad, attacking even the Thaloren.",
+    "image": "npc/animal_bear_norgos_the_guardian.png"
+  },
+  "the master": {
+    "desc": "A terrifying vampiric figure of power, with flowing robes and an intense aura of fright.  His cold, sinewy flesh seems to cling to this world through greed and malice, and his eyes betray a strength of mind beyond any puny mortal.  All nearby are utterly subservient to his will, though he stands aloof from them, as if to say he needs not the pathetic meddling of minions to help him overcome his foes.  Your eyes are drawn to a dark staff in his hands which seems to suck the very life from the air around it.  It looks ancient and dangerous and terrible, and the sight of it fills you with fervent desire.",
+    "image": "npc/the_master.png"
+  },
+  "pale drake": {
+    "desc": "A malevolent skeleton archmage that has taken control of the Dreadfell since the Master's demise.",
+    "image": "npc/undead_skeleton_pale_drake.png"
+  },
+  "borfast the broken": {
+    "desc": "Thick skin hangs loosely from this short, shambling form. Tufts of hair sticking out from its chin give evidence of a once magnificent dwarven beard. Half its face seems to have been seared in acid at some point, the flesh melted away from the skull and an eyeball drooping low from its socket. There is a unique sadness to its eyes, and a slump of resignation to its gait.\nWhat proud hero of renown was this before he was condemned to such a terrible fate?",
+    "image": ""
+  },
+  "aletta soultorn": {
+    "desc": "What once must have been an enchantingly beautiful Higher woman now looks to be a ghost of utter despair. Her thin, elegant form ripples gently in the air, whilst her tattered robes seem oddly still. The ghost's face looks jittery and pained whilst her wild, glowing eyes move rapidly back and forth in their sockets.\nNow and then she seems to see something and her jaw pulls back, her whole face splitting apart as she shrieks an unholy cry of pain and torment.",
+    "image": ""
+  },
+  "filio flightfond": {
+    "desc": "A short, furtive-looking skeleton with padded feet. He moves quickly and silently, and seems to meld into the shadows with ease. In one hand he holds a sling, and the other a short dagger.\nThere is a cunning air to his hollow skull, and his empty sockets reveal nothing of what tricks and tactics he has planned.",
+    "image": ""
+  },
+  "golbug the destroyer": {
+    "desc": "A huge and muscular orc of unknown breed. He looks both menacing and cunning...",
+    "image": "npc/humanoid_orc_golbug_the_destroyer.png"
+  },
+  "harno, herald of last hope": {
+    "desc": "This is one of the heralds of Last Hope. He seems to be looking for you.",
+    "image": ""
+  },
+  "lithfengel": {
+    "desc": "A terrible demon of decay and atrophy, drawn to the energy of the farportal. A beast of blight!",
+    "image": ""
+  },
+  "sandworm burrower": {
+    "desc": "This sandworm seems to not care about your presence at all and simply continues digging its way through the sand.\n\t\nMaybe following it is the only way to move around here...",
+    "image": ""
+  },
+  "huge sandworm burrower": {
+    "desc": "This sandworm seems to not care about your presence at all and simply continues digging its way through the sand.\n\t\nMaybe following it is the only way to move around here...",
+    "image": ""
+  },
+  "sandworm queen": {
+    "desc": "Before you stands the queen of the sandworms. Massive and bloated, she slithers toward you, calling for her offspring!",
+    "image": "npc/vermin_sandworm_sandworm_queen.png"
+  },
+  "corrupted sand wyrm": {
+    "desc": "The sandworms are gone, devoured by this shrieking, warped horror.",
+    "image": "npc/dragon_sand_corrupted_sand_wyrm.png"
+  }
+}

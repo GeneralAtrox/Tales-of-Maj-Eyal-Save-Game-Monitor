@@ -5,3 +5,4 @@ __pycache__/
 config.json
 Backups/
 CharacterSheets/
+.claude/worktrees/
