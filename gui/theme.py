@@ -47,8 +47,8 @@ QTabBar::tab {{
     margin-right: 2px;
 }}
 QTabBar::tab:selected {{
-    background: {SURFACE2};
-    color: {TEXT};
+    background: {BLUE};
+    color: {SURFACE0};
     border-bottom: 3px solid {BLUE};
 }}
 QTabBar::tab:hover:!selected {{
