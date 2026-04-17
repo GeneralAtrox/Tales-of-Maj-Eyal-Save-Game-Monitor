@@ -25,6 +25,7 @@ game_data/
 tools/
   find_lua_state.py        # Dev tool: locate LuaJIT _G in process memory
   probe_entities.py        # Dev tool: dump live entity tables
+  probe_player_inventory.py # Dev tool: inspect player inventory/equipment/transmog tables
 Tales of Maj'Eyal_v3.CT   # Cheat Engine table (manual use only, not used by code)
 ```
 
@@ -125,6 +126,11 @@ Requires Python 3.14+. ToME saves expected at `~/T-Engine/4.0/tome/save/`. Confi
 - `parsers.py` is pure functions (no state); all side effects live in `monitor.py` / `te4_client.py`
 - Errors handled with specific exception types; graceful degradation returns `{}` or `[]`
 - Warnings go to `sys.stderr`, not stdout
+
+## Codex Workflow
+
+- When a change is complete and validated, commit it and push the current branch unless the user explicitly says not to push.
+- Leave unrelated untracked files alone unless the user explicitly includes them in scope.
 
 ## Linting
 
