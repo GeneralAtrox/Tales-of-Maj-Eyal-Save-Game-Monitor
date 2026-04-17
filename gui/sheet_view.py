@@ -5,7 +5,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from game_data.talent_db import lookup_talent_description
 from gui.theme import (
     BG, BLUE, BORDER, GREEN, MAUVE, OVERLAY, RED, TEAL,
     SUBTEXT0, SUBTEXT1, SURFACE0, SURFACE1, SURFACE2, TEXT, YELLOW,
@@ -316,6 +317,13 @@ class _TalentDetailPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumWidth(240)
+        self.setObjectName("TalentDetailPanel")
+        self.setStyleSheet(
+            "QWidget#TalentDetailPanel, QWidget#TalentDetailFields {"
+            " background: transparent; border: none; }"
+            "QWidget#TalentDetailFields QLabel {"
+            " background: transparent; border: none; }"
+        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -358,9 +366,15 @@ class _TalentDetailPanel(QWidget):
 
         # Fields area (rebuilt on each talent click)
         self._fields_w = QWidget()
-        self._fields_lay = QVBoxLayout(self._fields_w)
+        self._fields_w.setObjectName("TalentDetailFields")
+        self._fields_lay = QGridLayout(self._fields_w)
         self._fields_lay.setContentsMargins(0, 4, 0, 0)
-        self._fields_lay.setSpacing(5)
+        self._fields_lay.setHorizontalSpacing(10)
+        self._fields_lay.setVerticalSpacing(5)
+        self._fields_lay.setColumnMinimumWidth(0, 95)
+        self._fields_lay.setColumnStretch(0, 0)
+        self._fields_lay.setColumnStretch(1, 1)
+        self._field_row = 0
         root.addWidget(self._fields_w)
         root.addStretch()
 
@@ -393,6 +407,12 @@ class _TalentDetailPanel(QWidget):
         self._name_lbl.setText(name)
         self._category_lbl.setText(category)
 
+        if isinstance(data, dict) and "Description" not in data:
+            fallback_desc = lookup_talent_description(name)
+            if fallback_desc:
+                data = dict(data)
+                data["Description"] = fallback_desc
+
         if isinstance(data, str):
             self._add_field("Level", data, GREEN)
             return
@@ -406,28 +426,26 @@ class _TalentDetailPanel(QWidget):
             self._add_field(key, str(val), self._COLORS.get(key, TEXT))
 
     def _add_field(self, label: str, value: str, color: str) -> None:
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        row = self._field_row
+        self._field_row += 1
         lbl = QLabel(f"{label}")
-        lbl.setFixedWidth(95)
-        lbl.setStyleSheet(f"color: {SUBTEXT0}; font-size: 12px;")
+        lbl.setMinimumWidth(95)
+        lbl.setStyleSheet(f"color: {SUBTEXT0}; font-size: 12px; background: transparent; border: none;")
         lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         val = QLabel(value)
-        val.setStyleSheet(f"color: {color}; font-size: 12px;")
+        val.setStyleSheet(f"color: {color}; font-size: 12px; background: transparent; border: none;")
         val.setWordWrap(True)
         val.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        row.addWidget(lbl)
-        row.addWidget(val, 1)
-        container = QWidget()
-        container.setLayout(row)
-        self._fields_lay.addWidget(container)
+        self._fields_lay.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._fields_lay.addWidget(val, row, 1, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
     def _clear_fields(self) -> None:
         while self._fields_lay.count():
             item = self._fields_lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self._field_row = 0
 
     def _show_placeholder(self) -> None:
         self._icon_lbl.setPixmap(_placeholder(_ICON_DETAIL, "?"))
@@ -730,9 +748,12 @@ class CharacterSheetView(QWidget):
         self._current_sprite_key: tuple[str, tuple[str, ...]] | None = None
         self._current_data: dict[str, Any] = {}
         self._current_char_name = ""
+        self._game_connected = False
         self._live_equipment: list[dict[str, Any]] | None = None
         self._live_inventory: list[dict[str, Any]] | None = None
         self._live_transmog: list[dict[str, Any]] | None = None
+        self._live_talents: dict[str, dict[str, Any]] | None = None
+        self._live_prodigies: list[str] | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -756,7 +777,7 @@ class CharacterSheetView(QWidget):
         self._content_tabs = QTabWidget()
         root.addWidget(self._content_tabs, 1)
 
-        # Talents tab: left scroll | right detail
+        # Talents tab: left scroll | open feature area
         talents_tab = QWidget()
         talents_root = QVBoxLayout(talents_tab)
         talents_root.setContentsMargins(0, 0, 0, 0)
@@ -772,17 +793,27 @@ class CharacterSheetView(QWidget):
             f"QScrollArea {{ border: none; background: {BG}; }}"
             f"QWidget {{ background: {BG}; }}"
         )
+        self._talents_scroll = scroll
         self._left = QWidget()
+        self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._left_lay = QVBoxLayout(self._left)
         self._left_lay.setContentsMargins(12, 12, 12, 24)
         self._left_lay.setSpacing(2)
+        self._left_lay.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._left_lay.addStretch()
         scroll.setWidget(self._left)
         splitter.addWidget(scroll)
-        splitter.addWidget(self._detail_panel)
-        splitter.setSizes([700, 300])
+        self._talents_feature_host = QWidget()
+        self._talents_feature_host.setStyleSheet(f"background: {BG}; border-left: 1px solid {BORDER};")
+        feature_lay = QVBoxLayout(self._talents_feature_host)
+        feature_lay.setContentsMargins(12, 12, 12, 12)
+        feature_lay.setSpacing(0)
+        feature_lay.addWidget(self._detail_panel, 0, Qt.AlignmentFlag.AlignTop)
+        feature_lay.addStretch()
+        splitter.addWidget(self._talents_feature_host)
+        splitter.setSizes([860, 140])
         splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(1, 1)
         talents_root.addWidget(splitter)
         self._content_tabs.addTab(talents_tab, "Talents")
 
@@ -824,7 +855,29 @@ class CharacterSheetView(QWidget):
         self._enemy_host_lay.setSpacing(0)
         self._content_tabs.addTab(self._enemy_host, "Enemies")
 
+        self._connecting_overlay = QWidget(self)
+        self._connecting_overlay.setStyleSheet(f"background: {BG};")
+        overlay_lay = QVBoxLayout(self._connecting_overlay)
+        overlay_lay.setContentsMargins(24, 24, 24, 24)
+        overlay_lay.addStretch()
+        overlay_title = QLabel("Connecting To Game")
+        overlay_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay_title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {TEXT};")
+        overlay_subtitle = QLabel("Character data will load after a live game session is attached.")
+        overlay_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay_subtitle.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0};")
+        overlay_lay.addWidget(overlay_title)
+        overlay_lay.addSpacing(8)
+        overlay_lay.addWidget(overlay_subtitle)
+        overlay_lay.addStretch()
+        self._connecting_overlay.raise_()
+        self._connecting_overlay.show()
+
     # ── Public API ────────────────────────────────────────────────────────
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._connecting_overlay.setGeometry(self.rect())
 
     def set_hp(self, life: float, max_life: float) -> None:
         self._header.set_hp(life, max_life)
@@ -866,9 +919,17 @@ class CharacterSheetView(QWidget):
         self._reload_current()
 
     def load(self, data: dict, char_name: str = "") -> None:
+        if data == self._current_data and char_name == self._current_char_name:
+            return
         self._current_data = data
         self._current_char_name = char_name
         self._reload_current()
+
+    def set_game_connected(self, connected: bool) -> None:
+        if connected == self._game_connected:
+            return
+        self._game_connected = connected
+        self._connecting_overlay.setVisible(not connected)
 
     def set_live_inventory(
         self,
@@ -876,9 +937,27 @@ class CharacterSheetView(QWidget):
         current: list[dict[str, Any]] | None,
         transmog: list[dict[str, Any]] | None,
     ) -> None:
+        if (
+            equipment == self._live_equipment
+            and current == self._live_inventory
+            and transmog == self._live_transmog
+        ):
+            return
         self._live_equipment = equipment
         self._live_inventory = current
         self._live_transmog = transmog
+        self._reload_current()
+
+    def set_live_talents(self, sections: dict[str, dict[str, Any]] | None) -> None:
+        if sections == self._live_talents:
+            return
+        self._live_talents = sections
+        self._reload_current()
+
+    def set_live_prodigies(self, prodigies: list[str] | None) -> None:
+        if prodigies == self._live_prodigies:
+            return
+        self._live_prodigies = prodigies
         self._reload_current()
 
     def clear_live_inventory(self) -> None:
@@ -886,14 +965,128 @@ class CharacterSheetView(QWidget):
             self._live_equipment is None
             and self._live_inventory is None
             and self._live_transmog is None
+            and self._live_talents is None
+            and self._live_prodigies is None
         ):
             return
         self._live_equipment = None
         self._live_inventory = None
         self._live_transmog = None
+        self._live_talents = None
+        self._live_prodigies = None
         self._reload_current()
 
+    @staticmethod
+    def _visible_talent_key(name: str) -> str:
+        return name.replace("\u200b", "")
+
+    def _normalized_category_name(self, name: str) -> str:
+        visible = self._visible_talent_key(name)
+        if "/" in visible:
+            visible = visible.rsplit("/", 1)[-1]
+        return " ".join(visible.split()).strip().lower()
+
+    def _order_talent_section(
+        self,
+        section: dict[str, Any],
+        file_section: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        blocks: list[tuple[str, list[tuple[str, Any]]]] = []
+        current_header = ""
+        current_block: list[tuple[str, Any]] = []
+
+        for entry_name, entry_data in section.items():
+            if _is_category_header(entry_data):
+                if current_block:
+                    blocks.append((current_header, current_block))
+                current_header = self._visible_talent_key(entry_name)
+                current_block = [(entry_name, entry_data)]
+            else:
+                current_block.append((entry_name, entry_data))
+
+        if current_block:
+            blocks.append((current_header, current_block))
+
+        if not isinstance(file_section, dict) or not file_section:
+            ordered: dict[str, Any] = {}
+            for _header, block in blocks:
+                for entry_name, entry_data in block:
+                    ordered[entry_name] = entry_data
+            return ordered
+
+        file_headers = [
+            self._normalized_category_name(name)
+            for name, value in file_section.items()
+            if _is_category_header(value)
+        ]
+        block_lookup = {
+            self._normalized_category_name(header): block
+            for header, block in blocks
+        }
+
+        ordered: dict[str, Any] = {}
+        used_headers: set[str] = set()
+        for header in file_headers:
+            block = block_lookup.get(header)
+            if block is None:
+                continue
+            used_headers.add(header)
+            for entry_name, entry_data in block:
+                ordered[entry_name] = entry_data
+        for header, block in blocks:
+            if header in used_headers:
+                continue
+            for entry_name, entry_data in block:
+                ordered[entry_name] = entry_data
+        return ordered
+
+    def _merge_live_talents(self) -> dict[str, dict[str, Any]]:
+        if not self._live_talents:
+            return {}
+
+        file_talents: dict[str, dict[str, Any]] = {}
+        for key, value in self._current_data.items():
+            if "Talents" not in key or not isinstance(value, dict):
+                continue
+            file_talents[key] = value
+
+        by_name: dict[str, Any] = {}
+        for section in file_talents.values():
+            for talent_name, talent_data in section.items():
+                if _is_category_header(talent_data):
+                    continue
+                by_name[talent_name] = talent_data
+
+        merged: dict[str, dict[str, Any]] = {}
+        for section_name, section in self._live_talents.items():
+            merged_section: dict[str, Any] = {}
+            for entry_name, entry_data in section.items():
+                final_data = entry_data
+                if _is_category_header(entry_data):
+                    merged_section[entry_name] = entry_data
+                    continue
+                if isinstance(entry_data, dict):
+                    combined = dict(entry_data)
+                    file_data = by_name.get(entry_name)
+                    if isinstance(file_data, dict):
+                        for label in (
+                            "Travel Speed",
+                            "Usage Speed",
+                            "Scales With",
+                            "Turn Duration",
+                            "Stats",
+                            "Stats per turn",
+                            "Description",
+                        ):
+                            if label not in combined and label in file_data:
+                                combined[label] = file_data[label]
+                        final_data = combined
+                merged_section[entry_name] = final_data
+            merged[section_name] = merged_section
+        return merged
+
     def _reload_current(self) -> None:
+        talent_scroll_value = self._talents_scroll.verticalScrollBar().value()
         self._clear_left()
         self._clear_player_box()
         char = self._current_data.get("Character", {})
@@ -905,10 +1098,17 @@ class CharacterSheetView(QWidget):
             self._player_box_lay.addWidget(_StatsRow(stats, sprite=self._current_sprite))
 
         # Talent sections
-        for key, value in self._current_data.items():
-            if "Talents" not in key or not isinstance(value, dict) or not value:
-                continue
-            self._insert(self._left_lay, self._build_talent_section(key, value))
+        talent_sections = self._merge_live_talents()
+        if talent_sections:
+            self._insert(self._left_lay, self._build_talent_columns(talent_sections))
+        else:
+            file_talent_sections = {
+                key: value
+                for key, value in self._current_data.items()
+                if "Talents" in key and isinstance(value, dict) and value
+            }
+            if file_talent_sections:
+                self._insert(self._left_lay, self._build_talent_columns(file_talent_sections))
 
         file_equipment = self._current_data.get("Equipment", [])
         inventory = self._current_data.get("Inventory", [])
@@ -929,6 +1129,11 @@ class CharacterSheetView(QWidget):
         transmog_live = self._live_transmog if self._live_transmog is not None else transmog_items
         self._inventory_panel.set_items(current_items if isinstance(current_items, list) else [], show_slot=False)
         self._transmog_panel.set_items(transmog_live if isinstance(transmog_live, list) else [], show_slot=False)
+        self._left.adjustSize()
+        QTimer.singleShot(
+            0,
+            lambda value=talent_scroll_value: self._talents_scroll.verticalScrollBar().setValue(value),
+        )
 
     def set_enemy_panel(self, panel: QWidget) -> None:
         while self._enemy_host_lay.count():
@@ -949,6 +1154,82 @@ class CharacterSheetView(QWidget):
 
     def build_talent_section(self, title: str, talents: dict) -> QWidget:
         return self._build_talent_section(title, talents)
+
+    def _build_talent_columns(self, sections: dict[str, dict[str, Any]]) -> QWidget:
+        wrapper = QWidget()
+        wrapper.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        lay = QHBoxLayout(wrapper)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+
+        class_section = sections.get("Class Talents")
+        generic_section = sections.get("Generic Talents")
+
+        def add_section(section_title: str, section_data: dict[str, Any] | None) -> None:
+            if not isinstance(section_data, dict) or not section_data:
+                return
+            section_widget = self._build_talent_section(section_title, section_data)
+            section_widget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+            lay.addWidget(section_widget, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        add_section("Class Talents", class_section)
+        if (
+            isinstance(class_section, dict)
+            and class_section
+            and isinstance(generic_section, dict)
+            and generic_section
+        ):
+            divider = QFrame()
+            divider.setFrameShape(QFrame.Shape.VLine)
+            divider.setLineWidth(1)
+            divider.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
+            lay.addWidget(divider)
+        add_section("Generic Talents", generic_section)
+
+        if lay.count() == 0:
+            for section_title, section_data in sections.items():
+                add_section(section_title, section_data)
+
+        # Prodigies column — sourced from live memory, level 25+ only
+        if self._live_prodigies:
+            prodigy_divider = QFrame()
+            prodigy_divider.setFrameShape(QFrame.Shape.VLine)
+            prodigy_divider.setLineWidth(1)
+            prodigy_divider.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
+            lay.addWidget(prodigy_divider)
+            prodigy_col = self._build_prodigy_column(self._live_prodigies)
+            prodigy_col.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+            lay.addWidget(prodigy_col, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        lay.addStretch(1)
+        return wrapper
+
+    def _build_prodigy_column(self, names: list[str]) -> QWidget:
+        """Build a compact prodigy column showing available-to-learn prodigies."""
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 8, 0, 4)
+        lay.setSpacing(4)
+
+        title = QLabel("PRODIGIES")
+        title.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0};"
+            f" letter-spacing: 1px; padding-bottom: 2px;"
+        )
+        lay.addWidget(title)
+
+        gw = QWidget()
+        gl = QGridLayout(gw)
+        gl.setContentsMargins(0, 2, 0, 6)
+        gl.setSpacing(4)
+        for idx, name in enumerate(names):
+            icon_w = _TalentIcon(name, {"Level": "0/1"})
+            icon_w.clicked.connect(
+                lambda n, d: self._on_talent_clicked(n, d, "Prodigies")
+            )
+            gl.addWidget(icon_w, idx // 2, idx % 2)
+        lay.addWidget(gw)
+        return w
 
     def _build_talent_section(self, title: str, talents: dict) -> QWidget:
         w = QWidget()

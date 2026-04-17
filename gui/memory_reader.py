@@ -17,7 +17,74 @@ import ctypes.wintypes
 import struct
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Final
+
+# ── Prodigy database ─────────────────────────────────────────────────────────
+# Static map: T_* ID → (display_name, primary_stat_key).
+# Sourced from data/talents/uber/*.lua (uberTalent{} blocks); hidden prodigies
+# (not_listed = true) are excluded.  Stat key matches game.player.stats sub-table
+# keys: "str" | "dex" | "con" | "mag" | "wil" | "cun".
+# All prodigies require level 25 and 50+ in the listed stat.
+_PRODIGY_DB: Final[dict[str, tuple[str, str]]] = {
+    # Constitution
+    "T_DRACONIC_BODY":           ("Draconic Body",             "con"),
+    "T_BLOODSPRING":             ("Bloodspring",               "con"),
+    "T_ETERNAL_GUARD":           ("Eternal Guard",             "con"),
+    "T_NEVER_STOP_RUNNING":      ("Never Stop Running",        "con"),
+    "T_ARMOUR_OF_SHADOWS":       ("Armour of Shadows",         "con"),
+    "T_SPINE_OF_THE_WORLD":      ("Spine of the World",        "con"),
+    "T_FUNGAL_BLOOD":            ("Fungal Blood",              "con"),
+    "T_CORRUPTED_SHELL":         ("Corrupted Shell",           "con"),
+    # Cunning  (T_FAST_AS_LIGHTNING excluded: not_listed=true)
+    "T_TRICKY_DEFENSES":         ("Tricky Defenses",           "cun"),
+    "T_ENDLESS_WOES":            ("Endless Woes",              "cun"),
+    "T_SECRETS_OF_TELOS":        ("Secrets of Telos",          "cun"),
+    "T_ELEMENTAL_SURGE":         ("Elemental Surge",           "cun"),
+    "T_EYE_OF_THE_TIGER":        ("Eye of the Tiger",          "cun"),
+    "T_WORLDLY_KNOWLEDGE":       ("Worldly Knowledge",         "cun"),
+    "T_ADEPT":                   ("Adept",                     "cun"),
+    "T_TRICKS_OF_THE_TRADE":     ("Tricks of the Trade",       "cun"),
+    # Dexterity
+    "T_FLEXIBLE_COMBAT":         ("Flexible Combat",           "dex"),
+    "T_THROUGH_THE_CROWD":       ("Through The Crowd",         "dex"),
+    "T_SWIFT_HANDS":             ("Swift Hands",               "dex"),
+    "T_WINDBLADE":               ("Windblade",                 "dex"),
+    "T_WINDTOUCHED_SPEED":       ("Windtouched Speed",         "dex"),
+    "T_CRAFTY_HANDS":            ("Crafty Hands",              "dex"),
+    "T_ROLL_WITH_IT":            ("Roll With It",              "dex"),
+    "T_VITAL_SHOT":              ("Vital Shot",                "dex"),
+    # Magic  (T_SPECTRAL_SHIELD excluded: not_listed=true)
+    "T_ETHEREAL_FORM":           ("Ethereal Form",             "mag"),
+    "T_AETHER_PERMEATION":       ("Aether Permeation",         "mag"),
+    "T_MYSTICAL_CUNNING":        ("Mystical Cunning",          "mag"),
+    "T_ARCANE_MIGHT":            ("Arcane Might",              "mag"),
+    "T_TEMPORAL_FORM":           ("Temporal Form",             "mag"),
+    "T_BLIGHTED_SUMMONING":      ("Blighted Summoning",        "mag"),
+    "T_REVISIONIST_HISTORY":     ("Revisionist History",       "mag"),
+    "T_CAUTERIZE":               ("Cauterize",                 "mag"),
+    "T_LICH":                    ("Lich",                      "mag"),
+    "T_HIGH_THAUMATURGIST":      ("High Thaumaturgist",        "mag"),
+    # Strength
+    "T_GIANT_LEAP":              ("Giant Leap",                "str"),
+    "T_TITAN_S_SMASH":           ("You Shall Be My Weapon!",   "str"),
+    "T_MASSIVE_BLOW":            ("Massive Blow",              "str"),
+    "T_STEAMROLLER":             ("Steamroller",               "str"),
+    "T_IRRESISTIBLE_SUN":        ("Irresistible Sun",          "str"),
+    "T_NO_FATIGUE":              ("I Can Carry The World!",    "str"),
+    "T_LEGACY_OF_THE_NALOREN":   ("Legacy of the Naloren",     "str"),
+    "T_SUPERPOWER":              ("Superpower",                "str"),
+    "T_AVATAR_OF_A_DISTANT_SUN": ("Avatar of a Distant Sun",  "str"),
+    # Willpower
+    "T_DRACONIC_WILL":           ("Draconic Will",             "wil"),
+    "T_METEORIC_CRASH":          ("Meteoric Crash",            "wil"),
+    "T_GARKUL_S_REVENGE":        ("Garkul's Revenge",          "wil"),
+    "T_HIDDEN_RESOURCES":        ("Hidden Resources",          "wil"),
+    "T_LUCKY_DAY":               ("Lucky Day",                 "wil"),
+    "T_UNBREAKABLE_WILL":        ("Unbreakable Will",          "wil"),
+    "T_SPELL_FEEDBACK":          ("Spell Feedback",            "wil"),
+    "T_MENTAL_TYRANNY":          ("Mental Tyranny",            "wil"),
+    "T_FALLEN":                  ("Fallen",                    "wil"),
+}
 
 # ── Win32 constants ───────────────────────────────────────────────────────────
 PROCESS_VM_READ           = 0x0010
@@ -890,6 +957,157 @@ class MemoryReader:
 
         return entry
 
+    def _tab_get_named_child_table(self, h: int, tab_ptr: int, key: str) -> int | None:
+        node = _tab_find_strkey(h, tab_ptr, key)
+        if node is None or _ru32(h, node + 4) != _LJ_TTAB:
+            return None
+        child_ptr = _ru32(h, node)
+        return child_ptr if (child_ptr and _is_heap(child_ptr)) else None
+
+    def _read_talent_definition(
+        self,
+        h: int,
+        talent_ptr: int,
+        *,
+        level: float,
+        points_cap: float,
+    ) -> dict[str, Any]:
+        flat = _tab_dump_flat(h, talent_ptr)
+        entry: dict[str, Any] = {
+            "Level": f"{int(level)}/{max(int(points_cap), 1)}",
+        }
+        for src_key, label in (
+            ("range", "Range"),
+            ("cooldown", "Cooldown"),
+        ):
+            value = flat.get(src_key)
+            if isinstance(value, (int, float)):
+                entry[label] = str(int(value) if float(value).is_integer() else value)
+
+        if isinstance(flat.get("mode"), str):
+            entry["Mode"] = str(flat["mode"])
+        return entry
+
+    @staticmethod
+    def _category_key(display_name: str) -> str:
+        """Keep category labels visually unchanged while never colliding with talent names."""
+        return f"{display_name}\u200b"
+
+    @staticmethod
+    def _display_category_name(type_key: str, raw_name: str) -> str:
+        def cap_first(text: str) -> str:
+            text = " ".join(text.split()).strip()
+            if not text:
+                return ""
+            return text[:1].upper() + text[1:]
+
+        category = cap_first(type_key.split("/", 1)[0])
+        name = cap_first(raw_name)
+        if category and name:
+            return f"{category} / {name}"
+        return name or category or type_key
+
+    def read_player_talents(self) -> dict[str, dict[str, Any]]:
+        """Return live talent sections compatible with CharacterSheetView."""
+        if not self.attached:
+            return {}
+        if not self._player_table:
+            self.read_player_hp()
+        if not self._player_table:
+            return {}
+
+        h = self._handle
+        gt = self._global_table
+        engine_tab = _tab_get_table(h, gt, "engine")
+        interface_tab = _tab_get_table(h, engine_tab, "interface") if engine_tab else None
+        actor_talents_tab = _tab_get_table(h, interface_tab, "ActorTalents") if interface_tab else None
+        talents_tab = _tab_get_table(h, self._player_table, "talents")
+        talent_types_tab = _tab_get_table(h, self._player_table, "talents_types")
+        mastery_tab = _tab_get_table(h, self._player_table, "talents_types_mastery")
+        type_defs_tab = _tab_get_table(h, actor_talents_tab, "talents_types_def") if actor_talents_tab else None
+        if None in (talents_tab, talent_types_tab, mastery_tab, type_defs_tab):
+            return {}
+
+        learned_levels = _tab_dump_all(h, talents_tab)
+        enabled_types = _tab_dump_all(h, talent_types_tab)
+        mastery_values = _tab_dump_all(h, mastery_tab)
+
+        ordered_sections: dict[str, list[tuple[bool, list[tuple[str, Any]]]]] = {
+            "Class Talents": [],
+            "Generic Talents": [],
+        }
+
+        for type_ptr in _tab_get_ordered_tables(h, type_defs_tab):
+            type_flat = _tab_dump_flat(h, type_ptr)
+            type_key = str(type_flat.get("type") or "")
+            if not type_key:
+                continue
+            if type_flat.get("hide"):
+                continue
+            if enabled_types.get(type_key) is None:
+                continue
+
+            type_name = self._display_category_name(type_key, str(type_flat.get("name") or ""))
+            mastery = mastery_values.get(type_key)
+            mastery_text = (
+                f"{float(mastery) + 1.0:.2f}"
+                if isinstance(mastery, (int, float))
+                else "1.00"
+            )
+            talents_list_tab = _tab_get_table(h, type_ptr, "talents")
+            if talents_list_tab is None:
+                continue
+            talent_ptrs = _tab_get_ordered_tables(h, talents_list_tab)
+            if not talent_ptrs:
+                continue
+
+            section_name = "Generic Talents" if type_flat.get("generic") is True else "Class Talents"
+            category_entries: list[tuple[str, Any]] = [
+                (self._category_key(type_name), mastery_text)
+            ]
+
+            for talent_ptr in talent_ptrs:
+                talent_flat = _tab_dump_flat(h, talent_ptr)
+                if talent_flat.get("hide"):
+                    continue
+                talent_id = str(talent_flat.get("id") or "")
+                talent_name = str(talent_flat.get("name") or talent_id)
+                if not talent_name:
+                    continue
+                current_level = learned_levels.get(talent_id, 0.0)
+                if not isinstance(current_level, (int, float)):
+                    current_level = 0.0
+                points_cap = talent_flat.get("points")
+                if not isinstance(points_cap, (int, float)):
+                    points_cap = 5.0
+                category_entries.append((
+                    talent_name,
+                    self._read_talent_definition(
+                        h,
+                        talent_ptr,
+                        level=float(current_level),
+                        points_cap=float(points_cap),
+                    ),
+                ))
+
+            is_known = enabled_types.get(type_key) is True
+            ordered_sections[section_name].append((is_known, category_entries))
+
+        sections: dict[str, dict[str, Any]] = {}
+        for section_name, groups in ordered_sections.items():
+            if not groups:
+                continue
+            section: dict[str, Any] = {}
+            for is_known in (True, False):
+                for group_known, entries in groups:
+                    if group_known is not is_known:
+                        continue
+                    for entry_name, entry_data in entries:
+                        section[entry_name] = entry_data
+            if section:
+                sections[section_name] = section
+        return sections
+
     def read_player_inventory(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """Return (equipped_items, current_inventory_items, transmog_items) from game.player.inven."""
         if not self.attached:
@@ -1255,3 +1473,65 @@ class MemoryReader:
         if floor is None:
             return None
         return (short_name, int(floor), int(max_level))
+
+    def read_prodigies(self) -> list[str]:
+        """Return display names of prodigies available to learn (stat req met, not yet taken).
+
+        Returns an empty list when the character is below level 25, not attached,
+        or when no prodigy slots can be inferred from memory.
+
+        Availability is determined by cross-referencing ``_PRODIGY_DB`` against
+        ``game.player.talents`` (already-learned) and ``game.player.stats``
+        (base stats vs the 50-point threshold).  Only non-hidden prodigies are
+        included.
+        """
+        if not self._player_table or not self.attached:
+            self.read_player_hp()
+        if not self._player_table:
+            return []
+
+        h  = self._handle
+        pt = self._player_table
+
+        # Level gate: prodigies unlock at 25
+        level = _tab_get_number(h, pt, "level")
+        if level is None or level < 25:
+            return []
+
+        # Read base stats from game.player.stats sub-table
+        stats_tab = _tab_get_table(h, pt, "stats")
+        if stats_tab is None:
+            return []
+        player_stats: dict[str, float] = {}
+        for stat in ("str", "dex", "con", "mag", "wil", "cun"):
+            v = _tab_get_number(h, stats_tab, stat)
+            player_stats[stat] = v if v is not None else 0.0
+
+        # Read learned talents from game.player.talents
+        talents_tab = _tab_get_table(h, pt, "talents")
+        learned_ids: set[str] = set()
+        if talents_tab is not None:
+            for tid in _PRODIGY_DB:
+                node = _tab_find_strkey(h, talents_tab, tid)
+                if node is None:
+                    continue
+                it = _ru32(h, node + 4)
+                if it is None or it >= _LJ_TNUMX:
+                    continue
+                raw = _rpm(h, node, 8)
+                if raw:
+                    try:
+                        if struct.unpack("<d", raw)[0] >= 1:
+                            learned_ids.add(tid)
+                    except struct.error:
+                        pass
+
+        # Available = stat req met (≥50 base) AND not yet learned
+        available: list[str] = []
+        for tid, (name, stat_key) in _PRODIGY_DB.items():
+            if tid in learned_ids:
+                continue
+            if player_stats.get(stat_key, 0.0) >= 50.0:
+                available.append(name)
+
+        return sorted(available)
