@@ -7,9 +7,9 @@ What is this for?
 - Character sheet overview
 - Build analysis
 
-Current Preview 16/04/2026
-<img width="1729" height="1097" alt="image" src="https://github.com/user-attachments/assets/d3da9f6d-4cfa-47b9-9cd4-59760ddc1dbf" />
-<img width="1729" height="1097" alt="image" src="https://github.com/user-attachments/assets/571fc1e0-e556-4929-9d6e-281166b4729a" />
+Current Preview 17/04/2026
+![Character Sheet overview](docs/screenshots/character-sheet-overview.png)
+![Inventory view](docs/screenshots/inventory-view.png)
 
 
 What is the build analysis?
