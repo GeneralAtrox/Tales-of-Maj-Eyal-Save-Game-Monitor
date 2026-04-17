@@ -12,11 +12,16 @@ if ($branch -ne "main") {
     exit 0
 }
 
-$python = "py -3"
-$captureCmd = "$python tools/update_preview_screenshots.py"
+$venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$python = if (Test-Path $venvPython) { $venvPython } else { "py -3" }
 
 try {
-    Invoke-Expression $captureCmd
+    if (Test-Path $venvPython) {
+        & $python "tools/update_preview_screenshots.py"
+    }
+    else {
+        py -3 "tools/update_preview_screenshots.py"
+    }
 }
 catch {
     Write-Warning "Preview refresh failed: $($_.Exception.Message)"
