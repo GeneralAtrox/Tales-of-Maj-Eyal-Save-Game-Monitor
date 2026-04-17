@@ -5,9 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
-from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -15,8 +13,8 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QStatusBar,
-    QTabWidget,
     QToolButton,
+    QVBoxLayout,
     QWidget,
     QWidgetAction,
 )
@@ -46,56 +44,48 @@ class MainWindow(QMainWindow):
         # ── Log panel (parented into dashboard's splitter) ──
         self._log_panel = LogPanel()
 
-        # ── Tab widget fills the whole window ──
-        self._tabs = QTabWidget()
-        self.setCentralWidget(self._tabs)
-
-        # ── Corner widget: status dots + character dropdown + Actions ─────────
-        corner = QWidget()
-        corner_lay = QHBoxLayout(corner)
-        corner_lay.setContentsMargins(4, 2, 8, 2)
-        corner_lay.setSpacing(10)
+        # ── Top bar: status dots ─────────────────────────────────────────────
+        top_bar = QWidget()
+        top_bar_lay = QHBoxLayout(top_bar)
+        top_bar_lay.setContentsMargins(8, 6, 8, 6)
+        top_bar_lay.setSpacing(10)
 
         self._status_dot = QLabel("\u25cf Initializing")
         self._status_dot.setProperty("status", "warn")
-        corner_lay.addWidget(self._status_dot)
+        top_bar_lay.addStretch()
+        top_bar_lay.addWidget(self._status_dot)
 
         self._game_dot = QLabel("\u25cf Game Inactive")
         self._game_dot.setProperty("status", "error")
-        corner_lay.addWidget(self._game_dot)
+        top_bar_lay.addWidget(self._game_dot)
 
-        self._char_combo = QComboBox()
-        self._char_combo.setPlaceholderText("Select character\u2026")
-        corner_lay.addWidget(self._char_combo)
-
-        self._actions_btn = QToolButton()
-        self._actions_btn.setText("Actions  \u25be")
-        self._actions_btn.setFixedWidth(105)
-        self._actions_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._actions_btn.setStyleSheet(
-            "QToolButton { text-align: center; }"
-            "QToolButton::menu-indicator { image: none; }"
-        )
-        self._actions_menu = QMenu(self._actions_btn)
-        self._actions_menu.aboutToShow.connect(self._rebuild_actions_menu)
-        self._actions_btn.setMenu(self._actions_menu)
-        corner_lay.addWidget(self._actions_btn)
-
-        self._tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+        # ── Main content ──────────────────────────────────────────────────────
+        central = QWidget()
+        central_lay = QVBoxLayout(central)
+        central_lay.setContentsMargins(0, 0, 0, 0)
+        central_lay.setSpacing(0)
+        central_lay.addWidget(top_bar)
 
         # ── Status bar ──
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("Starting\u2026")
 
-        # ── Dashboard tab (log panel parented inside it) ──
+        # ── Dashboard (log panel parented inside it) ──
         self._dashboard = DashboardTab(log_panel=self._log_panel)
-        self._tabs.addTab(self._dashboard, "Monitor")
+        central_lay.addWidget(self._dashboard, 1)
+        self.setCentralWidget(central)
+
+        self._char_menu = QMenu(self)
+        self._actions_menu = QMenu(self)
+        self._actions_menu.aboutToShow.connect(self._rebuild_actions_menu)
+        self._dashboard._sheet_visual.set_character_menu(self._char_menu)
+        self._dashboard._sheet_visual.set_actions_menu(self._actions_menu)
 
         self._settings_tab: SettingsTab | None = None
+        self._char_items: list[tuple[str, str]] = []  # (folder_name, label)
 
         # ── Wire signals ──
         self._log_bridge.message_ready.connect(self._log_panel.append)
-        self._char_combo.currentIndexChanged.connect(self._on_char_combo_changed)
         self._dashboard.analyze_requested.connect(self._run_analysis)
         self._dashboard.game_status_changed.connect(self._set_game_status)
 
@@ -127,25 +117,24 @@ class MainWindow(QMainWindow):
         self._settings_tab = SettingsTab()
         self._settings_tab.load_config(config)
         self._settings_tab.config_saved.connect(self._on_config_saved)
-        self._tabs.addTab(self._settings_tab, "Settings")
+        self._dashboard.set_settings_tab(self._settings_tab)
 
-        # Populate character combo
+        # Populate character dropdown
         for char in config.characters:
             class_race, level = self._read_sheet_meta(
                 config.character_sheets_root / f"data_{char.folder_name}.json"
             )
             self._dashboard.add_character(char.folder_name, char.name)
-            self._char_combo.addItem(
+            self._char_items.append((
+                char.folder_name,
                 self._char_label(char.name, class_race, level),
-                userData=char.folder_name,
-            )
+            ))
 
-        # Size combo to its longest entry
-        self._resize_combo()
+        self._rebuild_character_menu()
 
         # Auto-select first character
-        if self._char_combo.count() > 0:
-            self._char_combo.setCurrentIndex(0)
+        if self._char_items:
+            self._select_character(self._char_items[0][0])
 
         # Watch for sheet updates
         config.character_sheets_root.mkdir(exist_ok=True)
@@ -175,21 +164,9 @@ class MainWindow(QMainWindow):
         self._game_dot.style().unpolish(self._game_dot)
         self._game_dot.style().polish(self._game_dot)
 
-    def _resize_combo(self) -> None:
-        """Set combo width to fit its longest item text."""
-        fm = QFontMetrics(self._char_combo.font())
-        max_w = max(
-            (fm.horizontalAdvance(self._char_combo.itemText(i))
-             for i in range(self._char_combo.count())),
-            default=160,
-        )
-        # Add padding for the dropdown arrow (~30 px) and a small margin
-        self._char_combo.setFixedWidth(max_w + 40)
-
     # ── Signal handlers ────────────────────────────────────────────────────
 
-    def _on_char_combo_changed(self, index: int) -> None:
-        folder_name = self._char_combo.itemData(index)
+    def _select_character(self, folder_name: str) -> None:
         if folder_name:
             self._dashboard.select_character(folder_name)
 
@@ -197,24 +174,29 @@ class MainWindow(QMainWindow):
         config = self._monitor.config
         if not config:
             return
-        # Refresh combo labels with updated level info
-        for i in range(self._char_combo.count()):
-            folder_name = self._char_combo.itemData(i)
+        # Refresh character labels with updated level info
+        updated_items: list[tuple[str, str]] = []
+        for folder_name, _label in self._char_items:
             char = next((c for c in config.characters if c.folder_name == folder_name), None)
             if char:
                 class_race, level = self._read_sheet_meta(
                     config.character_sheets_root / f"data_{char.folder_name}.json"
                 )
-                self._char_combo.setItemText(
-                    i, self._char_label(char.name, class_race, level)
-                )
-        self._resize_combo()
+                updated_items.append((folder_name, self._char_label(char.name, class_race, level)))
+        self._char_items = updated_items
+        self._rebuild_character_menu()
         self._dashboard.refresh_current()
         self.statusBar().showMessage("Character sheet updated", 4000)
 
+    def _rebuild_character_menu(self) -> None:
+        self._char_menu.clear()
+        for folder_name, label in self._char_items:
+            action = self._char_menu.addAction(label)
+            action.triggered.connect(lambda checked=False, fn=folder_name: self._select_character(fn))
+
     def _rebuild_actions_menu(self) -> None:
         self._actions_menu.clear()
-        folder_name = self._char_combo.currentData()
+        folder_name = self._dashboard._current_folder
         config = self._monitor.config
 
         if not folder_name or not config:
@@ -257,7 +239,8 @@ class MainWindow(QMainWindow):
         for char in config.characters:
             if char.folder_name == folder_name:
                 from te4_client import schedule_scrying_sync
-                schedule_scrying_sync(char, config)
+                has_transmo = self._dashboard._reader.read_has_transmo()
+                schedule_scrying_sync(char, config, has_transmo=has_transmo)
                 self.statusBar().showMessage(f"Sync scheduled for {char.name}", 3000)
                 return
 

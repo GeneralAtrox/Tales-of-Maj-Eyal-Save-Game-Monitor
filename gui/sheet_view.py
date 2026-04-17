@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -13,15 +13,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSplitter,
+    QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from gui.theme import (
-    BG, BLUE, BORDER, GREEN, MAUVE, OVERLAY, RED,
+    BG, BLUE, BORDER, GREEN, MAUVE, OVERLAY, RED, TEAL,
     SUBTEXT0, SUBTEXT1, SURFACE0, SURFACE1, SURFACE2, TEXT, YELLOW,
 )
-from gui.sprite_composer import compose_layers, get_sprite
+from gui.sprite_composer import compose_layers, get_sprite, normalize_sprite_layers
 
 # ── Asset paths ───────────────────────────────────────────────────────────────
 _ROOT        = Path(__file__).parent.parent
@@ -34,6 +36,7 @@ _ICON_GRID   = 44   # talent icon in the grid
 _ICON_DETAIL = 64   # talent icon in the detail panel
 _ICON_STAT   = 28   # stat icon
 _ICON_CLASS  = 32   # class icon in header
+_ICON_SPRITE = 192  # live player sprite beside primary stats
 
 # ── Stat icon filename mapping ────────────────────────────────────────────────
 _STAT_ICONS: dict[str, str] = {
@@ -95,6 +98,28 @@ def _placeholder(size: int, letter: str = "?") -> QPixmap:
     p.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, letter[:1].upper())
     p.end()
     return px
+
+
+def _trim_transparent_bounds(pixmap: QPixmap) -> QPixmap:
+    """Crop transparent padding around a pixmap so sprites sit tighter in layout."""
+    image = pixmap.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+    left = image.width()
+    top = image.height()
+    right = -1
+    bottom = -1
+
+    for y in range(image.height()):
+        for x in range(image.width()):
+            if image.pixelColor(x, y).alpha() == 0:
+                continue
+            left = min(left, x)
+            top = min(top, y)
+            right = max(right, x)
+            bottom = max(bottom, y)
+
+    if right < left or bottom < top:
+        return pixmap
+    return pixmap.copy(left, top, right - left + 1, bottom - top + 1)
 
 
 def _is_category_header(value: Any) -> bool:
@@ -247,11 +272,12 @@ class _TalentDetailPanel(QWidget):
         "Turn Duration":GREEN,
         "Stats":        TEXT,
         "Stats per turn": TEXT,
+        "Description":  SUBTEXT1,
     }
     _ORDER = [
         "Level", "Range", "Cooldown", "Travel Speed",
         "Usage Speed", "Scales With", "Turn Duration",
-        "Stats", "Stats per turn",
+        "Stats", "Stats per turn", "Description",
     ]
 
     def show_talent(self, name: str, data: Any, category: str = "") -> None:
@@ -322,11 +348,23 @@ class _CategoryHeader(QLabel):
 class _StatsRow(QWidget):
     """Row of six stat icons with current values."""
 
-    def __init__(self, stats: dict[str, str], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        stats: dict[str, str],
+        sprite: QPixmap | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(4, 6, 4, 6)
-        lay.setSpacing(16)
+        lay.setContentsMargins(4, 0, 4, 4)
+        lay.setSpacing(12)
+
+        if sprite is not None:
+            sprite_lbl = QLabel()
+            sprite_lbl.setPixmap(sprite)
+            sprite_lbl.setFixedSize(sprite.size())
+            sprite_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            lay.addWidget(sprite_lbl, 0, Qt.AlignmentFlag.AlignTop)
 
         for stat_name in _STAT_ORDER:
             raw = stats.get(stat_name, "")
@@ -359,9 +397,212 @@ class _StatsRow(QWidget):
 
             w = QWidget()
             w.setLayout(col)
-            lay.addWidget(w)
+            lay.addWidget(w, 0, Qt.AlignmentFlag.AlignVCenter)
 
         lay.addStretch()
+
+
+def _item_rank_color(item: dict[str, Any]) -> str:
+    tags = {str(tag).lower() for tag in item.get("Tags", [])}
+    if "plot item" in tags:
+        return RED
+    if "unique" in tags:
+        return YELLOW
+    if "rare" in tags:
+        return MAUVE
+    if "ego" in tags:
+        return BLUE
+    tier = item.get("Tier")
+    if isinstance(tier, int) and tier >= 5:
+        return YELLOW
+    if isinstance(tier, int) and tier >= 3:
+        return TEAL
+    return SUBTEXT1
+
+
+def _item_rank_score(item: dict[str, Any]) -> int:
+    tags = {str(tag).lower() for tag in item.get("Tags", [])}
+    if "plot item" in tags:
+        return 0
+    if "unique" in tags:
+        return 1
+    if "rare" in tags:
+        return 2
+    if "ego" in tags:
+        return 3
+    tier = item.get("Tier")
+    if isinstance(tier, int):
+        return max(4, 10 - min(tier, 6))
+    return 10
+
+
+_SLOT_ORDER = {
+    "Mainhand": 0,
+    "Offhand": 1,
+    "Quiver": 2,
+    "Psiblades": 3,
+    "Body": 4,
+    "Head": 5,
+    "Hands": 6,
+    "Feet": 7,
+    "Belt": 8,
+    "Neck": 9,
+    "Left ring": 10,
+    "Right ring": 11,
+    "Lite": 12,
+    "Tool": 13,
+}
+
+
+def _slot_sort_key(item: dict[str, Any]) -> tuple[int, str]:
+    slot = str(item.get("Slot") or "")
+    return _SLOT_ORDER.get(slot, 99), slot.lower()
+
+
+def _inventory_sort_key(item: dict[str, Any]) -> tuple[int, str, str, str]:
+    return (
+        _item_rank_score(item),
+        str(item.get("Type") or "").lower(),
+        _display_item_name(item).lower(),
+        str(item.get("Name") or "").lower(),
+    )
+
+
+def _item_property(item: dict[str, Any], *keys: str) -> str | None:
+    props = item.get("Properties")
+    if not isinstance(props, dict):
+        return None
+    for key in keys:
+        value = props.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            return ", ".join(str(v) for v in value)
+        return str(value)
+    return None
+
+
+def _display_item_name(item: dict[str, Any]) -> str:
+    name = str(item.get("Name") or "Unknown Item")
+    return re.sub(r"^\d+\s+", "", name).strip()
+
+
+def _item_summary_fields(item: dict[str, Any]) -> list[str]:
+    parts: list[str] = []
+    count = item.get("Count")
+    if isinstance(count, int) and count > 1:
+        parts.append(f"Ammo x{count}")
+
+    if power := _item_property(item, "Base power", "Physical power", "Spellpower", "Mindpower"):
+        parts.append(f"Power {power}")
+    if apr := _item_property(item, "Armour penetration", "Armour Penetration"):
+        parts.append(f"APR {apr}")
+    if defense := _item_property(item, "Defense", "Ranged Defense"):
+        parts.append(f"Def {defense}")
+    if armour := _item_property(item, "Armour"):
+        parts.append(f"Armour {armour}")
+    if block := _item_property(item, "Block", "On shield block", "Capacity"):
+        parts.append(f"Block {block}")
+    encumbrance = item.get("Encumbrance")
+    if isinstance(encumbrance, (int, float)):
+        parts.append(f"Enc {encumbrance:g}")
+    return parts
+
+
+class _ItemCard(QFrame):
+    def __init__(self, item: dict[str, Any], *, show_slot: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        accent = _item_rank_color(item)
+        self.setStyleSheet(
+            f"background: {SURFACE0}; border: 1px solid {BORDER}; border-left: 3px solid {accent}; border-radius: 4px;"
+        )
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        if show_slot and item.get("Slot"):
+            slot_lbl = QLabel(str(item["Slot"]))
+            slot_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
+            title_row.addWidget(slot_lbl)
+
+        name_lbl = QLabel(_display_item_name(item))
+        name_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {_item_rank_color(item)};"
+        )
+        title_row.addWidget(name_lbl, 1)
+
+        meta_parts: list[str] = []
+        if isinstance(item.get("Tier"), int):
+            meta_parts.append(f"Tier {item['Tier']}")
+        tags = item.get("Tags")
+        if isinstance(tags, list) and tags:
+            meta_parts.append(" ".join(f"[{tag}]" for tag in tags))
+        if meta_parts:
+            meta_lbl = QLabel("  ".join(meta_parts))
+            meta_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
+            title_row.addWidget(meta_lbl)
+        lay.addLayout(title_row)
+
+        summary = _item_summary_fields(item)
+        if summary:
+            summary_lbl = QLabel("  |  ".join(summary))
+            summary_lbl.setWordWrap(True)
+            summary_lbl.setStyleSheet(f"font-size: 12px; color: {TEXT};")
+            lay.addWidget(summary_lbl)
+
+
+class _ItemListPanel(QWidget):
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px;"
+        )
+        root.addWidget(title_lbl)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ border: none; background: {BG}; }}"
+            f"QWidget {{ background: {BG}; }}"
+        )
+        self._body = QWidget()
+        self._body_lay = QVBoxLayout(self._body)
+        self._body_lay.setContentsMargins(0, 0, 0, 8)
+        self._body_lay.setSpacing(6)
+        self._body_lay.addStretch()
+        self._scroll.setWidget(self._body)
+        root.addWidget(self._scroll, 1)
+
+    def set_items(self, items: list[Any], *, show_slot: bool) -> None:
+        while self._body_lay.count() > 1:
+            item = self._body_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not items:
+            empty = QLabel("No items")
+            empty.setStyleSheet(f"font-size: 12px; color: {SUBTEXT0}; padding: 8px 4px;")
+            self._body_lay.insertWidget(0, empty)
+            return
+        normalized_items: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, str):
+                item = {"Name": item}
+            if not isinstance(item, dict):
+                continue
+            normalized_items.append(item)
+
+        sort_key = _slot_sort_key if show_slot else _inventory_sort_key
+        for item in sorted(normalized_items, key=sort_key):
+            self._body_lay.insertWidget(self._body_lay.count() - 1, _ItemCard(item, show_slot=show_slot))
 
 
 # ── Main widget ───────────────────────────────────────────────────────────────
@@ -373,6 +614,10 @@ class CharacterSheetView(QWidget):
         super().__init__(parent)
         self._detail_panel = _TalentDetailPanel()
         self._current_category: str = ""
+        self._current_sprite: QPixmap | None = None
+        self._current_sprite_key: tuple[str, tuple[str, ...]] | None = None
+        self._current_data: dict[str, Any] = {}
+        self._current_char_name = ""
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -382,13 +627,29 @@ class CharacterSheetView(QWidget):
         self._header = _HeaderBar()
         root.addWidget(self._header)
 
-        # ── Splitter: left scroll | right detail ─────────────────────────
+        # ── Fixed player overview ────────────────────────────────────────
+        self._player_box = QFrame()
+        self._player_box.setStyleSheet(
+            f"background: {BG}; border-bottom: 1px solid {BORDER};"
+        )
+        self._player_box_lay = QVBoxLayout(self._player_box)
+        self._player_box_lay.setContentsMargins(12, 0, 12, 8)
+        self._player_box_lay.setSpacing(0)
+        root.addWidget(self._player_box)
+
+        # ── Content tabs ─────────────────────────────────────────────────
+        self._content_tabs = QTabWidget()
+        root.addWidget(self._content_tabs, 1)
+
+        # Talents tab: left scroll | right detail
+        talents_tab = QWidget()
+        talents_root = QVBoxLayout(talents_tab)
+        talents_root.setContentsMargins(0, 0, 0, 0)
+        talents_root.setSpacing(0)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(1)
         splitter.setChildrenCollapsible(False)
-        root.addWidget(splitter)
-
-        # Left: scrollable content
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -403,12 +664,46 @@ class CharacterSheetView(QWidget):
         self._left_lay.addStretch()
         scroll.setWidget(self._left)
         splitter.addWidget(scroll)
-
-        # Right: detail panel
         splitter.addWidget(self._detail_panel)
         splitter.setSizes([700, 300])
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
+        talents_root.addWidget(splitter)
+        self._content_tabs.addTab(talents_tab, "Talents")
+
+        # Inventory tab: equipped | current+transmog
+        inventory_tab = QWidget()
+        inventory_root = QVBoxLayout(inventory_tab)
+        inventory_root.setContentsMargins(0, 0, 0, 0)
+        inventory_root.setSpacing(0)
+
+        inventory_splitter = QSplitter(Qt.Orientation.Horizontal)
+        inventory_splitter.setHandleWidth(1)
+        inventory_splitter.setChildrenCollapsible(False)
+        self._equipped_panel = _ItemListPanel("EQUIPPED")
+        right_inventory = QSplitter(Qt.Orientation.Vertical)
+        right_inventory.setHandleWidth(1)
+        right_inventory.setChildrenCollapsible(False)
+        self._inventory_panel = _ItemListPanel("CURRENT")
+        self._transmog_panel = _ItemListPanel("TRANSMOG CHEST")
+        right_inventory.addWidget(self._inventory_panel)
+        right_inventory.addWidget(self._transmog_panel)
+        right_inventory.setStretchFactor(0, 1)
+        right_inventory.setStretchFactor(1, 1)
+        right_inventory.setSizes([300, 220])
+        inventory_splitter.addWidget(self._equipped_panel)
+        inventory_splitter.addWidget(right_inventory)
+        inventory_splitter.setSizes([420, 520])
+        inventory_splitter.setStretchFactor(0, 1)
+        inventory_splitter.setStretchFactor(1, 1)
+        inventory_root.addWidget(inventory_splitter)
+        self._content_tabs.addTab(inventory_tab, "Inventory")
+
+        self._enemy_host = QWidget()
+        self._enemy_host_lay = QVBoxLayout(self._enemy_host)
+        self._enemy_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._enemy_host_lay.setSpacing(0)
+        self._content_tabs.addTab(self._enemy_host, "Enemies")
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -424,28 +719,76 @@ class CharacterSheetView(QWidget):
     def clear_mana(self) -> None:
         self._header.clear_mana()
 
+    def set_exp(self, exp: float, needed: float) -> None:
+        self._header.set_exp(exp, needed)
+
+    def clear_exp(self) -> None:
+        self._header.clear_exp()
+
+    def set_character_menu(self, menu) -> None:
+        self._header.set_character_menu(menu)
+
+    def set_actions_menu(self, menu) -> None:
+        self._header.set_actions_menu(menu)
+
     def set_sprite(self, image_hint: str, sprite_layers: list[str] | None = None) -> None:
-        self._header.set_sprite(image_hint, sprite_layers or [])
+        sprite_key = (image_hint, tuple(sprite_layers or ()))
+        if sprite_key == self._current_sprite_key:
+            return
+        self._current_sprite_key = sprite_key
+        self._current_sprite = self._render_sprite(image_hint, sprite_layers or [])
+        self._reload_current()
 
     def clear_sprite(self) -> None:
-        self._header.clear_sprite()
+        if self._current_sprite is None and self._current_sprite_key is None:
+            return
+        self._current_sprite = None
+        self._current_sprite_key = None
+        self._reload_current()
 
     def load(self, data: dict, char_name: str = "") -> None:
+        self._current_data = data
+        self._current_char_name = char_name
+        self._reload_current()
+
+    def _reload_current(self) -> None:
         self._clear_left()
-        char = data.get("Character", {})
-        self._header.update_from(char, char_name)
+        self._clear_player_box()
+        char = self._current_data.get("Character", {})
+        self._header.update_from(char, self._current_char_name)
 
         # Stats row
-        stats = data.get("Primary Stats", {})
+        stats = self._current_data.get("Primary Stats", {})
         if stats:
-            self._insert(self._left_lay, _StatsRow(stats))
-            self._insert(self._left_lay, _divider())
+            self._player_box_lay.addWidget(_StatsRow(stats, sprite=self._current_sprite))
 
         # Talent sections
-        for key, value in data.items():
+        for key, value in self._current_data.items():
             if "Talents" not in key or not isinstance(value, dict) or not value:
                 continue
             self._insert(self._left_lay, self._build_talent_section(key, value))
+
+        equipment = self._current_data.get("Equipment", [])
+        inventory = self._current_data.get("Inventory", [])
+        self._equipped_panel.set_items(equipment if isinstance(equipment, list) else [], show_slot=True)
+        if isinstance(inventory, dict):
+            current_items = inventory.get("Current", [])
+            transmog_items = inventory.get("Transmog Chest", [])
+        elif isinstance(inventory, list):
+            current_items = inventory
+            transmog_items = []
+        else:
+            current_items = []
+            transmog_items = []
+        self._inventory_panel.set_items(current_items if isinstance(current_items, list) else [], show_slot=False)
+        self._transmog_panel.set_items(transmog_items if isinstance(transmog_items, list) else [], show_slot=False)
+
+    def set_enemy_panel(self, panel: QWidget) -> None:
+        while self._enemy_host_lay.count():
+            item = self._enemy_host_lay.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        self._enemy_host_lay.addWidget(panel)
 
     # ── Builders ─────────────────────────────────────────────────────────
 
@@ -508,9 +851,36 @@ class CharacterSheetView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+    def _clear_player_box(self) -> None:
+        while self._player_box_lay.count():
+            item = self._player_box_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
     @staticmethod
     def _insert(layout: QVBoxLayout, widget: QWidget) -> None:
         layout.insertWidget(layout.count() - 1, widget)
+
+    def _render_sprite(self, image_hint: str, sprite_layers: list[str]) -> QPixmap | None:
+        distinct_layers, align_bottom = normalize_sprite_layers(image_hint, sprite_layers)
+
+        if distinct_layers:
+            pix = compose_layers(distinct_layers, size=_ICON_SPRITE, align_bottom=align_bottom)
+            if pix is not None:
+                return _trim_transparent_bounds(pix)
+
+        if image_hint:
+            sprite_path = get_sprite(image_hint)
+            if sprite_path:
+                raw = QPixmap(str(sprite_path))
+                if not raw.isNull():
+                    return _trim_transparent_bounds(raw.scaled(
+                        _ICON_SPRITE,
+                        _ICON_SPRITE,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.FastTransformation,
+                    ))
+        return None
 
 
 class _HeaderBar(QWidget):
@@ -523,20 +893,36 @@ class _HeaderBar(QWidget):
         lay.setContentsMargins(12, 6, 12, 6)
         lay.setSpacing(10)
 
-        self._sprite_icon = QLabel()
-        self._sprite_icon.setFixedSize(_ICON_CLASS, _ICON_CLASS)
-        self._sprite_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._default_sprite = _placeholder(_ICON_CLASS)
-        self._sprite_icon.setPixmap(self._default_sprite)
-
         self._class_icon = QLabel()
         self._class_icon.setFixedSize(_ICON_CLASS, _ICON_CLASS)
         self._class_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._default_class_icon = _placeholder(_ICON_CLASS)
         self._class_icon.setPixmap(self._default_class_icon)
 
-        self._info_lbl = QLabel("No character loaded")
-        self._info_lbl.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0}; padding-left: 8px;")
+        self._char_btn = QToolButton()
+        self._char_btn.setText("No character loaded  \u25be")
+        self._char_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._char_btn.setMinimumWidth(320)
+        self._char_btn.setStyleSheet(
+            f"QToolButton {{"
+            f"  background: transparent;"
+            f"  border: none;"
+            f"  padding: 0 8px;"
+            f"  text-align: left;"
+            f"  color: {SUBTEXT0};"
+            f"}}"
+            f"QToolButton:hover {{ color: {TEXT}; }}"
+            "QToolButton::menu-indicator { image: none; }"
+        )
+
+        self._actions_btn = QToolButton()
+        self._actions_btn.setText("Actions  \u25be")
+        self._actions_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._actions_btn.setFixedWidth(105)
+        self._actions_btn.setStyleSheet(
+            "QToolButton { text-align: center; }"
+            "QToolButton::menu-indicator { image: none; }"
+        )
 
         self._hp_lbl = QLabel("")
         self._hp_lbl.setStyleSheet(
@@ -556,12 +942,29 @@ class _HeaderBar(QWidget):
         self._mana_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._mana_lbl.setVisible(False)
 
-        lay.addWidget(self._sprite_icon)
-        lay.addWidget(self._class_icon)
-        lay.addWidget(self._info_lbl, 1)
-        lay.addWidget(self._hp_lbl)
-        lay.addWidget(self._resource_sep)
-        lay.addWidget(self._mana_lbl)
+        self._exp_sep = QLabel("|")
+        self._exp_sep.setStyleSheet(f"color: {SURFACE2}; font-size: 13px; padding: 0 2px;")
+        self._exp_sep.setVisible(False)
+
+        self._exp_lbl = QLabel("")
+        self._exp_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {SUBTEXT0}; padding-left: 4px; padding-right: 12px;"
+        )
+        self._exp_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._exp_lbl.setVisible(False)
+
+        lay.addWidget(
+            self._class_icon,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        lay.addWidget(self._char_btn, 1)
+        lay.addWidget(self._actions_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self._hp_lbl, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self._resource_sep, 0, Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self._mana_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self._exp_sep, 0, Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self._exp_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def update_from(self, char: dict[str, str], char_name: str = "") -> None:
         cls   = char.get("Class", "")
@@ -578,31 +981,8 @@ class _HeaderBar(QWidget):
         self._class_icon.setPixmap(self._default_class_icon)
 
         parts = [p for p in [char_name or cls, race, f"Level {level}" if level else "", mode] if p]
-        self._info_lbl.setText("   ·   ".join(parts))
-
-    def set_sprite(self, image_hint: str, sprite_layers: list[str]) -> None:
-        pix: QPixmap | None = None
-        distinct_layers = list(dict.fromkeys(sprite_layers))
-        if distinct_layers:
-            pix = compose_layers(distinct_layers, size=_ICON_CLASS)
-
-        if pix is None and image_hint:
-            sprite_path = get_sprite(image_hint)
-            if sprite_path:
-                raw = QPixmap(str(sprite_path))
-                if not raw.isNull():
-                    pix = raw.scaled(
-                        _ICON_CLASS,
-                        _ICON_CLASS,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-
-        if pix is not None:
-            self._sprite_icon.setPixmap(pix)
-
-    def clear_sprite(self) -> None:
-        self._sprite_icon.setPixmap(self._default_sprite)
+        label = "   ·   ".join(parts) if parts else "No character loaded"
+        self._char_btn.setText(f"{label}  \u25be")
 
     _HP_STYLE   = "font-size: 13px; font-weight: 700; padding-left: 12px; padding-right: 8px;"
     _MANA_STYLE = "font-size: 13px; font-weight: 700; padding-left: 4px; padding-right: 12px;"
@@ -628,6 +1008,27 @@ class _HeaderBar(QWidget):
         self._resource_sep.setVisible(False)
         self._mana_lbl.setVisible(False)
         self._mana_lbl.setText("")
+
+    _EXP_STYLE = "font-size: 13px; font-weight: 700; padding-left: 4px; padding-right: 12px;"
+
+    def set_exp(self, exp: float, needed: float) -> None:
+        pct = int(exp / needed * 100) if needed > 0 else 0
+        self._exp_sep.setVisible(True)
+        self._exp_lbl.setVisible(True)
+        self._exp_lbl.setStyleSheet(f"{self._EXP_STYLE} color: {YELLOW};")
+        self._exp_lbl.setText(f"EXP  {pct}%")
+        self._exp_lbl.setToolTip(f"{exp:.0f} / {needed:.0f} XP to next level")
+
+    def clear_exp(self) -> None:
+        self._exp_sep.setVisible(False)
+        self._exp_lbl.setVisible(False)
+        self._exp_lbl.setText("")
+
+    def set_character_menu(self, menu) -> None:
+        self._char_btn.setMenu(menu)
+
+    def set_actions_menu(self, menu) -> None:
+        self._actions_btn.setMenu(menu)
 
 
 def _divider() -> QFrame:

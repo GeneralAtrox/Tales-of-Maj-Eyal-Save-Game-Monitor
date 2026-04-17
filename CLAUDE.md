@@ -7,16 +7,42 @@ Tales of Maj'Eyal (ToME) save game monitor. Watches local save files, creates ro
 ## Architecture
 
 ```
-TOME_SaveMonitor.py   # Entry point → monitor.main()
-monitor.py            # Orchestration: event loop, init, update dispatch
-models.py             # AppConfig, CharacterConfig dataclasses (slots=True)
-backups.py            # Backup creation + retention enforcement
-te4_client.py         # Te4.org HTTP API, debounced sync via threading.Timer
-parsers.py            # HTML → JSON transformation (core logic, 800+ lines)
-agent.md              # LLM instructions for character analysis
+TOME_SaveMonitor.py        # Entry point → monitor.main()
+monitor.py                 # Orchestration: event loop, init, update dispatch
+models.py                  # AppConfig, CharacterConfig dataclasses (slots=True)
+backups.py                 # Backup creation + retention enforcement
+te4_client.py              # Te4.org HTTP API, debounced sync via threading.Timer
+parsers.py                 # HTML → JSON transformation (core logic, 800+ lines)
+agent.md                   # LLM instructions for character analysis
+gui/
+  app.py                   # PySide6 GUI entry point
+  memory_reader.py         # Live memory reads from t-engine.exe via ReadProcessMemory
+  dashboard_tab.py         # Player stats / resource display (sourced from memory)
+  enemy_panel.py           # Live enemy list with danger ratings (sourced from memory)
+  sprite_composer.py       # Composite sprite rendering from add_mos layers
+game_data/
+  npc_db.py                # Static NPC/entity database
+tools/
+  find_lua_state.py        # Dev tool: locate LuaJIT _G in process memory
+  probe_entities.py        # Dev tool: dump live entity tables
+Tales of Maj'Eyal_v3.CT   # Cheat Engine table (manual use only, not used by code)
 ```
 
-**Data flow**: save change detected → backup created → vault HTML scraped → HTML parsed to JSON → written to `CharacterSheets/data_<folder>.json`
+**Vault data flow**: save change detected → backup created → vault HTML scraped → HTML parsed to JSON → written to `CharacterSheets/data_<folder>.json`
+
+**Live memory data flow**: GUI polls `t-engine.exe` via `ReadProcessMemory` → walks LuaJIT 2.0.2 GCtab structures to find `_G → game → player` and `game → level → entities` → feeds player HP/resources panel and live enemy list with danger ratings.
+
+### What comes from where
+
+| Data | Source |
+|---|---|
+| Character sheet (stats, talents, equipment, inventory) | Te4.org vault HTML → `parsers.py` → `CharacterSheets/data_*.json` |
+| Live HP / mana / stamina / gold | `memory_reader.py` — `game.player` table in process memory |
+| Enemies on current level | `memory_reader.py` — `game.level.entities` table in process memory |
+| Sprites / composite layers | `memory_reader.py` — `image` field + `add_mos` ordered sub-tables |
+| Inventory (Current vs Transmog) | Vault HTML only — transmog items flagged by "This item will automatically be transmogrified when you leave the level." text, bucketed in `parsers.py` |
+
+The `.CT` Cheat Engine table is a separate manual tool for value editing — the Python code does its own independent memory scan and does **not** use or require Cheat Engine.
 
 ## Setup & Running
 

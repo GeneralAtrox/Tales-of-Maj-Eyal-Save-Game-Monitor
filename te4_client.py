@@ -116,7 +116,7 @@ def discover_profile_id(local_chars: list[CharacterConfig]) -> tuple[str, dict[s
     return best_profile_id, best_roster
 
 
-def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig) -> None:
+def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig, *, has_transmo: bool = True) -> None:
     if not char_info.vault_id or not config.profile_id:
         return
 
@@ -135,7 +135,7 @@ def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig) -> None:
                 "vault_url": vault_url,
                 "schema_version": "1",
             },
-            **extract_optimized_data(response.text),
+            **extract_optimized_data(response.text, has_transmo=has_transmo),
         }
         config.character_sheets_root.mkdir(exist_ok=True)
         out_path = config.character_sheets_root / f"data_{char_info.folder_name}.json"
@@ -149,7 +149,7 @@ def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig) -> None:
         print(f" > Sync error: {exc}")
 
 
-def schedule_scrying_sync(char_info: CharacterConfig, config: AppConfig, delay: float = 0) -> None:
+def schedule_scrying_sync(char_info: CharacterConfig, config: AppConfig, delay: float = 0, *, has_transmo: bool = True) -> None:
     """Schedule a debounced vault sync so backup monitoring stays responsive."""
     if not char_info.vault_id or not config.profile_id:
         return
@@ -158,7 +158,7 @@ def schedule_scrying_sync(char_info: CharacterConfig, config: AppConfig, delay: 
 
     def run_sync() -> None:
         try:
-            sync_scrying_mirror(char_info, config)
+            sync_scrying_mirror(char_info, config, has_transmo=has_transmo)
         finally:
             with _SYNC_TIMERS_LOCK:
                 if _SYNC_TIMERS.get(char_info.folder_name) is timer:

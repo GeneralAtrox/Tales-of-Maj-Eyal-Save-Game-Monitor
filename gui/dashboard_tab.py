@@ -43,6 +43,7 @@ class DashboardTab(QWidget):
         self._sheets_root: Path | None  = None
         self._current_folder: str | None = None
         self._chars: dict[str, str] = {}   # folder_name → display name
+        self._settings_tab: QWidget | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -73,7 +74,7 @@ class DashboardTab(QWidget):
         self._level_poll.timeout.connect(self._poll_level_id)
         self._level_poll.start()
 
-        # ── 3-column splitter ──────────────────────────────────────────────
+        # ── 2-column splitter ──────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(1)
         splitter.setChildrenCollapsible(False)
@@ -86,25 +87,14 @@ class DashboardTab(QWidget):
         self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
         splitter.addWidget(self._subtabs)
 
-        # Centre — enemy panel
-        right_stack = QSplitter(Qt.Orientation.Vertical)
-        right_stack.setHandleWidth(1)
-        right_stack.setChildrenCollapsible(False)
-
         self._enemy_panel = EnemyPanel()
+        self._sheet_visual.set_enemy_panel(self._enemy_panel)
         self._enemies_ready.connect(self._handle_enemies_ready)
-        right_stack.addWidget(self._enemy_panel)
-
-        # Bottom of right stack — output log (owned by MainWindow, parented here)
-        right_stack.addWidget(log_panel)
-        right_stack.setStretchFactor(0, 3)
-        right_stack.setStretchFactor(1, 2)
-        right_stack.setSizes([520, 260])
-        splitter.addWidget(right_stack)
+        splitter.addWidget(log_panel)
 
         splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 4)
-        splitter.setSizes([760, 980])
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([1180, 560])
         root.addWidget(splitter)
 
     # ── Sub-tab builders ───────────────────────────────────────────────────
@@ -188,6 +178,16 @@ class DashboardTab(QWidget):
         self._analyze_btn.setEnabled(True)
         self._analyze_btn.setText("Analyze with Claude")
 
+    def set_settings_tab(self, tab: QWidget) -> None:
+        if self._settings_tab is tab:
+            return
+        if self._settings_tab is not None:
+            index = self._subtabs.indexOf(self._settings_tab)
+            if index >= 0:
+                self._subtabs.removeTab(index)
+        self._settings_tab = tab
+        self._subtabs.addTab(tab, "Settings")
+
     # ── Sheet loading ──────────────────────────────────────────────────────
 
     def _load_sheet(self, folder_name: str) -> None:
@@ -257,12 +257,18 @@ class DashboardTab(QWidget):
                 self._sheet_visual.set_mana(*mana)
             else:
                 self._sheet_visual.clear_mana()
+            exp = self._reader.read_player_exp()
+            if exp is not None:
+                self._sheet_visual.set_exp(*exp)
+            else:
+                self._sheet_visual.clear_exp()
         else:
             self._hp_fail_count += 1
             if self._hp_fail_count >= 5 and not self._attach_pending:
                 self._reader.detach()
                 self._enemy_panel.set_loading(False)
                 self._sheet_visual.clear_hp()   # also clears mana via clear_hp
+                self._sheet_visual.clear_exp()
                 self._sheet_visual.clear_sprite()
                 self._hp_fail_count = 0
 

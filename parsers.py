@@ -23,6 +23,8 @@ class EquipmentEntry(TypedDict, total=False):
     Name: str
     Type: str
     Tier: int
+    Count: int
+    Encumbrance: float
     Tags: list[str]
     Properties: dict[str, ItemFieldValue]
     Notes: list[str]
@@ -265,7 +267,7 @@ def parse_desc_lua(desc_path: Path) -> DescLuaDetails:
     return details
 
 
-def extract_optimized_data(html_content: str) -> AgentData:
+def extract_optimized_data(html_content: str, *, has_transmo: bool = True) -> AgentData:
     """Extract a compact AI-facing JSON view from a TE4 vault page."""
     BeautifulSoup = get_beautiful_soup()
     soup = BeautifulSoup(html_content, "html.parser")
@@ -300,7 +302,7 @@ def extract_optimized_data(html_content: str) -> AgentData:
         elif section_title == "Equipment":
             agent_data[section_title] = _parse_equipment_section(content_list)
         elif section_title == "Inventory":
-            agent_data[section_title] = _parse_inventory_section(content_list)
+            agent_data[section_title] = _parse_inventory_section(content_list, has_transmo=has_transmo)
         else:
             agent_data[section_title] = content_list
 
@@ -403,6 +405,8 @@ def _parse_talent_section(content_list: list[str]) -> dict[str, TalentRecord]:
         description = _extract_talent_description(raw_desc, talent_name)
 
         details: dict[str, TalentFieldValue] = {"Level": level}
+        if description:
+            details["Description"] = description
         for label, pattern in TALENT_PATTERNS.items():
             if matches := pattern.findall(raw_desc):
                 details[label] = matches[0].strip()
@@ -457,16 +461,34 @@ def _parse_equipment_section(content_list: list[str]) -> list[EquipmentEntry]:
     return equipment
 
 
-def _parse_inventory_section(content_list: list[str]) -> list[str]:
-    parsed_items: list[str] = []
+def _parse_inventory_section(content_list: list[str], *, has_transmo: bool = True) -> dict[str, list[EquipmentEntry]]:
+    buckets: dict[str, list[EquipmentEntry]] = {"Current": []}
+    if has_transmo:
+        buckets["Transmog Chest"] = []
+    current_bucket = "Current"
+
     for item in content_list:
+        normalized = " ".join(item.split()).strip(" :")
+        lowered = normalized.lower()
+        if lowered in {"current", "inventory"}:
+            current_bucket = "Current"
+            continue
+        if lowered in {"transmog chest", "transmogrification chest", "transmogrify chest"}:
+            current_bucket = "Transmog Chest" if has_transmo else "Current"
+            continue
+
         formatted = _format_inventory_entry(item)
         if formatted:
-            parsed_items.append(formatted)
-    return parsed_items
+            buckets[current_bucket].append(formatted)
+
+    return buckets
 
 
-def _parse_item_components(entry: str, *, include_slot: bool) -> tuple[str | None, str, str | None, int | None, list[str], list[str]]:
+def _parse_item_components(
+    entry: str,
+    *,
+    include_slot: bool,
+) -> tuple[str | None, str, str | None, int | None, float | None, list[str], list[str]]:
     slot = None
     body = entry
     if include_slot and " | " in entry:
@@ -477,13 +499,14 @@ def _parse_item_components(entry: str, *, include_slot: bool) -> tuple[str | Non
     body = _strip_trailing_item_name(body, item_name)
     item_type = _extract_item_type(body)
     tier = _extract_item_tier(body)
+    encumbrance = _extract_item_encumbrance(body)
     tags = _extract_item_tags(body)
     segments = _extract_item_segments(body)
-    return slot, item_name, item_type, tier, tags, segments
+    return slot, item_name, item_type, tier, encumbrance, tags, segments
 
 
 def _format_equipment_entry(entry: str) -> EquipmentEntry | None:
-    slot, item_name, item_type, tier, tags, segments = _parse_item_components(entry, include_slot=True)
+    slot, item_name, item_type, tier, encumbrance, tags, segments = _parse_item_components(entry, include_slot=True)
     if not slot:
         return None
 
@@ -496,6 +519,8 @@ def _format_equipment_entry(entry: str) -> EquipmentEntry | None:
         equipment_entry["Type"] = item_type
     if tier is not None:
         equipment_entry["Tier"] = tier
+    if encumbrance is not None:
+        equipment_entry["Encumbrance"] = encumbrance
     if tags:
         equipment_entry["Tags"] = tags
     if properties:
@@ -505,18 +530,31 @@ def _format_equipment_entry(entry: str) -> EquipmentEntry | None:
     return equipment_entry
 
 
-def _format_inventory_entry(entry: str) -> str | None:
-    slot, item_name, item_type, tier, tags, segments = _parse_item_components(entry, include_slot=False)
+def _format_inventory_entry(entry: str) -> EquipmentEntry | None:
+    slot, item_name, item_type, tier, encumbrance, tags, segments = _parse_item_components(entry, include_slot=False)
     metadata = _render_item_metadata(tier, tags)
     if not _is_build_relevant_inventory_item(item_name, metadata, segments):
         return None
 
-    parts: list[str] = [slot] if slot else []
-    parts.append(item_name)
-    if metadata:
-        parts.append(metadata)
-    parts.extend(segments)
-    return " | ".join(part for part in parts if part)
+    properties, notes = _segment_list_to_fields(segments)
+    inventory_entry: EquipmentEntry = {
+        "Name": item_name,
+    }
+    if item_type:
+        inventory_entry["Type"] = item_type
+    if tier is not None:
+        inventory_entry["Tier"] = tier
+    if encumbrance is not None:
+        inventory_entry["Encumbrance"] = encumbrance
+    if count := _extract_item_count(item_name):
+        inventory_entry["Count"] = count
+    if tags:
+        inventory_entry["Tags"] = tags
+    if properties:
+        inventory_entry["Properties"] = properties
+    if notes:
+        inventory_entry["Notes"] = notes
+    return inventory_entry
 
 
 def _extract_item_name(body: str) -> str:
@@ -545,6 +583,20 @@ def _extract_item_tier(body: str) -> int | None:
     if number_match := re.search(r"\d+", tier_match.group(0)):
         return int(number_match.group(0))
     return None
+
+
+def _extract_item_encumbrance(body: str) -> float | None:
+    if not (match := ITEM_ENCUMBRANCE_PATTERN.search(body)):
+        return None
+    if number_match := re.search(r"\d+(?:\.\d+)?", match.group(0)):
+        return float(number_match.group(0))
+    return None
+
+
+def _extract_item_count(item_name: str) -> int | None:
+    if not (match := re.match(r"(\d+)\s+", item_name)):
+        return None
+    return int(match.group(1))
 
 
 def _extract_item_tags(body: str) -> list[str]:

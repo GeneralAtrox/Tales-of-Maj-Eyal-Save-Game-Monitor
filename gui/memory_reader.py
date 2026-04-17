@@ -16,10 +16,12 @@ import ctypes
 import ctypes.wintypes
 import struct
 import subprocess
+import sys
 
 # ── Win32 constants ───────────────────────────────────────────────────────────
 PROCESS_VM_READ           = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 MEM_COMMIT                = 0x1000
 PAGE_NOACCESS             = 0x01
 PAGE_GUARD                = 0x100
@@ -223,23 +225,37 @@ def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
 def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
     """
     Return GCtab* pointers from a table whose keys are integers (1..N),
-    sorted ascending by key.  Used for add_mos which is keyed 1, 2, 3 …
+    sorted ascending by key. Used for add_mos which is keyed 1, 2, 3 …
 
-    LuaJIT stores integer keys as 64-bit IEEE 754 doubles in the hash part
-    when the array part is absent (asize=0).  Each hash node is 24 bytes:
+    LuaJIT may store sequential integer keys in either:
+      1. the array part (fast path for dense 1..N tables), or
+      2. the hash part as 64-bit IEEE 754 doubles when the array part is absent.
+
+    Hash nodes are 24 bytes:
       [val.lo u32][val.itype u32][key.lo u32][key.hi u32][next u32][pad u32]
     A numeric key has key.hi < _LJ_TNUMX; the full double is at key_lo:key_hi.
     """
+    ordered: list[int] = []
+    seen: set[int] = set()
+
+    asize = _ru32(h, tab_ptr + 24)
+    if asize:
+        for idx in range(1, asize + 1):
+            entry = _tab_array_get_table(h, tab_ptr, idx)
+            if entry and entry not in seen:
+                ordered.append(entry)
+                seen.add(entry)
+
     node_ptr = _ru32(h, tab_ptr + 20)
     hmask    = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
-        return []
+        return ordered
     total = (hmask + 1) * _NODE_SIZE
     if total > 4 * 1024 * 1024:
-        return []
+        return ordered
     bulk = _rpm(h, node_ptr, total)
     if not bulk:
-        return []
+        return ordered
 
     keyed: list[tuple[int, int]] = []
     for i in range(hmask + 1):
@@ -264,7 +280,11 @@ def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
         keyed.append((int(key_f), val_lo))
 
     keyed.sort(key=lambda x: x[0])
-    return [ptr for _, ptr in keyed]
+    for _, ptr in keyed:
+        if ptr not in seen:
+            ordered.append(ptr)
+            seen.add(ptr)
+    return ordered
 
 
 # LuaJIT itype constants for bool values
@@ -654,8 +674,24 @@ class MemoryReader:
         if pid is None:
             return False
 
+        _k32.SetLastError(0)
         h = _k32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
         if not h:
+            err = _k32.GetLastError()
+            limited = _k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if limited:
+                _k32.CloseHandle(limited)
+            if err == 5 and limited:
+                print(
+                    "[memory] Access denied opening t-engine.exe for VM_READ. "
+                    "The monitor is not elevated high enough to read game memory.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"[memory] OpenProcess failed for t-engine.exe (pid={pid}, error={err}).",
+                    file=sys.stderr,
+                )
             return False
 
         self._handle = h
@@ -663,6 +699,7 @@ class MemoryReader:
 
         gt = _find_global_table(h)
         if gt is None:
+            print("[memory] OpenProcess succeeded, but the Lua global table scan found no match.", file=sys.stderr)
             self.detach()
             return False
 
@@ -761,7 +798,9 @@ class MemoryReader:
 
     def read_player_sprite(self) -> tuple[str, list[str]] | None:
         """Return (image, sprite_layers) for the live player actor, or None."""
-        if not self._player_table or not self.attached:
+        if not self.attached:
+            return None
+        if not self._player_table:
             self.read_player_hp()
         if not self._player_table:
             return None
@@ -942,3 +981,28 @@ class MemoryReader:
             if val is not None:
                 result[key] = val
         return result
+
+    def read_player_exp(self) -> tuple[float, float] | None:
+        """Return (exp_this_level, exp_needed) or None if unavailable."""
+        if not self._player_table or not self.attached:
+            self.read_player_hp()
+        if not self._player_table:
+            return None
+        h  = self._handle
+        pt = self._player_table
+        exp   = _tab_get_number(h, pt, "exp")
+        level = _tab_get_number(h, pt, "level")
+        if exp is None or level is None:
+            return None
+        next_level = int(level) + 1
+        needed = 90 * (2 * next_level - 1)
+        return exp, float(needed)
+
+    def read_has_transmo(self) -> bool:
+        """Return True if the player has the transmogrification chest unlocked."""
+        if not self._player_table or not self.attached:
+            self.read_player_hp()
+        if not self._player_table:
+            return True  # default to True when memory unavailable
+        val = _tab_get_number(self._handle, self._player_table, "has_transmo")
+        return val is not None and val > 0
