@@ -152,6 +152,7 @@ def _item_like_snapshot(h: int, tab_ptr: int) -> dict[str, object]:
     flat = _tab_dump_flat(h, tab_ptr)
     interesting: dict[str, object] = {}
     for key in (
+        "__transmo",
         "name",
         "type",
         "subtype",
@@ -173,6 +174,39 @@ def _item_like_snapshot(h: int, tab_ptr: int) -> dict[str, object]:
     if "desc" in interesting and isinstance(interesting["desc"], str):
         interesting["desc"] = " ".join(str(interesting["desc"]).split())[:120]
     return interesting
+
+
+def _bucket_items(h: int, bucket_ptr: int) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for idx, item_ptr in enumerate(_tab_get_ordered_tables(h, bucket_ptr)[:8], start=1):
+        items.append(
+            {
+                "index": idx,
+                "ptr": f"0x{item_ptr:08X}",
+                "keys": _table_string_keys(h, item_ptr)[:24],
+                "item_like": _item_like_snapshot(h, item_ptr),
+                "transmo_fields": {
+                    key: _value_preview(h, value_addr)
+                    for key, value_addr in _table_entries(h, item_ptr)
+                    if "transmo" in key.lower() or "chest" in key.lower()
+                },
+            }
+        )
+    return items
+
+
+def _probe_inven_bucket(h: int, bucket_ptr: int) -> dict[str, object]:
+    flat = _tab_dump_flat(h, bucket_ptr)
+    return {
+        "ptr": f"0x{bucket_ptr:08X}",
+        "name": flat.get("name"),
+        "short_name": flat.get("short_name"),
+        "id": flat.get("id"),
+        "max": flat.get("max"),
+        "worn": flat.get("worn"),
+        "item_count": len(_tab_get_ordered_tables(h, bucket_ptr)),
+        "items": _bucket_items(h, bucket_ptr),
+    }
 
 
 def _probe_container(h: int, tab_ptr: int, label: str) -> dict[str, object]:
@@ -230,6 +264,176 @@ def _candidate_subtables(h: int, player_tab: int) -> list[tuple[str, int]]:
     return results
 
 
+def _find_transmo_chest_entity(h: int, game_tab: int) -> int | None:
+    entities_tab = _tab_get_table(h, game_tab, "entities")
+    if entities_tab is None:
+        level_tab = _tab_get_table(h, game_tab, "level")
+        if level_tab is not None:
+            entities_tab = _tab_get_table(h, level_tab, "entities")
+    if entities_tab is None:
+        return None
+    for ent_ptr in _tab_iter_table_values(h, entities_tab):
+        flat = _tab_dump_flat(h, ent_ptr)
+        if str(flat.get("define_as") or "") == "TRANSMO_CHEST":
+            return ent_ptr
+    return None
+
+
+def _probe_named_children(h: int, tab_ptr: int) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for key, value_addr in _table_entries(h, tab_ptr):
+        if _ru32(h, value_addr + 4) != _LJ_TTAB:
+            continue
+        child_ptr = _ru32(h, value_addr)
+        if not child_ptr or not _is_heap(child_ptr):
+            continue
+        out.append(
+            {
+                "key": key,
+                "ptr": f"0x{child_ptr:08X}",
+                "asize": _tab_array_size(h, child_ptr),
+                "hmask": _tab_hmask(h, child_ptr),
+                "string_keys": _table_string_keys(h, child_ptr)[:24],
+                "ordered_table_count": len(_tab_get_ordered_tables(h, child_ptr)),
+                "table_value_count": len(_tab_iter_table_values(h, child_ptr)),
+                "sample_item_like": _item_like_snapshot(h, _tab_get_ordered_tables(h, child_ptr)[0])
+                if _tab_get_ordered_tables(h, child_ptr)
+                else {},
+            }
+        )
+    return out
+
+
+def _find_pointer_references(
+    h: int,
+    tab_ptr: int,
+    *,
+    target_ptr: int,
+    path: str,
+    max_depth: int,
+    seen: set[int] | None = None,
+) -> list[dict[str, object]]:
+    if seen is None:
+        seen = set()
+    if tab_ptr in seen or max_depth < 0:
+        return []
+    seen.add(tab_ptr)
+
+    matches: list[dict[str, object]] = []
+    for key, value_addr in _table_entries(h, tab_ptr):
+        itype = _ru32(h, value_addr + 4)
+        val_ptr = _ru32(h, value_addr)
+        next_path = f"{path}.{key}"
+        if itype == _LJ_TTAB and val_ptr == target_ptr:
+            matches.append({"path": next_path, "kind": "table_ref"})
+        if max_depth == 0 or itype != _LJ_TTAB or not val_ptr or not _is_heap(val_ptr):
+            continue
+        matches.extend(
+            _find_pointer_references(
+                h,
+                val_ptr,
+                target_ptr=target_ptr,
+                path=next_path,
+                max_depth=max_depth - 1,
+                seen=seen,
+            )
+        )
+    return matches
+
+
+def _probe_child_tables_deep(h: int, tab_ptr: int, *, depth: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for child in _probe_named_children(h, tab_ptr):
+        rows.append(child)
+        if depth <= 0:
+            continue
+        child_ptr_text = child.get("ptr")
+        if not isinstance(child_ptr_text, str):
+            continue
+        child_ptr = int(child_ptr_text, 16)
+        grand = _probe_named_children(h, child_ptr)
+        if grand:
+            child["children"] = grand[:20]
+    return rows
+
+
+def _probe_table_summary(h: int, tab_ptr: int) -> dict[str, object]:
+    ordered = _tab_get_ordered_tables(h, tab_ptr)
+    table_values = _tab_iter_table_values(h, tab_ptr)
+    return {
+        "ptr": f"0x{tab_ptr:08X}",
+        "asize": _tab_array_size(h, tab_ptr),
+        "hmask": _tab_hmask(h, tab_ptr),
+        "string_keys": _table_string_keys(h, tab_ptr)[:30],
+        "ordered_table_count": len(ordered),
+        "table_value_count": len(table_values),
+        "ordered_item_samples": [
+            {
+                "index": idx,
+                "ptr": f"0x{sub_ptr:08X}",
+                "keys": _table_string_keys(h, sub_ptr)[:24],
+                "item_like": _item_like_snapshot(h, sub_ptr),
+            }
+            for idx, sub_ptr in enumerate(ordered[:8], start=1)
+        ],
+        "table_value_samples": [
+            {
+                "index": idx,
+                "ptr": f"0x{sub_ptr:08X}",
+                "keys": _table_string_keys(h, sub_ptr)[:24],
+                "item_like": _item_like_snapshot(h, sub_ptr),
+            }
+            for idx, sub_ptr in enumerate(table_values[:8], start=1)
+        ],
+    }
+
+
+def _find_matching_paths(
+    h: int,
+    tab_ptr: int,
+    *,
+    path: str,
+    max_depth: int,
+    terms: tuple[str, ...],
+    seen: set[int] | None = None,
+) -> list[dict[str, object]]:
+    if seen is None:
+        seen = set()
+    if tab_ptr in seen or max_depth < 0:
+        return []
+    seen.add(tab_ptr)
+
+    matches: list[dict[str, object]] = []
+    for key, value_addr in _table_entries(h, tab_ptr):
+        key_l = key.lower()
+        value_preview = _value_preview(h, value_addr)
+        if any(term in key_l or term in value_preview.lower() for term in terms):
+            matches.append(
+                {
+                    "path": f"{path}.{key}",
+                    "value": value_preview,
+                }
+            )
+        if max_depth == 0:
+            continue
+        if _ru32(h, value_addr + 4) != _LJ_TTAB:
+            continue
+        child_ptr = _ru32(h, value_addr)
+        if not child_ptr or not _is_heap(child_ptr):
+            continue
+        matches.extend(
+            _find_matching_paths(
+                h,
+                child_ptr,
+                path=f"{path}.{key}",
+                max_depth=max_depth - 1,
+                terms=terms,
+                seen=seen,
+            )
+        )
+    return matches
+
+
 def main() -> None:
     reader = MemoryReader()
     print("Attaching to t-engine.exe...")
@@ -255,8 +459,86 @@ def main() -> None:
         "level": player_flat.get("level"),
         "has_transmo": player_flat.get("has_transmo"),
         "top_level_keys_sample": _table_string_keys(h, player_tab)[:120],
+        "inventory_buckets": [],
+        "transmo_matches": [],
+        "game_transmo_matches": [],
+        "transmo_chest_entity": None,
+        "transmo_chest_refs": [],
+        "transmo_chest_followups": {},
         "candidate_subtables": [],
     }
+
+    inven_tab = _tab_get_table(h, player_tab, "inven")
+    if inven_tab is not None:
+        summary["inventory_buckets"] = [
+            _probe_inven_bucket(h, bucket_ptr)
+            for bucket_ptr in _tab_get_ordered_tables(h, inven_tab)
+        ]
+
+    summary["transmo_matches"] = _find_matching_paths(
+        h,
+        player_tab,
+        path="player",
+        max_depth=4,
+        terms=("transmo", "transmog", "transmogr", "chest"),
+    )[:80]
+    summary["game_transmo_matches"] = _find_matching_paths(
+        h,
+        game_tab,
+        path="game",
+        max_depth=4,
+        terms=("transmo", "transmog", "transmogr", "chest"),
+    )[:120]
+
+    chest_ptr = _find_transmo_chest_entity(h, game_tab)
+    if chest_ptr is not None:
+        chest_flat = _tab_dump_flat(h, chest_ptr)
+        chest_entries = {key: value_addr for key, value_addr in _table_entries(h, chest_ptr)}
+        summary["transmo_chest_entity"] = {
+            "ptr": f"0x{chest_ptr:08X}",
+            "fields": {
+                key: chest_flat.get(key)
+                for key in ("name", "define_as", "type", "subtype", "image", "desc")
+                if key in chest_flat
+            },
+            "child_tables": _probe_child_tables_deep(h, chest_ptr, depth=1),
+        }
+        summary["transmo_chest_refs"] = _find_pointer_references(
+            h,
+            game_tab,
+            target_ptr=chest_ptr,
+            path="game",
+            max_depth=5,
+        )[:120]
+        for key in ("in_inven", "carrier", "carried", "use_power"):
+            value_addr = chest_entries.get(key)
+            if value_addr is None or _ru32(h, value_addr + 4) != _LJ_TTAB:
+                continue
+            child_ptr = _ru32(h, value_addr)
+            if child_ptr and _is_heap(child_ptr):
+                summary["transmo_chest_followups"][key] = _probe_table_summary(h, child_ptr)
+
+        object_talent_data = _tab_get_table(h, player_tab, "object_talent_data")
+        if object_talent_data is not None:
+            obj_matches: list[dict[str, object]] = []
+            for key, value_addr in _table_entries(h, object_talent_data):
+                if _ru32(h, value_addr + 4) != _LJ_TTAB:
+                    continue
+                child_ptr = _ru32(h, value_addr)
+                if not child_ptr or not _is_heap(child_ptr):
+                    continue
+                obj_tab = _tab_get_table(h, child_ptr, "obj")
+                if obj_tab == chest_ptr:
+                    obj_matches.append(
+                        {
+                            "path": f"player.object_talent_data.{key}.obj",
+                            "holder_ptr": f"0x{child_ptr:08X}",
+                            "holder_keys": _table_string_keys(h, child_ptr)[:20],
+                            "holder_summary": _probe_table_summary(h, child_ptr),
+                        }
+                    )
+            if obj_matches:
+                summary["transmo_chest_followups"]["object_talent_data_refs"] = obj_matches[:20]
 
     candidates = _candidate_subtables(h, player_tab)
     if not candidates:

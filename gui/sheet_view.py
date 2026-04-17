@@ -730,6 +730,9 @@ class CharacterSheetView(QWidget):
         self._current_sprite_key: tuple[str, tuple[str, ...]] | None = None
         self._current_data: dict[str, Any] = {}
         self._current_char_name = ""
+        self._live_equipment: list[dict[str, Any]] | None = None
+        self._live_inventory: list[dict[str, Any]] | None = None
+        self._live_transmog: list[dict[str, Any]] | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -867,6 +870,29 @@ class CharacterSheetView(QWidget):
         self._current_char_name = char_name
         self._reload_current()
 
+    def set_live_inventory(
+        self,
+        equipment: list[dict[str, Any]] | None,
+        current: list[dict[str, Any]] | None,
+        transmog: list[dict[str, Any]] | None,
+    ) -> None:
+        self._live_equipment = equipment
+        self._live_inventory = current
+        self._live_transmog = transmog
+        self._reload_current()
+
+    def clear_live_inventory(self) -> None:
+        if (
+            self._live_equipment is None
+            and self._live_inventory is None
+            and self._live_transmog is None
+        ):
+            return
+        self._live_equipment = None
+        self._live_inventory = None
+        self._live_transmog = None
+        self._reload_current()
+
     def _reload_current(self) -> None:
         self._clear_left()
         self._clear_player_box()
@@ -884,20 +910,25 @@ class CharacterSheetView(QWidget):
                 continue
             self._insert(self._left_lay, self._build_talent_section(key, value))
 
-        equipment = self._current_data.get("Equipment", [])
+        file_equipment = self._current_data.get("Equipment", [])
         inventory = self._current_data.get("Inventory", [])
-        self._equipped_panel.set_items(equipment if isinstance(equipment, list) else [], show_slot=True)
+        equipment_items = self._live_equipment if self._live_equipment is not None else (
+            file_equipment if isinstance(file_equipment, list) else []
+        )
+        self._equipped_panel.set_items(equipment_items, show_slot=True)
         if isinstance(inventory, dict):
-            current_items = inventory.get("Current", [])
+            file_current = inventory.get("Current", [])
             transmog_items = inventory.get("Transmog Chest", [])
         elif isinstance(inventory, list):
-            current_items = inventory
+            file_current = inventory
             transmog_items = []
         else:
-            current_items = []
+            file_current = []
             transmog_items = []
+        current_items = self._live_inventory if self._live_inventory is not None else file_current
+        transmog_live = self._live_transmog if self._live_transmog is not None else transmog_items
         self._inventory_panel.set_items(current_items if isinstance(current_items, list) else [], show_slot=False)
-        self._transmog_panel.set_items(transmog_items if isinstance(transmog_items, list) else [], show_slot=False)
+        self._transmog_panel.set_items(transmog_live if isinstance(transmog_live, list) else [], show_slot=False)
 
     def set_enemy_panel(self, panel: QWidget) -> None:
         while self._enemy_host_lay.count():

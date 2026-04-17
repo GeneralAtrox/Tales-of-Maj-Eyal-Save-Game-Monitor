@@ -32,6 +32,7 @@ class DashboardTab(QWidget):
 
     analyze_requested    = Signal(str, str)  # folder_name, question
     game_status_changed  = Signal(bool)      # True = active
+    game_connected       = Signal()          # emitted after a successful game attach
     _enemies_ready       = Signal(list)      # list[EntityInfo] — bg thread → main thread
 
     def __init__(
@@ -78,6 +79,11 @@ class DashboardTab(QWidget):
         self._progression_poll.setInterval(5000)
         self._progression_poll.timeout.connect(self._poll_progression)
         self._progression_poll.start()
+
+        self._inventory_poll = QTimer(self)
+        self._inventory_poll.setInterval(2500)
+        self._inventory_poll.timeout.connect(self._poll_inventory)
+        self._inventory_poll.start()
 
         # ── 2-column splitter ──────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -237,6 +243,7 @@ class DashboardTab(QWidget):
             self._enemy_panel.set_loading(False)
             self._sheet_visual.clear_hp()
             self._sheet_visual.clear_sprite()
+            self._sheet_visual.clear_live_inventory()
 
     def _attach_reader(self) -> None:
         try:
@@ -245,6 +252,7 @@ class DashboardTab(QWidget):
             self._attach_pending = False
         if ok:
             self._poll_progression()
+            self.game_connected.emit()
 
     def _poll_hp(self) -> None:
         if not self._reader.attached:
@@ -277,6 +285,7 @@ class DashboardTab(QWidget):
                 self._sheet_visual.clear_hp()   # also clears mana via clear_hp
                 self._sheet_visual.clear_exp()
                 self._sheet_visual.clear_sprite()
+                self._sheet_visual.clear_live_inventory()
                 self._hp_fail_count = 0
 
     def _poll_level_id(self) -> None:
@@ -305,6 +314,13 @@ class DashboardTab(QWidget):
         deaths  = self._reader.read_unique_deaths()
         current = self._reader.read_current_zone()
         self._sheet_visual.update_progression(visited, deaths, current)
+
+    def _poll_inventory(self) -> None:
+        if not self._reader.attached:
+            self._sheet_visual.clear_live_inventory()
+            return
+        equipment, current, transmog = self._reader.read_player_inventory()
+        self._sheet_visual.set_live_inventory(equipment, current, transmog)
 
     # ── Analysis ───────────────────────────────────────────────────────────
 

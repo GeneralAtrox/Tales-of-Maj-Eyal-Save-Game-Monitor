@@ -17,6 +17,7 @@ import ctypes.wintypes
 import struct
 import subprocess
 import sys
+from typing import Any
 
 # ── Win32 constants ───────────────────────────────────────────────────────────
 PROCESS_VM_READ           = 0x0010
@@ -523,6 +524,22 @@ class PlayerStats:
     mental_save: float
 
 
+_INVENTORY_BUCKET_SLOT_LABELS: dict[str, str] = {
+    "MAINHAND": "Mainhand",
+    "OFFHAND": "Offhand",
+    "BODY": "Body",
+    "HEAD": "Head",
+    "HANDS": "Hands",
+    "FEET": "Feet",
+    "BELT": "Belt",
+    "NECK": "Neck",
+    "LITE": "Lite",
+    "TOOL": "Tool",
+    "QUIVER": "Quiver",
+    "FINGER": "Ring",
+}
+
+
 # ── Danger rating ────────────────────────────────────────────────────────────
 
 # Rank → weight for danger calculation (higher = scarier)
@@ -812,6 +829,117 @@ class MemoryReader:
         if not image and not sprite_layers:
             return None
         return image, sprite_layers
+
+    def _normalize_bucket_slot(self, bucket_name: str, item_index: int) -> str:
+        if bucket_name == "FINGER":
+            return "Left ring" if item_index == 0 else "Right ring"
+        return _INVENTORY_BUCKET_SLOT_LABELS.get(bucket_name, bucket_name.title())
+
+    def _extract_item_entry(
+        self,
+        h: int,
+        item_ptr: int,
+        *,
+        bucket_name: str,
+        item_index: int,
+    ) -> dict[str, Any]:
+        flat = _tab_dump_flat(h, item_ptr)
+        name = str(flat.get("name") or "Unknown Item")
+        item_type = str(flat.get("type") or "")
+        subtype = str(flat.get("subtype") or "")
+        slot = self._normalize_bucket_slot(bucket_name, item_index)
+
+        entry: dict[str, Any] = {
+            "Name": name,
+            "Slot": slot,
+        }
+        if item_type:
+            entry["Type"] = item_type
+        if subtype:
+            entry["Subtype"] = subtype
+
+        material_level = flat.get("material_level")
+        if isinstance(material_level, (int, float)):
+            entry["Tier"] = int(material_level)
+
+        encumber = flat.get("encumber")
+        if isinstance(encumber, (int, float)):
+            entry["Encumbrance"] = float(encumber)
+
+        tags: list[str] = []
+        if flat.get("identified") is True:
+            tags.append("identified")
+        if flat.get("unique"):
+            tags.append("unique")
+        if flat.get("__transmo") is True:
+            tags.append("transmo")
+        if tags:
+            entry["Tags"] = tags
+
+        properties: dict[str, str] = {}
+        for src_key, label in (
+            ("desc", "Description"),
+            ("power_source", "Power source"),
+            ("unided_name", "Unidentified name"),
+        ):
+            value = flat.get(src_key)
+            if isinstance(value, str) and value:
+                properties[label] = " ".join(value.split())
+        if properties:
+            entry["Properties"] = properties
+
+        return entry
+
+    def read_player_inventory(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return (equipped_items, current_inventory_items, transmog_items) from game.player.inven."""
+        if not self.attached:
+            return [], [], []
+        if not self._player_table:
+            self.read_player_hp()
+        if not self._player_table:
+            return [], [], []
+
+        h = self._handle
+        inven_tab = _tab_get_table(h, self._player_table, "inven")
+        if inven_tab is None:
+            return [], [], []
+
+        equipped: list[dict[str, Any]] = []
+        current: list[dict[str, Any]] = []
+        transmog: list[dict[str, Any]] = []
+
+        for bucket_ptr in _tab_get_ordered_tables(h, inven_tab):
+            bucket = _tab_dump_flat(h, bucket_ptr)
+            bucket_name = str(bucket.get("name") or bucket.get("short_name") or "")
+            if not bucket_name:
+                continue
+            item_ptrs = _tab_get_ordered_tables(h, bucket_ptr)
+            if not item_ptrs:
+                continue
+            worn = bucket.get("worn") is True
+            target = equipped if worn else current
+            for idx, item_ptr in enumerate(item_ptrs):
+                flat = _tab_dump_flat(h, item_ptr)
+                if str(flat.get("define_as") or "") == "TRANSMO_CHEST":
+                    continue
+
+                entry = self._extract_item_entry(
+                    h,
+                    item_ptr,
+                    bucket_name=bucket_name,
+                    item_index=idx,
+                )
+                if worn:
+                    equipped.append(entry)
+                    continue
+
+                if flat.get("__transmo") is True:
+                    transmog.append(entry)
+                    continue
+
+                current.append(entry)
+
+        return equipped, current, transmog
 
     def _extract_actor_sprite(
         self,

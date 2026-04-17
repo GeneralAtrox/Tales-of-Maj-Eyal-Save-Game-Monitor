@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from gui.bridge import InputBridge, LogBridge, MonitorThread
 from gui.dashboard_tab import DashboardTab
 from gui.log_panel import LogPanel
+from gui.preview_capture import capture_preview_screenshots
 from gui.settings_tab import SettingsTab
 from gui.theme import TEXT
 
@@ -88,6 +89,7 @@ class MainWindow(QMainWindow):
         self._log_bridge.message_ready.connect(self._log_panel.append)
         self._dashboard.analyze_requested.connect(self._run_analysis)
         self._dashboard.game_status_changed.connect(self._set_game_status)
+        self._dashboard.game_connected.connect(self._schedule_preview_capture)
 
         # ── Start monitor thread ──
         self._monitor = MonitorThread(config_path, self._input_bridge)
@@ -285,6 +287,18 @@ class MainWindow(QMainWindow):
             "using the system prompt from agent.md and the sheet JSON as the\n"
             "user message."
         )
+
+    def _schedule_preview_capture(self) -> None:
+        QTimer.singleShot(1500, self._capture_preview_if_connected)
+
+    def _capture_preview_if_connected(self) -> None:
+        if not self._dashboard._reader.attached:
+            return
+        try:
+            capture_preview_screenshots(self)
+            self.statusBar().showMessage("Preview screenshots refreshed", 4000)
+        except RuntimeError as exc:
+            print(f"[!] Preview capture skipped: {exc}")
 
     def _handle_input_request(self, prompt: str) -> None:
         text, ok = QInputDialog.getText(self, "Input Required", prompt)
