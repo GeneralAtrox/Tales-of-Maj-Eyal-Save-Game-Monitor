@@ -44,6 +44,51 @@ Tales of Maj'Eyal_v3.CT   # Cheat Engine table (manual use only, not used by cod
 
 The `.CT` Cheat Engine table is a separate manual tool for value editing — the Python code does its own independent memory scan and does **not** use or require Cheat Engine.
 
+## Live Memory — Accessible Game Tables
+
+Navigated via `_G → game → ...` using `ReadProcessMemory` on `t-engine.exe` (LuaJIT 2.0.2, 32-bit GCtab traversal).
+
+### Currently read (`memory_reader.py`)
+
+| Path | What we use |
+|---|---|
+| `game.player` | HP, mana, stamina, vim, psi, positive/negative, hate, paradox, equilibrium, gold, level, exp, rank, image, add_mos sprite layers, combat stats, saves |
+| `game.player.stats` | Base stat values (Str/Dex/Con/Mag/Wil/Cun) |
+| `game.player.combat` | Mainhand dam/atk/apr/physspeed |
+| `game.player.resists` | Per-damage-type resistances |
+| `game.player.inc_damage` | Per-damage-type damage bonuses |
+| `game.player.resists_pen` | Penetration values |
+| `game.player.talents` | Talent levels (T_* keys) |
+| `game.player.talents_cd` | Active cooldowns |
+| `game.player.has_transmo` | Gates inventory transmog bucket |
+| `game.level` | `id` string (zone + level name) |
+| `game.level.entities` | All live actors → enemy panel + danger rating |
+
+### Untouched — worth coming back to
+
+| Path | Contents | Priority |
+|---|---|---|
+| `game.uniques` | Every unique NPC/object/encounter seen or killed (class path → 1.0). ~512 entries. | High — kill tracking, progression |
+| `game.visited_zones` | Zone short names → True. ~32 zones. | High — map completion progress |
+| `game.party.ingredients` | Alchemy ingredient counts (TROLL_INTESTINE, BEAR_PAW, etc.) | Medium — crafting inventory |
+| `game.party.lore_known` | Lore entries discovered (item names, note IDs) | Medium — lore completion |
+| `game.state` | Misc world flags: `boss_killed`, `kitty_fed`, `east_orc_patrols`, `has_bearscape`, `unique_death` table | Medium — world state / quests |
+| `game.factions` | Tables keyed `angolwen`, `assassin-lair`, etc. — faction standing | Medium — reputation |
+| `game.zone` | `name`, `short_name`, `base_level`, `level_range`, `npc_list` (~641), `object_list` (~1537), `trap_list` (~21) | Low — zone meta, object/trap spawns |
+| `game.level.data` | `base_level`, `min/max_material_level`, `level_range` for current level | Low — level difficulty info |
+| `game.level.map` | Tile/particle/FOV data — complex, likely not practical | Low |
+| `game.total_playtime` | Total seconds played (on `game` table directly) | Low — session stats |
+| `game.turn` | Current game turn counter | Low — timing |
+| `game.target` | `active`, `source_actor`, `target` — what the player is currently targeting | Low — combat overlay |
+| `game.player.sustain_talents` | Which sustains are active | Medium — buff tracking |
+| `game.player.effects` / `tmp` | Active status effects (buffs/debuffs) | Medium — status display |
+| `game.player.talents_cd` | Only one cooldown visible so far — hash part may have more | Medium — full cooldown tracking |
+
+### Not practical
+- `_G.__uids` — ~8193 slots, every entity in the game. Too large to scan usefully.
+- `game.level.map` — raw tile/particle/lighting data, no clear use case.
+- `game.party.members` — appears empty (solo character).
+
 ## Setup & Running
 
 ```bash
