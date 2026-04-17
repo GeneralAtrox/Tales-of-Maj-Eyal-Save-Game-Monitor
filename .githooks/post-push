@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "tools/post_push_refresh_preview.ps1" "$@"
