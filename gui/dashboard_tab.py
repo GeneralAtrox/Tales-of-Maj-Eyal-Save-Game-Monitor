@@ -74,6 +74,11 @@ class DashboardTab(QWidget):
         self._level_poll.timeout.connect(self._poll_level_id)
         self._level_poll.start()
 
+        self._progression_poll = QTimer(self)
+        self._progression_poll.setInterval(5000)
+        self._progression_poll.timeout.connect(self._poll_progression)
+        self._progression_poll.start()
+
         # ── 2-column splitter ──────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(1)
@@ -235,9 +240,11 @@ class DashboardTab(QWidget):
 
     def _attach_reader(self) -> None:
         try:
-            self._reader.attach()
+            ok = self._reader.attach()
         finally:
             self._attach_pending = False
+        if ok:
+            self._poll_progression()
 
     def _poll_hp(self) -> None:
         if not self._reader.attached:
@@ -290,6 +297,14 @@ class DashboardTab(QWidget):
 
     def _handle_enemies_ready(self, entities: list) -> None:
         self._enemy_panel.update_enemies(entities)
+
+    def _poll_progression(self) -> None:
+        if not self._reader.attached:
+            return
+        visited = self._reader.read_visited_zones()
+        deaths  = self._reader.read_unique_deaths()
+        current = self._reader.read_current_zone()
+        self._sheet_visual.update_progression(visited, deaths, current)
 
     # ── Analysis ───────────────────────────────────────────────────────────
 

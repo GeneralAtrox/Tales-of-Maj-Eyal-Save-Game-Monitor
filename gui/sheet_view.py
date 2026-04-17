@@ -699,6 +699,10 @@ class CharacterSheetView(QWidget):
         inventory_root.addWidget(inventory_splitter)
         self._content_tabs.addTab(inventory_tab, "Inventory")
 
+        from gui.progression_tab import ProgressionTab
+        self._progression_tab = ProgressionTab()
+        self._content_tabs.addTab(self._progression_tab, "Progression")
+
         self._enemy_host = QWidget()
         self._enemy_host_lay = QVBoxLayout(self._enemy_host)
         self._enemy_host_lay.setContentsMargins(0, 0, 0, 0)
@@ -789,6 +793,14 @@ class CharacterSheetView(QWidget):
             if item.widget():
                 item.widget().setParent(None)
         self._enemy_host_lay.addWidget(panel)
+
+    def update_progression(
+        self,
+        visited: set[str],
+        deaths: set[str],
+        current_zone: tuple[str, int, int] | None,
+    ) -> None:
+        self._progression_tab.update(visited, deaths, current_zone)
 
     # ── Builders ─────────────────────────────────────────────────────────
 

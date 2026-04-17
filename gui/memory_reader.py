@@ -1006,3 +1006,124 @@ class MemoryReader:
             return True  # default to True when memory unavailable
         val = _tab_get_number(self._handle, self._player_table, "has_transmo")
         return val is not None and val > 0
+
+    def read_visited_zones(self) -> set[str]:
+        """Return set of zone short_names the player has visited."""
+        if not self.attached:
+            return set()
+        h  = self._handle
+        gt = self._global_table
+        game_tab = _tab_get_table(h, gt, "game")
+        if game_tab is None:
+            return set()
+        visited_tab = _tab_get_table(h, game_tab, "visited_zones")
+        if visited_tab is None:
+            return set()
+        node_ptr = _ru32(h, visited_tab + 20)
+        hmask    = _ru32(h, visited_tab + 28)
+        if not node_ptr or hmask is None or not _is_heap(node_ptr):
+            return set()
+        total = (hmask + 1) * _NODE_SIZE
+        if total > 16 * 1024 * 1024:
+            return set()
+        bulk = _rpm(h, node_ptr, total)
+        if not bulk:
+            return set()
+        result: set[str] = set()
+        for i in range(hmask + 1):
+            off    = i * _NODE_SIZE
+            key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+            val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+            if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
+                continue
+            key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+            if not _is_heap(key_gcs):
+                continue
+            slen_b = _rpm(h, key_gcs + 12, 4)
+            if not slen_b:
+                continue
+            slen = struct.unpack('<I', slen_b)[0]
+            if slen == 0 or slen > 128:
+                continue
+            raw = _rpm(h, key_gcs + 16, slen)
+            if not raw:
+                continue
+            try:
+                result.add(raw.decode('utf-8'))
+            except UnicodeDecodeError:
+                pass
+        return result
+
+    def read_unique_deaths(self) -> set[str]:
+        """Return set of unique entity names in game.state.unique_death (boss kills)."""
+        if not self.attached:
+            return set()
+        h  = self._handle
+        gt = self._global_table
+        game_tab = _tab_get_table(h, gt, "game")
+        if game_tab is None:
+            return set()
+        state_tab = _tab_get_table(h, game_tab, "state")
+        if state_tab is None:
+            return set()
+        deaths_tab = _tab_get_table(h, state_tab, "unique_death")
+        if deaths_tab is None:
+            return set()
+        node_ptr = _ru32(h, deaths_tab + 20)
+        hmask    = _ru32(h, deaths_tab + 28)
+        if not node_ptr or hmask is None or not _is_heap(node_ptr):
+            return set()
+        total = (hmask + 1) * _NODE_SIZE
+        if total > 16 * 1024 * 1024:
+            return set()
+        bulk = _rpm(h, node_ptr, total)
+        if not bulk:
+            return set()
+        result: set[str] = set()
+        for i in range(hmask + 1):
+            off    = i * _NODE_SIZE
+            key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+            val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+            if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
+                continue
+            key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+            if not _is_heap(key_gcs):
+                continue
+            slen_b = _rpm(h, key_gcs + 12, 4)
+            if not slen_b:
+                continue
+            slen = struct.unpack('<I', slen_b)[0]
+            if slen == 0 or slen > 256:
+                continue
+            raw = _rpm(h, key_gcs + 16, slen)
+            if not raw:
+                continue
+            try:
+                result.add(raw.decode('utf-8'))
+            except UnicodeDecodeError:
+                pass
+        return result
+
+    def read_current_zone(self) -> tuple[str, int, int] | None:
+        """Return (short_name, current_floor, max_floors) or None."""
+        if not self.attached:
+            return None
+        h  = self._handle
+        gt = self._global_table
+        game_tab = _tab_get_table(h, gt, "game")
+        if game_tab is None:
+            return None
+        zone_tab = _tab_get_table(h, game_tab, "zone")
+        if zone_tab is None:
+            return None
+        short_name = _tab_get_string(h, zone_tab, "short_name")
+        max_level  = _tab_get_number(h, zone_tab, "max_level")
+        if short_name is None or max_level is None:
+            return None
+        level_tab = _tab_get_table(h, game_tab, "level")
+        if level_tab is None:
+            return None
+        floor = _tab_get_number(h, level_tab, "level")
+        if floor is None:
+            return None
+        return (short_name, int(floor), int(max_level))
