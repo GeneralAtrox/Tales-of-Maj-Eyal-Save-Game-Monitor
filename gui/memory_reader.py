@@ -10,17 +10,22 @@ Usage from the GUI:
     reader.attach()                   # find t-engine.exe + _G
     hp = reader.read_player_hp()      # (life, max_life) or None
 """
+
 from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes
+import json
 import re
 import struct
-import subprocess
 import sys
+import threading as _threading
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
+
+from runtime_output import console_print
 
 # ── Prodigy database ─────────────────────────────────────────────────────────
 # Dynamically parsed from the game's tome.team zip archive at startup; falls
@@ -30,12 +35,12 @@ from typing import Any, Final
 # All prodigies require level 25 and 50+ in the listed stat.
 
 _UBER_STAT_FILES: Final[dict[str, str]] = {
-    "data/talents/uber/str.lua":   "str",
-    "data/talents/uber/dex.lua":   "dex",
+    "data/talents/uber/str.lua": "str",
+    "data/talents/uber/dex.lua": "dex",
     "data/talents/uber/const.lua": "con",
-    "data/talents/uber/mag.lua":   "mag",
-    "data/talents/uber/wil.lua":   "wil",
-    "data/talents/uber/cun.lua":   "cun",
+    "data/talents/uber/mag.lua": "mag",
+    "data/talents/uber/wil.lua": "wil",
+    "data/talents/uber/cun.lua": "cun",
 }
 
 # Regex to pull the body of each uberTalent{} block.
@@ -44,19 +49,20 @@ _RE_UBER_BLOCK = re.compile(
     r"uberTalent\s*\{(.*?)^\}",
     re.DOTALL | re.MULTILINE,
 )
-_RE_NAME        = re.compile(r'\bname\s*=\s*"([^"]+)"')
-_RE_SHORT_NAME  = re.compile(r'\bshort_name\s*=\s*"([^"]+)"')
-_RE_NOT_LISTED  = re.compile(r'\bnot_listed\s*=\s*true\b')
+_RE_NAME = re.compile(r'\bname\s*=\s*"([^"]+)"')
+_RE_SHORT_NAME = re.compile(r'\bshort_name\s*=\s*"([^"]+)"')
+_RE_NOT_LISTED = re.compile(r"\bnot_listed\s*=\s*true\b")
 
 
 def _find_tome_team() -> Path | None:
     """Locate the game's tome.team zip in common places."""
     import os
+
     candidates = [
         Path(os.environ.get("TEMP", "")) / "tome.team",
-        Path(os.environ.get("TMP",  "")) / "tome.team",
+        Path(os.environ.get("TMP", "")) / "tome.team",
         Path(os.environ.get("LOCALAPPDATA", "")) / "T-Engine" / "tome.team",
-        Path(os.environ.get("APPDATA", ""))       / "T-Engine" / "tome.team",
+        Path(os.environ.get("APPDATA", "")) / "T-Engine" / "tome.team",
     ]
     for p in candidates:
         if p.is_file():
@@ -112,88 +118,97 @@ def _build_prodigy_db() -> dict[str, tuple[str, str]]:
     # ── Static fallback snapshot (ToME 1.7.x) ────────────────────────────────
     return {
         # Constitution
-        "T_DRACONIC_BODY":           ("Draconic Body",             "con"),
-        "T_BLOODSPRING":             ("Bloodspring",               "con"),
-        "T_ETERNAL_GUARD":           ("Eternal Guard",             "con"),
-        "T_NEVER_STOP_RUNNING":      ("Never Stop Running",        "con"),
-        "T_ARMOUR_OF_SHADOWS":       ("Armour of Shadows",         "con"),
-        "T_SPINE_OF_THE_WORLD":      ("Spine of the World",        "con"),
-        "T_FUNGAL_BLOOD":            ("Fungal Blood",              "con"),
-        "T_CORRUPTED_SHELL":         ("Corrupted Shell",           "con"),
+        "T_DRACONIC_BODY": ("Draconic Body", "con"),
+        "T_BLOODSPRING": ("Bloodspring", "con"),
+        "T_ETERNAL_GUARD": ("Eternal Guard", "con"),
+        "T_NEVER_STOP_RUNNING": ("Never Stop Running", "con"),
+        "T_ARMOUR_OF_SHADOWS": ("Armour of Shadows", "con"),
+        "T_SPINE_OF_THE_WORLD": ("Spine of the World", "con"),
+        "T_FUNGAL_BLOOD": ("Fungal Blood", "con"),
+        "T_CORRUPTED_SHELL": ("Corrupted Shell", "con"),
         # Cunning  (T_FAST_AS_LIGHTNING excluded: not_listed=true)
-        "T_TRICKY_DEFENSES":         ("Tricky Defenses",           "cun"),
-        "T_ENDLESS_WOES":            ("Endless Woes",              "cun"),
-        "T_SECRETS_OF_TELOS":        ("Secrets of Telos",          "cun"),
-        "T_ELEMENTAL_SURGE":         ("Elemental Surge",           "cun"),
-        "T_EYE_OF_THE_TIGER":        ("Eye of the Tiger",          "cun"),
-        "T_WORLDLY_KNOWLEDGE":       ("Worldly Knowledge",         "cun"),
-        "T_ADEPT":                   ("Adept",                     "cun"),
-        "T_TRICKS_OF_THE_TRADE":     ("Tricks of the Trade",       "cun"),
+        "T_TRICKY_DEFENSES": ("Tricky Defenses", "cun"),
+        "T_ENDLESS_WOES": ("Endless Woes", "cun"),
+        "T_SECRETS_OF_TELOS": ("Secrets of Telos", "cun"),
+        "T_ELEMENTAL_SURGE": ("Elemental Surge", "cun"),
+        "T_EYE_OF_THE_TIGER": ("Eye of the Tiger", "cun"),
+        "T_WORLDLY_KNOWLEDGE": ("Worldly Knowledge", "cun"),
+        "T_ADEPT": ("Adept", "cun"),
+        "T_TRICKS_OF_THE_TRADE": ("Tricks of the Trade", "cun"),
         # Dexterity
-        "T_FLEXIBLE_COMBAT":         ("Flexible Combat",           "dex"),
-        "T_THROUGH_THE_CROWD":       ("Through The Crowd",         "dex"),
-        "T_SWIFT_HANDS":             ("Swift Hands",               "dex"),
-        "T_WINDBLADE":               ("Windblade",                 "dex"),
-        "T_WINDTOUCHED_SPEED":       ("Windtouched Speed",         "dex"),
-        "T_CRAFTY_HANDS":            ("Crafty Hands",              "dex"),
-        "T_ROLL_WITH_IT":            ("Roll With It",              "dex"),
-        "T_VITAL_SHOT":              ("Vital Shot",                "dex"),
+        "T_FLEXIBLE_COMBAT": ("Flexible Combat", "dex"),
+        "T_THROUGH_THE_CROWD": ("Through The Crowd", "dex"),
+        "T_SWIFT_HANDS": ("Swift Hands", "dex"),
+        "T_WINDBLADE": ("Windblade", "dex"),
+        "T_WINDTOUCHED_SPEED": ("Windtouched Speed", "dex"),
+        "T_CRAFTY_HANDS": ("Crafty Hands", "dex"),
+        "T_ROLL_WITH_IT": ("Roll With It", "dex"),
+        "T_VITAL_SHOT": ("Vital Shot", "dex"),
         # Magic  (T_SPECTRAL_SHIELD excluded: not_listed=true)
-        "T_ETHEREAL_FORM":           ("Ethereal Form",             "mag"),
-        "T_AETHER_PERMEATION":       ("Aether Permeation",         "mag"),
-        "T_MYSTICAL_CUNNING":        ("Mystical Cunning",          "mag"),
-        "T_ARCANE_MIGHT":            ("Arcane Might",              "mag"),
-        "T_TEMPORAL_FORM":           ("Temporal Form",             "mag"),
-        "T_BLIGHTED_SUMMONING":      ("Blighted Summoning",        "mag"),
-        "T_REVISIONIST_HISTORY":     ("Revisionist History",       "mag"),
-        "T_CAUTERIZE":               ("Cauterize",                 "mag"),
-        "T_LICH":                    ("Lich",                      "mag"),
-        "T_HIGH_THAUMATURGIST":      ("High Thaumaturgist",        "mag"),
+        "T_ETHEREAL_FORM": ("Ethereal Form", "mag"),
+        "T_AETHER_PERMEATION": ("Aether Permeation", "mag"),
+        "T_MYSTICAL_CUNNING": ("Mystical Cunning", "mag"),
+        "T_ARCANE_MIGHT": ("Arcane Might", "mag"),
+        "T_TEMPORAL_FORM": ("Temporal Form", "mag"),
+        "T_BLIGHTED_SUMMONING": ("Blighted Summoning", "mag"),
+        "T_REVISIONIST_HISTORY": ("Revisionist History", "mag"),
+        "T_CAUTERIZE": ("Cauterize", "mag"),
+        "T_LICH": ("Lich", "mag"),
+        "T_HIGH_THAUMATURGIST": ("High Thaumaturgist", "mag"),
         # Strength
-        "T_GIANT_LEAP":              ("Giant Leap",                "str"),
-        "T_TITAN_S_SMASH":           ("You Shall Be My Weapon!",   "str"),
-        "T_MASSIVE_BLOW":            ("Massive Blow",              "str"),
-        "T_STEAMROLLER":             ("Steamroller",               "str"),
-        "T_IRRESISTIBLE_SUN":        ("Irresistible Sun",          "str"),
-        "T_NO_FATIGUE":              ("I Can Carry The World!",    "str"),
-        "T_LEGACY_OF_THE_NALOREN":   ("Legacy of the Naloren",     "str"),
-        "T_SUPERPOWER":              ("Superpower",                "str"),
-        "T_AVATAR_OF_A_DISTANT_SUN": ("Avatar of a Distant Sun",  "str"),
+        "T_GIANT_LEAP": ("Giant Leap", "str"),
+        "T_TITAN_S_SMASH": ("You Shall Be My Weapon!", "str"),
+        "T_MASSIVE_BLOW": ("Massive Blow", "str"),
+        "T_STEAMROLLER": ("Steamroller", "str"),
+        "T_IRRESISTIBLE_SUN": ("Irresistible Sun", "str"),
+        "T_NO_FATIGUE": ("I Can Carry The World!", "str"),
+        "T_LEGACY_OF_THE_NALOREN": ("Legacy of the Naloren", "str"),
+        "T_SUPERPOWER": ("Superpower", "str"),
+        "T_AVATAR_OF_A_DISTANT_SUN": ("Avatar of a Distant Sun", "str"),
         # Willpower
-        "T_DRACONIC_WILL":           ("Draconic Will",             "wil"),
-        "T_METEORIC_CRASH":          ("Meteoric Crash",            "wil"),
-        "T_GARKUL_S_REVENGE":        ("Garkul's Revenge",          "wil"),
-        "T_HIDDEN_RESOURCES":        ("Hidden Resources",          "wil"),
-        "T_LUCKY_DAY":               ("Lucky Day",                 "wil"),
-        "T_UNBREAKABLE_WILL":        ("Unbreakable Will",          "wil"),
-        "T_SPELL_FEEDBACK":          ("Spell Feedback",            "wil"),
-        "T_MENTAL_TYRANNY":          ("Mental Tyranny",            "wil"),
-        "T_FALLEN":                  ("Fallen",                    "wil"),
+        "T_DRACONIC_WILL": ("Draconic Will", "wil"),
+        "T_METEORIC_CRASH": ("Meteoric Crash", "wil"),
+        "T_GARKUL_S_REVENGE": ("Garkul's Revenge", "wil"),
+        "T_HIDDEN_RESOURCES": ("Hidden Resources", "wil"),
+        "T_LUCKY_DAY": ("Lucky Day", "wil"),
+        "T_UNBREAKABLE_WILL": ("Unbreakable Will", "wil"),
+        "T_SPELL_FEEDBACK": ("Spell Feedback", "wil"),
+        "T_MENTAL_TYRANNY": ("Mental Tyranny", "wil"),
+        "T_FALLEN": ("Fallen", "wil"),
     }
 
 
-_PRODIGY_DB: Final[dict[str, tuple[str, str]]] = _build_prodigy_db()
+def _get_prodigy_db() -> dict[str, tuple[str, str]]:
+    global _PRODIGY_DB
+    if _PRODIGY_DB is None:
+        _PRODIGY_DB = _build_prodigy_db()
+    return _PRODIGY_DB
+
+
+_PRODIGY_DB: dict[str, tuple[str, str]] | None = None
 
 # ── Win32 constants ───────────────────────────────────────────────────────────
-PROCESS_VM_READ           = 0x0010
+PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-MEM_COMMIT                = 0x1000
-PAGE_NOACCESS             = 0x01
-PAGE_GUARD                = 0x100
+MEM_COMMIT = 0x1000
+PAGE_NOACCESS = 0x01
+PAGE_GUARD = 0x100
 
 _k32 = ctypes.windll.kernel32
+_psapi = ctypes.WinDLL("Psapi.dll")
+_ATTACH_CACHE_FILE = Path(__file__).with_name("_attach_cache.json")
 
 
 class _MBI(ctypes.Structure):
     _fields_ = [
-        ("BaseAddress",       ctypes.c_void_p),
-        ("AllocationBase",    ctypes.c_void_p),
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
         ("AllocationProtect", ctypes.wintypes.DWORD),
-        ("RegionSize",        ctypes.c_size_t),
-        ("State",             ctypes.wintypes.DWORD),
-        ("Protect",           ctypes.wintypes.DWORD),
-        ("Type",              ctypes.wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.wintypes.DWORD),
+        ("Protect", ctypes.wintypes.DWORD),
+        ("Type", ctypes.wintypes.DWORD),
     ]
 
 
@@ -203,30 +218,31 @@ class _MBI(ctypes.Structure):
 # TValue itype values:   LJ_TSTR=0xFFFFFFFB, LJ_TTAB=0xFFFFFFF4
 #                         number: itype < 0xFFFFFFF2
 
-_GCT_TAB   = 0x0B
-_LJ_TSTR   = 0xFFFFFFFB
-_LJ_TTAB   = 0xFFFFFFF4
-_LJ_TNUMX  = 0xFFFFFFF2
+_GCT_TAB = 0x0B
+_LJ_TSTR = 0xFFFFFFFB
+_LJ_TTAB = 0xFFFFFFF4
+_LJ_TNUMX = 0xFFFFFFF2
 _NODE_SIZE = 24
 
 
 # ── Low-level memory access ──────────────────────────────────────────────────
 
+
 def _rpm(h: int, addr: int, n: int) -> bytes | None:
-    buf  = ctypes.create_string_buffer(n)
+    buf = ctypes.create_string_buffer(n)
     read = ctypes.c_size_t(0)
-    ok   = _k32.ReadProcessMemory(h, ctypes.c_void_p(addr), buf, n, ctypes.byref(read))
+    ok = _k32.ReadProcessMemory(h, ctypes.c_void_p(addr), buf, n, ctypes.byref(read))
     return bytes(buf) if (ok and read.value == n) else None
 
 
 def _ru32(h: int, addr: int) -> int | None:
     b = _rpm(h, addr, 4)
-    return struct.unpack('<I', b)[0] if b else None
+    return struct.unpack("<I", b)[0] if b else None
 
 
 def _rf64(h: int, addr: int) -> float | None:
     b = _rpm(h, addr, 8)
-    return struct.unpack('<d', b)[0] if b else None
+    return struct.unpack("<d", b)[0] if b else None
 
 
 def _is_heap(v: int) -> bool:
@@ -235,11 +251,12 @@ def _is_heap(v: int) -> bool:
 
 # ── Table traversal ──────────────────────────────────────────────────────────
 
+
 def _tab_find_strkey(h: int, tab_ptr: int, key: str) -> int | None:
     """Return address of val TValue for string key, or None."""
-    key_b    = key.encode()
+    key_b = key.encode()
     node_ptr = _ru32(h, tab_ptr + 20)
-    hmask    = _ru32(h, tab_ptr + 28)
+    hmask = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
         return None
     total = (hmask + 1) * _NODE_SIZE
@@ -249,17 +266,17 @@ def _tab_find_strkey(h: int, tab_ptr: int, key: str) -> int | None:
     if not bulk:
         return None
     for i in range(hmask + 1):
-        off    = i * _NODE_SIZE
-        key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+        off = i * _NODE_SIZE
+        key_it = struct.unpack_from("<I", bulk, off + 12)[0]
         if key_it != _LJ_TSTR:
             continue
-        gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+        gcs = struct.unpack_from("<I", bulk, off + 8)[0]
         if not _is_heap(gcs):
             continue
         slen_raw = _rpm(h, gcs + 12, 4)
         if not slen_raw:
             continue
-        slen = struct.unpack('<I', slen_raw)[0]
+        slen = struct.unpack("<I", slen_raw)[0]
         if slen != len(key_b):
             continue
         raw = _rpm(h, gcs + 16, slen)
@@ -302,14 +319,14 @@ def _tab_get_string(h: int, tab_ptr: int, key: str) -> str | None:
     slen_raw = _rpm(h, gcs + 12, 4)
     if not slen_raw:
         return None
-    slen = struct.unpack('<I', slen_raw)[0]
+    slen = struct.unpack("<I", slen_raw)[0]
     if slen > 256:
         return None
     raw = _rpm(h, gcs + 16, slen)
     if not raw:
         return None
     try:
-        return raw.decode('utf-8')
+        return raw.decode("utf-8")
     except UnicodeDecodeError:
         return None
 
@@ -347,9 +364,9 @@ def _tab_get_bool(h: int, tab_ptr: int, key: str) -> bool | None:
     if node is None:
         return None
     it = _ru32(h, node + 4)
-    if it == 0xFFFFFFFD:   # LJ_TTRUE
+    if it == 0xFFFFFFFD:  # LJ_TTRUE
         return True
-    if it == 0xFFFFFFFE:   # LJ_TFALSE
+    if it == 0xFFFFFFFE:  # LJ_TFALSE
         return False
     return None
 
@@ -357,7 +374,7 @@ def _tab_get_bool(h: int, tab_ptr: int, key: str) -> bool | None:
 def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
     """Return GCtab* addresses for all table-valued entries (hash part)."""
     node_ptr = _ru32(h, tab_ptr + 20)
-    hmask    = _ru32(h, tab_ptr + 28)
+    hmask = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
         return []
     total = (hmask + 1) * _NODE_SIZE
@@ -368,11 +385,11 @@ def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
         return []
     results: list[int] = []
     for i in range(hmask + 1):
-        off    = i * _NODE_SIZE
-        val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+        off = i * _NODE_SIZE
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
         if val_it != _LJ_TTAB:
             continue
-        val_lo = struct.unpack_from('<I', bulk, off)[0]
+        val_lo = struct.unpack_from("<I", bulk, off)[0]
         if _is_heap(val_lo):
             results.append(val_lo)
     return results
@@ -403,7 +420,7 @@ def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
                 seen.add(entry)
 
     node_ptr = _ru32(h, tab_ptr + 20)
-    hmask    = _ru32(h, tab_ptr + 28)
+    hmask = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
         return ordered
     total = (hmask + 1) * _NODE_SIZE
@@ -417,18 +434,18 @@ def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
     for i in range(hmask + 1):
         off = i * _NODE_SIZE
         # Value must be a table
-        val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
         if val_it != _LJ_TTAB:
             continue
-        val_lo = struct.unpack_from('<I', bulk, off)[0]
+        val_lo = struct.unpack_from("<I", bulk, off)[0]
         if not _is_heap(val_lo):
             continue
         # Key must be a positive integer stored as a double
-        key_hi = struct.unpack_from('<I', bulk, off + 12)[0]
+        key_hi = struct.unpack_from("<I", bulk, off + 12)[0]
         if key_hi >= _LJ_TNUMX:
             continue  # not a number
         try:
-            key_f = struct.unpack_from('<d', bulk, off + 8)[0]
+            key_f = struct.unpack_from("<d", bulk, off + 8)[0]
         except struct.error:
             continue
         if key_f < 1 or key_f != int(key_f):
@@ -444,9 +461,9 @@ def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
 
 
 # LuaJIT itype constants for bool values
-_LJ_TTRUE  = 0xFFFFFFFD
+_LJ_TTRUE = 0xFFFFFFFD
 _LJ_TFALSE = 0xFFFFFFFE
-_LJ_TNIL   = 0xFFFFFFFF
+_LJ_TNIL = 0xFFFFFFFF
 _IMAGE_PREFIXES = ("npc/", "player/")
 
 
@@ -462,7 +479,7 @@ def _tab_dump_flat(
     ``prefix`` is prepended to every key (used when recursing into sub-tables).
     """
     node_ptr = _ru32(h, tab_ptr + 20)
-    hmask    = _ru32(h, tab_ptr + 28)
+    hmask = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
         return {}
     total = (hmask + 1) * _NODE_SIZE
@@ -475,28 +492,28 @@ def _tab_dump_flat(
     out: dict[str, str | float | bool] = {}
     for i in range(hmask + 1):
         off = i * _NODE_SIZE
-        key_it  = struct.unpack_from('<I', bulk, off + 12)[0]
+        key_it = struct.unpack_from("<I", bulk, off + 12)[0]
         if key_it != _LJ_TSTR:
             continue
-        key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+        key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
         if not _is_heap(key_gcs):
             continue
         slen_b = _rpm(h, key_gcs + 12, 4)
         if not slen_b:
             continue
-        slen = struct.unpack('<I', slen_b)[0]
+        slen = struct.unpack("<I", slen_b)[0]
         if slen == 0 or slen > 128:
             continue
         key_raw = _rpm(h, key_gcs + 16, slen)
         if not key_raw:
             continue
         try:
-            key = prefix + key_raw.decode('utf-8')
+            key = prefix + key_raw.decode("utf-8")
         except UnicodeDecodeError:
             continue
 
-        val_it = struct.unpack_from('<I', bulk, off + 4)[0]
-        val_lo = struct.unpack_from('<I', bulk, off)[0]
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
+        val_lo = struct.unpack_from("<I", bulk, off)[0]
 
         if val_it == _LJ_TTRUE:
             out[key] = True
@@ -508,20 +525,20 @@ def _tab_dump_flat(
             vslen_b = _rpm(h, val_lo + 12, 4)
             if not vslen_b:
                 continue
-            vslen = struct.unpack('<I', vslen_b)[0]
+            vslen = struct.unpack("<I", vslen_b)[0]
             if vslen == 0 or vslen > 256:
                 continue
             val_raw = _rpm(h, val_lo + 16, vslen)
             if not val_raw:
                 continue
             try:
-                out[key] = val_raw.decode('utf-8')
+                out[key] = val_raw.decode("utf-8")
             except UnicodeDecodeError:
                 pass
         elif val_it < _LJ_TNUMX:
-            raw8 = bulk[off:off + 8]
+            raw8 = bulk[off : off + 8]
             try:
-                out[key] = struct.unpack_from('<d', raw8)[0]
+                out[key] = struct.unpack_from("<d", raw8)[0]
             except struct.error:
                 pass
 
@@ -530,10 +547,10 @@ def _tab_dump_flat(
 
 # Sub-tables worth recursing into for a complete entity snapshot.
 _ENTITY_SUBTABLES = (
-    "stats",        # str/dex/mag/wil/cun/con base stats
-    "resists",      # damage type resistances  (keyed by DamageType int)
-    "combat",       # dam/atk/apr/damspeed/dammod
-    "inc_damage",   # % damage bonuses by type
+    "stats",  # str/dex/mag/wil/cun/con base stats
+    "resists",  # damage type resistances  (keyed by DamageType int)
+    "combat",  # dam/atk/apr/damspeed/dammod
+    "inc_damage",  # % damage bonuses by type
     "resists_pen",  # penetration values
 )
 
@@ -558,38 +575,112 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
 
 # ── Process / region helpers ─────────────────────────────────────────────────
 
+
 def _get_pid(name: str) -> int | None:
-    try:
-        r = subprocess.run(
-            ["tasklist", "/FI", f"IMAGENAME eq {name}", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=3,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    for line in r.stdout.splitlines():
-        parts = line.strip().strip('"').split('","')
-        if len(parts) >= 2 and parts[0].lower() == name.lower():
-            try:
-                return int(parts[1])
-            except ValueError:
-                continue
+    target = name.lower()
+    for pid in _iter_process_ids():
+        image_name = _get_process_image_name(pid)
+        if image_name and image_name.lower() == target:
+            return pid
     return None
+
+
+def is_process_running(name: str) -> bool:
+    """Return True when a process image with *name* is currently running."""
+    return _get_pid(name) is not None
+
+
+def _iter_process_ids() -> list[int]:
+    count = 256
+    while True:
+        buffer = (ctypes.wintypes.DWORD * count)()
+        needed = ctypes.wintypes.DWORD()
+        if not _psapi.EnumProcesses(buffer, ctypes.sizeof(buffer), ctypes.byref(needed)):
+            return []
+        returned = needed.value // ctypes.sizeof(ctypes.wintypes.DWORD())
+        if returned < count:
+            return [int(buffer[index]) for index in range(returned) if buffer[index]]
+        count *= 2
+
+
+def _get_process_image_name(pid: int) -> str | None:
+    process = _k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not process:
+        return None
+    try:
+        size = ctypes.wintypes.DWORD(32768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not _k32.QueryFullProcessImageNameW(process, 0, buffer, ctypes.byref(size)):
+            return None
+        return Path(buffer.value).name
+    finally:
+        _k32.CloseHandle(process)
+
+
+def _get_process_creation_key(h: int) -> int | None:
+    creation_time = ctypes.wintypes.FILETIME()
+    exit_time = ctypes.wintypes.FILETIME()
+    kernel_time = ctypes.wintypes.FILETIME()
+    user_time = ctypes.wintypes.FILETIME()
+    if not _k32.GetProcessTimes(
+        h,
+        ctypes.byref(creation_time),
+        ctypes.byref(exit_time),
+        ctypes.byref(kernel_time),
+        ctypes.byref(user_time),
+    ):
+        return None
+    return (creation_time.dwHighDateTime << 32) | creation_time.dwLowDateTime
+
+
+def _load_attach_cache() -> dict[str, int] | None:
+    try:
+        data = json.loads(_ATTACH_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return {
+            "pid": int(data["pid"]),
+            "creation_key": int(data["creation_key"]),
+            "global_table": int(data["global_table"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _save_attach_cache(pid: int, creation_key: int, global_table: int) -> None:
+    try:
+        _ATTACH_CACHE_FILE.write_text(
+            json.dumps(
+                {
+                    "pid": pid,
+                    "creation_key": creation_key,
+                    "global_table": global_table,
+                }
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 def _iter_regions(h: int):
     addr = 0
-    mbi  = _MBI()
+    mbi = _MBI()
     while True:
-        ret = _k32.VirtualQueryEx(h, ctypes.c_void_p(addr),
-                                  ctypes.byref(mbi), ctypes.sizeof(mbi))
+        ret = _k32.VirtualQueryEx(h, ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi))
         if not ret:
             break
         base = mbi.BaseAddress or 0
         size = mbi.RegionSize
-        ok   = (mbi.State == MEM_COMMIT
-                and not (mbi.Protect & PAGE_NOACCESS)
-                and not (mbi.Protect & PAGE_GUARD)
-                and size > 0)
+        ok = (
+            mbi.State == MEM_COMMIT
+            and not (mbi.Protect & PAGE_NOACCESS)
+            and not (mbi.Protect & PAGE_GUARD)
+            and size > 0
+        )
         if ok:
             data = _rpm(h, base, size)
             if data:
@@ -609,8 +700,8 @@ def _find_global_table(h: int) -> int | None:
                 continue
             if off + 32 > dlen:
                 continue
-            node_ptr = struct.unpack_from('<I', data, off + 20)[0]
-            hmask    = struct.unpack_from('<I', data, off + 28)[0]
+            node_ptr = struct.unpack_from("<I", data, off + 20)[0]
+            hmask = struct.unpack_from("<I", data, off + 28)[0]
             if hmask < 63 or hmask > 0xFFFF:
                 continue
             if not _is_heap(node_ptr):
@@ -633,19 +724,33 @@ def _find_global_table(h: int) -> int | None:
     return None
 
 
+def _validate_global_table(h: int, addr: int) -> int | None:
+    """Return *addr* when it still looks like the Lua global table."""
+    if addr <= 0:
+        return None
+    game_tab = _tab_get_table(h, addr, "game")
+    if game_tab is None:
+        return None
+    return addr
+
+
 # ── Entity data ───────────────────────────────────────────────────────────────
 
 # ToME rank values (numeric)
-RANK_CRITTER    = 1
-RANK_NORMAL     = 2
-RANK_ELITE      = 3
-RANK_RARE       = 3.2    # may vary
-RANK_UNIQUE     = 3.5
-RANK_BOSS       = 4
+RANK_CRITTER = 1
+RANK_NORMAL = 2
+RANK_ELITE = 3
+RANK_RARE = 3.2  # may vary
+RANK_UNIQUE = 3.5
+RANK_BOSS = 4
 RANK_ELITE_BOSS = 5
 
 RANK_NAMES: dict[int, str] = {
-    1: "Critter", 2: "Normal", 3: "Elite", 4: "Boss", 5: "Elite Boss",
+    1: "Critter",
+    2: "Normal",
+    3: "Elite",
+    4: "Boss",
+    5: "Elite Boss",
 }
 
 
@@ -664,12 +769,10 @@ def _rank_label(rank: float | None) -> str:
     return RANK_NAMES.get(r, f"Rank {rank:.1f}")
 
 
-from dataclasses import dataclass
-
-
 @dataclass(slots=True)
 class PlayerStats:
     """Snapshot of the player's combat-relevant stats."""
+
     level: float
     max_life: float
     armor: float
@@ -699,18 +802,18 @@ _INVENTORY_BUCKET_SLOT_LABELS: dict[str, str] = {
 
 # Rank → weight for danger calculation (higher = scarier)
 _RANK_WEIGHT: dict[int, float] = {
-    1: 0.2,   # critter
-    2: 1.0,   # normal
-    3: 1.8,   # elite
-    4: 3.0,   # boss
-    5: 4.0,   # elite boss
+    1: 0.2,  # critter
+    2: 1.0,  # normal
+    3: 1.8,  # elite
+    4: 3.0,  # boss
+    5: 4.0,  # elite boss
 }
 
-DANGER_TRIVIAL   = "Trivial"
-DANGER_EASY      = "Easy"
-DANGER_MODERATE  = "Moderate"
+DANGER_TRIVIAL = "Trivial"
+DANGER_EASY = "Easy"
+DANGER_MODERATE = "Moderate"
 DANGER_DANGEROUS = "Dangerous"
-DANGER_DEADLY    = "Deadly"
+DANGER_DEADLY = "Deadly"
 
 
 def _rank_weight(rank: float) -> float:
@@ -721,13 +824,13 @@ def _rank_weight(rank: float) -> float:
         w = 1.0
     # Fractional ranks (3.2=rare, 3.5=unique) interpolate upward
     if rank >= 3.5:
-        w = max(w, 2.4)   # unique
+        w = max(w, 2.4)  # unique
     elif rank >= 3.2:
-        w = max(w, 2.0)   # rare
+        w = max(w, 2.0)  # rare
     return w
 
 
-def compute_danger(enemy: "EntityInfo", player: PlayerStats | None) -> tuple[str, float]:
+def compute_danger(enemy: EntityInfo, player: PlayerStats | None) -> tuple[str, float]:
     """
     Compute a danger label and numeric score for an enemy relative to the
     player.  Returns (label, score).  Higher score = more dangerous.
@@ -752,11 +855,11 @@ def compute_danger(enemy: "EntityInfo", player: PlayerStats | None) -> tuple[str
     # Level delta: positive = enemy is higher level
     level_delta = enemy.level - player.level
     # Normalise to a -1..+1ish range, but allow > 1 for big gaps
-    level_factor = level_delta / 5.0   # +5 levels = +1.0, -5 = -1.0
+    level_factor = level_delta / 5.0  # +5 levels = +1.0, -5 = -1.0
 
     # HP ratio: how tanky is the enemy compared to you
     hp_ratio = (enemy.max_life / player.max_life) if player.max_life > 0 else 1.0
-    hp_factor = min(hp_ratio, 5.0) / 2.0   # cap at 5x, normalise ~0..2.5
+    hp_factor = min(hp_ratio, 5.0) / 2.0  # cap at 5x, normalise ~0..2.5
 
     # Save advantage: average of enemy saves minus average of player saves
     enemy_avg_save = (enemy.phys_save + enemy.spell_save + enemy.mental_save) / 3.0
@@ -771,8 +874,7 @@ def compute_danger(enemy: "EntityInfo", player: PlayerStats | None) -> tuple[str
     # Composite score:
     #   rank_weight is the anchor (1.0 for normal, 3.0 for boss)
     #   modifiers shift it based on relative stats
-    raw = rw * (1.0 + 0.4 * level_factor + 0.2 * hp_factor
-                + 0.1 * save_delta + 0.1 * def_delta)
+    raw = rw * (1.0 + 0.4 * level_factor + 0.2 * hp_factor + 0.1 * save_delta + 0.1 * def_delta)
 
     # Clamp to reasonable range
     score = max(0.0, raw)
@@ -796,6 +898,7 @@ def compute_danger(enemy: "EntityInfo", player: PlayerStats | None) -> tuple[str
 @dataclass(slots=True)
 class EntityInfo:
     """Snapshot of one actor from game.level.entities."""
+
     name: str
     rank: float
     rank_label: str
@@ -810,20 +913,21 @@ class EntityInfo:
     phys_save: float
     spell_save: float
     mental_save: float
-    danger: str          # label: Trivial / Easy / Moderate / Dangerous / Deadly
+    danger: str  # label: Trivial / Easy / Moderate / Dangerous / Deadly
     danger_score: float  # numeric score for sorting
-    image: str           # representative single sprite path, or ""
+    image: str  # representative single sprite path, or ""
     sprite_layers: list[str]  # ordered add_mos layer paths for compositing (may be empty)
     # Extended fields
-    type_name: str       # e.g. "insect"
-    subtype: str         # e.g. "ant"
-    size_category: float # 1=tiny … 5=huge
-    unique: bool         # True if a named/random unique
+    type_name: str  # e.g. "insect"
+    subtype: str  # e.g. "ant"
+    size_category: float  # 1=tiny … 5=huge
+    unique: bool  # True if a named/random unique
     # Full flat field dump (strings, numbers, bools) — for debug / tooltip
     all_fields: dict[str, str | float | bool]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 class MemoryReader:
     """Reads live game state from t-engine.exe via ReadProcessMemory."""
@@ -831,8 +935,8 @@ class MemoryReader:
     def __init__(self) -> None:
         self._handle: int = 0
         self._pid: int = 0
-        self._global_table: int = 0   # _G GCtab address
-        self._player_table: int = 0   # game.player GCtab address (cached)
+        self._global_table: int = 0  # _G GCtab address
+        self._player_table: int = 0  # game.player GCtab address (cached)
 
     @property
     def attached(self) -> bool:
@@ -867,7 +971,17 @@ class MemoryReader:
             return False
 
         self._handle = h
-        self._pid    = pid
+        self._pid = pid
+
+        creation_key = _get_process_creation_key(h)
+        if creation_key is not None:
+            cache = _load_attach_cache()
+            if cache and cache["pid"] == pid and cache["creation_key"] == creation_key:
+                if cached_gt := _validate_global_table(h, cache["global_table"]):
+                    console_print("[memory] Reused cached Lua global table address.")
+                    self._global_table = cached_gt
+                    self._player_table = 0
+                    return True
 
         gt = _find_global_table(h)
         if gt is None:
@@ -877,6 +991,8 @@ class MemoryReader:
 
         self._global_table = gt
         self._player_table = 0  # will be resolved on first read
+        if creation_key is not None:
+            _save_attach_cache(pid, creation_key, gt)
         return True
 
     def detach(self) -> None:
@@ -897,7 +1013,7 @@ class MemoryReader:
         if not self.attached:
             return None
 
-        h  = self._handle
+        h = self._handle
         gt = self._global_table
 
         # Resolve player table (may change on save load)
@@ -911,7 +1027,7 @@ class MemoryReader:
             return None
         self._player_table = player_tab
 
-        life     = _tab_get_number(h, player_tab, "life")
+        life = _tab_get_number(h, player_tab, "life")
         max_life = _tab_get_number(h, player_tab, "max_life")
         if life is None or max_life is None:
             return None
@@ -921,9 +1037,9 @@ class MemoryReader:
         """Return (mana, max_mana) or None if character has no mana."""
         if not self._player_table or not self.attached:
             return None
-        h  = self._handle
+        h = self._handle
         pt = self._player_table
-        mana     = _tab_get_number(h, pt, "mana")
+        mana = _tab_get_number(h, pt, "mana")
         max_mana = _tab_get_number(h, pt, "max_mana")
         if mana is None or max_mana is None or max_mana <= 0:
             return None
@@ -933,7 +1049,7 @@ class MemoryReader:
         """Return game.level.id string, or None."""
         if not self.attached:
             return None
-        h  = self._handle
+        h = self._handle
         gt = self._global_table
 
         game_tab = _tab_get_table(h, gt, "game")
@@ -951,7 +1067,7 @@ class MemoryReader:
         if not self._player_table:
             return None
 
-        h  = self._handle
+        h = self._handle
         pt = self._player_table
 
         level = _tab_get_number(h, pt, "level")
@@ -1012,9 +1128,18 @@ class MemoryReader:
             entry["Type"] = item_type
         if subtype:
             entry["Subtype"] = subtype
+        for src_key, label in (
+            ("short_name", "ShortName"),
+            ("define_as", "DefineAs"),
+            ("moddable_tile", "ModdableTile"),
+        ):
+            value = flat.get(src_key)
+            if isinstance(value, str) and value:
+                entry[label] = value
 
         material_level = flat.get("material_level")
         if isinstance(material_level, (int, float)):
+            entry["MaterialLevel"] = int(material_level)
             entry["Tier"] = int(material_level)
 
         encumber = flat.get("encumber")
@@ -1042,6 +1167,8 @@ class MemoryReader:
                 properties[label] = " ".join(value.split())
         if properties:
             entry["Properties"] = properties
+        if isinstance(flat.get("image"), str) and str(flat["image"]).endswith(".png"):
+            entry["Icon"] = str(flat["image"])
 
         return entry
 
@@ -1074,6 +1201,8 @@ class MemoryReader:
 
         if isinstance(flat.get("mode"), str):
             entry["Mode"] = str(flat["mode"])
+        if isinstance(flat.get("image"), str) and str(flat["image"]).endswith(".png"):
+            entry["Icon"] = str(flat["image"])
         return entry
 
     @staticmethod
@@ -1137,11 +1266,7 @@ class MemoryReader:
 
             type_name = self._display_category_name(type_key, str(type_flat.get("name") or ""))
             mastery = mastery_values.get(type_key)
-            mastery_text = (
-                f"{float(mastery) + 1.0:.2f}"
-                if isinstance(mastery, (int, float))
-                else "1.00"
-            )
+            mastery_text = f"{float(mastery) + 1.0:.2f}" if isinstance(mastery, (int, float)) else "1.00"
             talents_list_tab = _tab_get_table(h, type_ptr, "talents")
             if talents_list_tab is None:
                 continue
@@ -1150,9 +1275,7 @@ class MemoryReader:
                 continue
 
             section_name = "Generic Talents" if type_flat.get("generic") is True else "Class Talents"
-            category_entries: list[tuple[str, Any]] = [
-                (self._category_key(type_name), mastery_text)
-            ]
+            category_entries: list[tuple[str, Any]] = [(self._category_key(type_name), mastery_text)]
 
             for talent_ptr in talent_ptrs:
                 talent_flat = _tab_dump_flat(h, talent_ptr)
@@ -1168,15 +1291,17 @@ class MemoryReader:
                 points_cap = talent_flat.get("points")
                 if not isinstance(points_cap, (int, float)):
                     points_cap = 5.0
-                category_entries.append((
-                    talent_name,
-                    self._read_talent_definition(
-                        h,
-                        talent_ptr,
-                        level=float(current_level),
-                        points_cap=float(points_cap),
-                    ),
-                ))
+                category_entries.append(
+                    (
+                        talent_name,
+                        self._read_talent_definition(
+                            h,
+                            talent_ptr,
+                            level=float(current_level),
+                            points_cap=float(points_cap),
+                        ),
+                    )
+                )
 
             is_known = enabled_types.get(type_key) is True
             ordered_sections[section_name].append((is_known, category_entries))
@@ -1223,7 +1348,6 @@ class MemoryReader:
             if not item_ptrs:
                 continue
             worn = bucket.get("worn") is True
-            target = equipped if worn else current
             for idx, item_ptr in enumerate(item_ptrs):
                 flat = _tab_dump_flat(h, item_ptr)
                 if str(flat.get("define_as") or "") == "TRANSMO_CHEST":
@@ -1296,7 +1420,7 @@ class MemoryReader:
         """
         if not self.attached:
             return []
-        h  = self._handle
+        h = self._handle
         gt = self._global_table
 
         game_tab = _tab_get_table(h, gt, "game")
@@ -1333,15 +1457,15 @@ class MemoryReader:
             # Dump all flat fields first — single pass over the hash table
             all_fields = _tab_dump_all(h, ptr)
 
-            name      = (all_fields.get("name") or "?") if isinstance(all_fields.get("name"), str) else "?"
-            life      = float(all_fields.get("life") or 0.0)
-            max_life  = float(all_fields.get("max_life") or 0.0)
-            level     = float(all_fields.get("level") or 0.0)
-            faction   = (all_fields.get("faction") or "?") if isinstance(all_fields.get("faction"), str) else "?"
+            name = (all_fields.get("name") or "?") if isinstance(all_fields.get("name"), str) else "?"
+            life = float(all_fields.get("life") or 0.0)
+            max_life = float(all_fields.get("max_life") or 0.0)
+            level = float(all_fields.get("level") or 0.0)
+            faction = (all_fields.get("faction") or "?") if isinstance(all_fields.get("faction"), str) else "?"
             type_name = (all_fields.get("type") or "") if isinstance(all_fields.get("type"), str) else ""
-            subtype   = (all_fields.get("subtype") or "") if isinstance(all_fields.get("subtype"), str) else ""
-            size_cat  = float(all_fields.get("size_category") or 0.0)
-            unique    = bool(all_fields.get("unique", False))
+            subtype = (all_fields.get("subtype") or "") if isinstance(all_fields.get("subtype"), str) else ""
+            size_cat = float(all_fields.get("size_category") or 0.0)
+            unique = bool(all_fields.get("unique", False))
 
             # ── Image resolution ──────────────────────────────────────────
             # Four patterns in ToME:
@@ -1393,18 +1517,26 @@ class MemoryReader:
         if not self._player_table:
             return {}
 
-        h  = self._handle
+        h = self._handle
         pt = self._player_table
 
         keys = [
-            "life", "max_life",
-            "mana", "max_mana",
-            "stamina", "max_stamina",
-            "vim", "max_vim",
-            "positive", "max_positive",
-            "negative", "max_negative",
-            "psi", "max_psi",
-            "hate", "max_hate",
+            "life",
+            "max_life",
+            "mana",
+            "max_mana",
+            "stamina",
+            "max_stamina",
+            "vim",
+            "max_vim",
+            "positive",
+            "max_positive",
+            "negative",
+            "max_negative",
+            "psi",
+            "max_psi",
+            "hate",
+            "max_hate",
             "paradox",
             "equilibrium",
             "money",
@@ -1422,9 +1554,9 @@ class MemoryReader:
             self.read_player_hp()
         if not self._player_table:
             return None
-        h  = self._handle
+        h = self._handle
         pt = self._player_table
-        exp   = _tab_get_number(h, pt, "exp")
+        exp = _tab_get_number(h, pt, "exp")
         level = _tab_get_number(h, pt, "level")
         if exp is None or level is None:
             return None
@@ -1445,7 +1577,7 @@ class MemoryReader:
         """Return set of zone short_names the player has visited."""
         if not self.attached:
             return set()
-        h  = self._handle
+        h = self._handle
         gt = self._global_table
         game_tab = _tab_get_table(h, gt, "game")
         if game_tab is None:
@@ -1454,7 +1586,7 @@ class MemoryReader:
         if visited_tab is None:
             return set()
         node_ptr = _ru32(h, visited_tab + 20)
-        hmask    = _ru32(h, visited_tab + 28)
+        hmask = _ru32(h, visited_tab + 28)
         if not node_ptr or hmask is None or not _is_heap(node_ptr):
             return set()
         total = (hmask + 1) * _NODE_SIZE
@@ -1465,25 +1597,25 @@ class MemoryReader:
             return set()
         result: set[str] = set()
         for i in range(hmask + 1):
-            off    = i * _NODE_SIZE
-            key_it = struct.unpack_from('<I', bulk, off + 12)[0]
-            val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+            off = i * _NODE_SIZE
+            key_it = struct.unpack_from("<I", bulk, off + 12)[0]
+            val_it = struct.unpack_from("<I", bulk, off + 4)[0]
             if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
                 continue
-            key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+            key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
             if not _is_heap(key_gcs):
                 continue
             slen_b = _rpm(h, key_gcs + 12, 4)
             if not slen_b:
                 continue
-            slen = struct.unpack('<I', slen_b)[0]
+            slen = struct.unpack("<I", slen_b)[0]
             if slen == 0 or slen > 128:
                 continue
             raw = _rpm(h, key_gcs + 16, slen)
             if not raw:
                 continue
             try:
-                result.add(raw.decode('utf-8'))
+                result.add(raw.decode("utf-8"))
             except UnicodeDecodeError:
                 pass
         return result
@@ -1492,7 +1624,7 @@ class MemoryReader:
         """Return set of unique entity names in game.state.unique_death (boss kills)."""
         if not self.attached:
             return set()
-        h  = self._handle
+        h = self._handle
         gt = self._global_table
         game_tab = _tab_get_table(h, gt, "game")
         if game_tab is None:
@@ -1504,7 +1636,7 @@ class MemoryReader:
         if deaths_tab is None:
             return set()
         node_ptr = _ru32(h, deaths_tab + 20)
-        hmask    = _ru32(h, deaths_tab + 28)
+        hmask = _ru32(h, deaths_tab + 28)
         if not node_ptr or hmask is None or not _is_heap(node_ptr):
             return set()
         total = (hmask + 1) * _NODE_SIZE
@@ -1515,25 +1647,25 @@ class MemoryReader:
             return set()
         result: set[str] = set()
         for i in range(hmask + 1):
-            off    = i * _NODE_SIZE
-            key_it = struct.unpack_from('<I', bulk, off + 12)[0]
-            val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+            off = i * _NODE_SIZE
+            key_it = struct.unpack_from("<I", bulk, off + 12)[0]
+            val_it = struct.unpack_from("<I", bulk, off + 4)[0]
             if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
                 continue
-            key_gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+            key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
             if not _is_heap(key_gcs):
                 continue
             slen_b = _rpm(h, key_gcs + 12, 4)
             if not slen_b:
                 continue
-            slen = struct.unpack('<I', slen_b)[0]
+            slen = struct.unpack("<I", slen_b)[0]
             if slen == 0 or slen > 256:
                 continue
             raw = _rpm(h, key_gcs + 16, slen)
             if not raw:
                 continue
             try:
-                result.add(raw.decode('utf-8'))
+                result.add(raw.decode("utf-8"))
             except UnicodeDecodeError:
                 pass
         return result
@@ -1542,7 +1674,7 @@ class MemoryReader:
         """Return (short_name, current_floor, max_floors) or None."""
         if not self.attached:
             return None
-        h  = self._handle
+        h = self._handle
         gt = self._global_table
         game_tab = _tab_get_table(h, gt, "game")
         if game_tab is None:
@@ -1551,7 +1683,7 @@ class MemoryReader:
         if zone_tab is None:
             return None
         short_name = _tab_get_string(h, zone_tab, "short_name")
-        max_level  = _tab_get_number(h, zone_tab, "max_level")
+        max_level = _tab_get_number(h, zone_tab, "max_level")
         if short_name is None or max_level is None:
             return None
         level_tab = _tab_get_table(h, game_tab, "level")
@@ -1568,7 +1700,7 @@ class MemoryReader:
         Returns an empty list when the character is below level 25, not attached,
         or when no prodigy slots can be inferred from memory.
 
-        Availability is determined by cross-referencing ``_PRODIGY_DB`` against
+        Availability is determined by cross-referencing the prodigy DB against
         ``game.player.talents`` (already-learned) and ``game.player.stats``
         (base stats vs the 50-point threshold).  Only non-hidden prodigies are
         included.
@@ -1578,7 +1710,7 @@ class MemoryReader:
         if not self._player_table:
             return []
 
-        h  = self._handle
+        h = self._handle
         pt = self._player_table
 
         # Level gate: prodigies unlock at 25
@@ -1599,7 +1731,7 @@ class MemoryReader:
         talents_tab = _tab_get_table(h, pt, "talents")
         learned_ids: set[str] = set()
         if talents_tab is not None:
-            for tid in _PRODIGY_DB:
+            for tid in _get_prodigy_db():
                 node = _tab_find_strkey(h, talents_tab, tid)
                 if node is None:
                     continue
@@ -1616,7 +1748,7 @@ class MemoryReader:
 
         # Available = stat req met (≥50 base) AND not yet learned
         available: list[str] = []
-        for tid, (name, stat_key) in _PRODIGY_DB.items():
+        for tid, (name, stat_key) in _get_prodigy_db().items():
             if tid in learned_ids:
                 continue
             if player_stats.get(stat_key, 0.0) >= 50.0:
@@ -1631,12 +1763,9 @@ class MemoryReader:
 # and the existing-instance shutdown wait.  The DashboardTab then adopts the
 # pre-warmed reader instead of constructing a fresh one and waiting on a
 # synchronous tasklist call.
-
-import threading as _threading
-
-_preattach_lock:  _threading.Lock  = _threading.Lock()
+_preattach_lock: _threading.Lock = _threading.Lock()
 _preattach_event: _threading.Event = _threading.Event()
-_preattached_reader: "MemoryReader | None" = None
+_preattached_reader: MemoryReader | None = None
 
 
 def start_background_preattach() -> None:
@@ -1664,7 +1793,7 @@ def start_background_preattach() -> None:
     _threading.Thread(target=_go, daemon=True, name="MemoryReader.preattach").start()
 
 
-def take_preattached_reader(*, wait_timeout: float = 0.0) -> "MemoryReader | None":
+def take_preattached_reader(*, wait_timeout: float = 0.0) -> MemoryReader | None:
     """Take ownership of the pre-attached reader, if one was started AND its
     background attach has fully finished.
 

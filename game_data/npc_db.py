@@ -19,6 +19,7 @@ Usage::
         print(rec.desc)        # lore text
         print(rec.image)       # "npc/troll_f.png"  (may be "")
 """
+
 from __future__ import annotations
 
 import json
@@ -37,10 +38,11 @@ _CACHE_FILE = Path(__file__).parent / "_npc_cache.json"
 
 # ── Public types ───────────────────────────────────────────────────────────────
 
+
 @dataclass(slots=True)
 class NpcRecord:
-    desc: str    # lore text, may be ""
-    image: str   # "npc/xxx.png", may be ""
+    desc: str  # lore text, may be ""
+    image: str  # "npc/xxx.png", may be ""
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ def lookup_by_sprite(image_hint: str) -> NpcRecord | None:
     if rec:
         return rec
     # Shockbolt convention: npc/{type}_{subtype}_{entity_name_underscored}.png
-    stem = PurePosixPath(image_hint).stem   # e.g. "spiderkin_spider_faerlhing"
+    stem = PurePosixPath(image_hint).stem  # e.g. "spiderkin_spider_faerlhing"
     parts = stem.split("_")
     if len(parts) >= 3:
         name = " ".join(parts[2:])
@@ -101,15 +103,13 @@ def lookup_by_sprite(image_hint: str) -> NpcRecord | None:
 
 # ── Load / build ──────────────────────────────────────────────────────────────
 
+
 def _load_or_build() -> dict[str, NpcRecord]:
     if not _TOME_TEAM.exists():
         return {}
 
     # Re-use cached JSON if it is newer than the archive.
-    if (
-        _CACHE_FILE.exists()
-        and _CACHE_FILE.stat().st_mtime > _TOME_TEAM.stat().st_mtime
-    ):
+    if _CACHE_FILE.exists() and _CACHE_FILE.stat().st_mtime > _TOME_TEAM.stat().st_mtime:
         db = _load_cache()
         if db:
             return db
@@ -128,14 +128,8 @@ def _build_db() -> dict[str, NpcRecord]:
             # then zone-specific files (data/zones/*/npcs.lua).
             # Zone entries take priority — they override generic ones when
             # a boss variant of the same name has a more specific image.
-            npc_paths = [
-                n for n in all_names
-                if "general/npcs/" in n and n.endswith(".lua")
-            ]
-            zone_paths = [
-                n for n in all_names
-                if re.match(r"data/zones/[^/]+/npcs\.lua", n)
-            ]
+            npc_paths = [n for n in all_names if "general/npcs/" in n and n.endswith(".lua")]
+            zone_paths = [n for n in all_names if re.match(r"data/zones/[^/]+/npcs\.lua", n)]
             for path in npc_paths + zone_paths:
                 lua = zf.read(path).decode("utf-8", errors="replace")
                 for name, record in _parse_lua(lua):
@@ -146,6 +140,7 @@ def _build_db() -> dict[str, NpcRecord]:
 
 
 # ── Lua parsing ───────────────────────────────────────────────────────────────
+
 
 def _split_entities(lua: str) -> list[str]:
     """
@@ -170,17 +165,15 @@ def _split_entities(lua: str) -> list[str]:
     return results
 
 
-_RE_NAME       = re.compile(r'\bname\s*=\s*"([^"]+)"')
-_RE_DESC_ML    = re.compile(r'desc\s*=\s*_t\[\[(.*?)\]\]', re.DOTALL)
-_RE_DESC_SQ    = re.compile(r'desc\s*=\s*_t"([^"]+)"')
-_RE_IMG        = re.compile(r'\bimage\s*=\s*"(npc/[^"]+\.png)"')
-_RE_ADD_MOS    = re.compile(
-    r'add_mos\s*=\s*\{\{[^}]*image\s*=\s*"(npc/[^"]+\.png)"'
-)
+_RE_NAME = re.compile(r'\bname\s*=\s*"([^"]+)"')
+_RE_DESC_ML = re.compile(r"desc\s*=\s*_t\[\[(.*?)\]\]", re.DOTALL)
+_RE_DESC_SQ = re.compile(r'desc\s*=\s*_t"([^"]+)"')
+_RE_IMG = re.compile(r'\bimage\s*=\s*"(npc/[^"]+\.png)"')
+_RE_ADD_MOS = re.compile(r'add_mos\s*=\s*\{\{[^}]*image\s*=\s*"(npc/[^"]+\.png)"')
 # Matches BASE_NPC_… style define_as values — these are anonymous templates,
 # not real entities.  Zone bosses also have define_as but it's an identifier
 # like "NORGOS" or "THE_MASTER" — they still have a name and should be indexed.
-_RE_BASE_TMPL  = re.compile(r'define_as\s*=\s*"BASE_')
+_RE_BASE_TMPL = re.compile(r'define_as\s*=\s*"BASE_')
 
 
 def _parse_lua(lua: str) -> list[tuple[str, NpcRecord]]:
@@ -220,11 +213,10 @@ def _parse_lua(lua: str) -> list[tuple[str, NpcRecord]]:
 
 # ── JSON cache helpers ────────────────────────────────────────────────────────
 
+
 def _load_cache() -> dict[str, NpcRecord]:
     try:
-        raw: dict[str, dict[str, str]] = json.loads(
-            _CACHE_FILE.read_text(encoding="utf-8")
-        )
+        raw: dict[str, dict[str, str]] = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
         return {k: NpcRecord(desc=v["desc"], image=v["image"]) for k, v in raw.items()}
     except Exception:  # noqa: BLE001
         return {}

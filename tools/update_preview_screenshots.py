@@ -9,14 +9,12 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from gui.main_window import MainWindow  # noqa: E402
 from gui.preview_capture import SCREENSHOT_DIR, capture_preview_screenshots  # noqa: E402
-
 
 README_PREVIEW_RE = re.compile(
     r"Current Preview \d{2}/\d{2}/\d{4}\r?\n"
@@ -46,15 +44,15 @@ def _parse_args() -> argparse.Namespace:
         help="Fail if the GUI is not ready within this time.",
     )
     return parser.parse_args()
+
+
 def _update_readme(readme_path: Path) -> None:
     text = readme_path.read_text(encoding="utf-8")
     date_str = datetime.now().strftime("%d/%m/%Y")
     overview_rel = SCREENSHOT_DIR.relative_to(ROOT).as_posix() + "/character-sheet-overview.png"
     inventory_rel = SCREENSHOT_DIR.relative_to(ROOT).as_posix() + "/inventory-view.png"
     replacement = (
-        f"Current Preview {date_str}\n"
-        f"![Character Sheet overview]({overview_rel})\n"
-        f"![Inventory view]({inventory_rel})\n"
+        f"Current Preview {date_str}\n![Character Sheet overview]({overview_rel})\n![Inventory view]({inventory_rel})\n"
     )
     updated, count = README_PREVIEW_RE.subn(replacement, text, count=1)
     if count == 0:

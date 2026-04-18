@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import os
 import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
 import pyuac
 import win32con
 import win32gui
 import win32process
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 
 from gui.main_window import MainWindow
 from gui.theme import STYLESHEET
+
+_k32 = ctypes.windll.kernel32
 
 
 def _debug_mode_active() -> bool:
@@ -24,38 +28,24 @@ def _debug_mode_active() -> bool:
     return os.environ.get("PYCHARM_HOSTED") == "1"
 
 
-def _script_markers() -> set[str]:
-    """Return stable lowercase markers that identify this GUI launch."""
-    markers = {
-        str(Path.cwd()).lower(),
-        Path(sys.argv[0]).name.lower(),
-        "tome_savemonitor_gui.py",
-        "gui\\app.py",
-        "tome save monitor",
-    }
-    return markers
-
-
-def _pid_command_line(pid: int) -> str:
-    """Return the command line for a process id via PowerShell CIM."""
-    import subprocess
-
-    cmd = (
-        f"(Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\").CommandLine"
-    )
-    result = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", cmd],
-        capture_output=True,
-        text=True,
-        timeout=3,
-    )
-    return result.stdout.strip().lower() if result.returncode == 0 else ""
+def _pid_image_name(pid: int) -> str:
+    """Return the executable basename for *pid*, or an empty string."""
+    process = _k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not process:
+        return ""
+    try:
+        size = ctypes.wintypes.DWORD(32768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not _k32.QueryFullProcessImageNameW(process, 0, buffer, ctypes.byref(size)):
+            return ""
+        return Path(buffer.value).name.lower()
+    finally:
+        _k32.CloseHandle(process)
 
 
 def _find_existing_windows(window_title: str) -> list[tuple[int, int]]:
     """Return ``(hwnd, pid)`` pairs for matching GUI windows owned by Python processes."""
     current_pid = os.getpid()
-    markers = _script_markers()
     matches: list[tuple[int, int]] = []
 
     def enum_proc(hwnd, lparam) -> bool:  # noqa: ARG001
@@ -67,10 +57,8 @@ def _find_existing_windows(window_title: str) -> list[tuple[int, int]]:
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
         if not pid or pid == current_pid:
             return True
-        cmdline = _pid_command_line(pid)
-        if "python" not in cmdline:
-            return True
-        if not any(marker in cmdline for marker in markers):
+        image_name = _pid_image_name(pid)
+        if image_name not in {"python.exe", "pythonw.exe"}:
             return True
         matches.append((hwnd, pid))
         return True
@@ -126,7 +114,7 @@ def _relaunch_elevated() -> bool:
     return True
 
 
-def main() -> None:
+def main(*, startup_started_at: float | None = None) -> None:
     # ── Request Administrator if not already elevated ──
     if not pyuac.isUserAdmin():
         if _debug_mode_active():
@@ -140,6 +128,7 @@ def main() -> None:
     #    and MainWindow construction.  By the time the dashboard needs the
     #    reader, the Lua _G scan is typically already complete.
     from gui.memory_reader import start_background_preattach
+
     start_background_preattach()
 
     # High-DPI scaling (Qt 6 default) — kept explicit for clarity
@@ -152,7 +141,23 @@ def main() -> None:
     _request_existing_shutdown("ToME - Scrying Mirror")
 
     config_path = Path("config.json")
-    window = MainWindow(config_path)
+    window = MainWindow(config_path, startup_started_at=startup_started_at)
     window.show()
+    original_excepthook = sys.excepthook
 
-    sys.exit(app.exec())
+    def _gui_excepthook(exc_type, exc_value, exc_traceback) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            app.quit()
+            return
+        original_excepthook(exc_type, exc_value, exc_traceback)
+
+    sys.excepthook = _gui_excepthook
+    try:
+        try:
+            exit_code = app.exec()
+        except KeyboardInterrupt:
+            exit_code = 0
+    finally:
+        sys.excepthook = original_excepthook
+
+    sys.exit(exit_code)

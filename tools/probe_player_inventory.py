@@ -7,6 +7,7 @@ character loaded.
 
     py -3 tools/probe_player_inventory.py
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,13 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gui.memory_reader import (  # noqa: E402
+    _LJ_TFALSE,
+    _LJ_TNIL,
+    _LJ_TNUMX,
+    _LJ_TSTR,
+    _LJ_TTAB,
+    _LJ_TTRUE,
+    _NODE_SIZE,
     MemoryReader,
     _is_heap,
     _rpm,
@@ -25,13 +33,6 @@ from gui.memory_reader import (  # noqa: E402
     _tab_get_ordered_tables,
     _tab_get_table,
     _tab_iter_table_values,
-    _LJ_TFALSE,
-    _LJ_TNIL,
-    _LJ_TNUMX,
-    _LJ_TSTR,
-    _LJ_TTAB,
-    _LJ_TTRUE,
-    _NODE_SIZE,
 )
 
 
@@ -143,7 +144,7 @@ def _table_entries(h: int, tab_ptr: int) -> list[tuple[str, int]]:
             try:
                 key_num = struct.unpack_from("<d", bulk, off + 8)[0]
                 entries.append((str(int(key_num) if key_num == int(key_num) else key_num), value_addr))
-            except (struct.error, ValueError):
+            except struct.error, ValueError:
                 continue
     return entries
 
@@ -255,7 +256,11 @@ def _candidate_subtables(h: int, player_tab: int) -> list[tuple[str, int]]:
         child_keys = _table_string_keys(h, ptr)
         looks_inventoryish = (
             any(token in lower for token in ("inven", "equip", "worn", "transmo", "stash", "object", "slot"))
-            or any(token in ck.lower() for ck in child_keys for token in ("name", "slot", "type", "subtype", "encumber", "material"))
+            or any(
+                token in ck.lower()
+                for ck in child_keys
+                for token in ("name", "slot", "type", "subtype", "encumber", "material")
+            )
             or bool(_tab_get_ordered_tables(h, ptr))
         )
         if looks_inventoryish:
@@ -471,8 +476,7 @@ def main() -> None:
     inven_tab = _tab_get_table(h, player_tab, "inven")
     if inven_tab is not None:
         summary["inventory_buckets"] = [
-            _probe_inven_bucket(h, bucket_ptr)
-            for bucket_ptr in _tab_get_ordered_tables(h, inven_tab)
+            _probe_inven_bucket(h, bucket_ptr) for bucket_ptr in _tab_get_ordered_tables(h, inven_tab)
         ]
 
     summary["transmo_matches"] = _find_matching_paths(

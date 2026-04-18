@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
 from gui.theme import BLUE, BORDER, GREEN, MAUVE, RED, SUBTEXT0, SURFACE0, SURFACE1, TEXT, YELLOW
 
-_LOG_FONT = "\"Cascadia Code\", \"Consolas\", \"Courier New\", monospace"
+_LOG_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
 
 
 class LogPanel(QWidget):
@@ -62,12 +62,7 @@ class LogPanel(QWidget):
     def append(self, message: str) -> None:
         """Append a colour-coded message and auto-scroll to the bottom."""
         color = self._color_for(message)
-        escaped = (
-            message
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+        escaped = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._edit.appendHtml(f'<span style="color:{color};">{escaped}</span>')
         self._trim_excess()
         self._edit.moveCursor(QTextCursor.MoveOperation.End)

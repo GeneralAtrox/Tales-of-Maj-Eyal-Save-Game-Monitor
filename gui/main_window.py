@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
+from PySide6.QtCore import QFileSystemWatcher, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -13,7 +14,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QStatusBar,
-    QToolButton,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -22,17 +22,21 @@ from PySide6.QtWidgets import (
 from gui.bridge import InputBridge, LogBridge, MonitorThread
 from gui.dashboard_tab import DashboardTab
 from gui.log_panel import LogPanel
-from gui.preview_capture import capture_preview_screenshots
+from gui.preview_capture import capture_current_preview
 from gui.settings_tab import SettingsTab
 from gui.theme import TEXT
+from runtime_output import console_print
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, *, startup_started_at: float | None = None) -> None:
         super().__init__()
         self.setWindowTitle("ToME - Scrying Mirror")
         self.resize(1280, 760)
         self.setMinimumSize(900, 560)
+        self._startup_started_at = startup_started_at
+        self._startup_timer_reported = False
+        self._startup_metrics_path = config_path.parent / ".startup_timing.txt"
 
         # ── Log bridge: redirect stdout/stderr before anything prints ──
         self._log_bridge = LogBridge(self)
@@ -84,12 +88,15 @@ class MainWindow(QMainWindow):
 
         self._settings_tab: SettingsTab | None = None
         self._char_items: list[tuple[str, str]] = []  # (folder_name, label)
+        self._captured_preview_tabs: set[str] = set()
 
         # ── Wire signals ──
         self._log_bridge.message_ready.connect(self._log_panel.append)
         self._dashboard.analyze_requested.connect(self._run_analysis)
         self._dashboard.game_status_changed.connect(self._set_game_status)
-        self._dashboard.game_connected.connect(self._schedule_preview_capture)
+        self._dashboard.game_connected.connect(self._report_startup_time)
+        self._dashboard._subtabs.currentChanged.connect(self._maybe_capture_preview_from_tabs)
+        self._dashboard._sheet_visual._content_tabs.currentChanged.connect(self._maybe_capture_preview_from_tabs)
 
         # ── Start monitor thread ──
         self._monitor = MonitorThread(config_path, self._input_bridge)
@@ -123,14 +130,14 @@ class MainWindow(QMainWindow):
 
         # Populate character dropdown
         for char in config.characters:
-            class_race, level = self._read_sheet_meta(
-                config.character_sheets_root / f"data_{char.folder_name}.json"
-            )
+            class_race, level = self._read_sheet_meta(config.character_sheets_root / f"data_{char.folder_name}.json")
             self._dashboard.add_character(char.folder_name, char.name)
-            self._char_items.append((
-                char.folder_name,
-                self._char_label(char.name, class_race, level),
-            ))
+            self._char_items.append(
+                (
+                    char.folder_name,
+                    self._char_label(char.name, class_race, level),
+                )
+            )
 
         self._rebuild_character_menu()
 
@@ -165,6 +172,26 @@ class MainWindow(QMainWindow):
             self._game_dot.setProperty("status", "error")
         self._game_dot.style().unpolish(self._game_dot)
         self._game_dot.style().polish(self._game_dot)
+
+    def _maybe_capture_preview_from_tabs(self, _index: int) -> None:
+        if self._dashboard._subtabs.currentWidget() is not self._dashboard._sheet_visual:
+            return
+
+        current_inner = self._dashboard._sheet_visual._content_tabs.currentIndex()
+        preview_name = {
+            0: "character-sheet-overview",
+            1: "inventory-view",
+        }.get(current_inner)
+        if preview_name is None or preview_name in self._captured_preview_tabs:
+            return
+
+        try:
+            capture_current_preview(self, preview_name)
+        except RuntimeError as exc:
+            print(f"[!] Preview capture skipped: {exc}")
+            return
+
+        self._captured_preview_tabs.add(preview_name)
 
     # ── Signal handlers ────────────────────────────────────────────────────
 
@@ -214,9 +241,7 @@ class MainWindow(QMainWindow):
 
         # Restore Save header (non-clickable label)
         header_lbl = QLabel("  Restore Save")
-        header_lbl.setStyleSheet(
-            f"font-weight: 700; color: {TEXT}; padding: 5px 12px 3px 12px;"
-        )
+        header_lbl.setStyleSheet(f"font-weight: 700; color: {TEXT}; padding: 5px 12px 3px 12px;")
         header_action = QWidgetAction(self._actions_menu)
         header_action.setDefaultWidget(header_lbl)
         self._actions_menu.addAction(header_action)
@@ -227,8 +252,7 @@ class MainWindow(QMainWindow):
                 label = "  " + self._format_backup_name(backup_path.name)
                 action = self._actions_menu.addAction(label)
                 action.triggered.connect(
-                    lambda checked=False, fn=folder_name, bn=backup_path.name:
-                        self._restore_backup(fn, bn)
+                    lambda checked=False, fn=folder_name, bn=backup_path.name: self._restore_backup(fn, bn)
                 )
         else:
             no_backup = self._actions_menu.addAction("  No backups available")
@@ -241,14 +265,16 @@ class MainWindow(QMainWindow):
         for char in config.characters:
             if char.folder_name == folder_name:
                 from te4_client import schedule_scrying_sync
+
                 has_transmo = self._dashboard._reader.read_has_transmo()
                 schedule_scrying_sync(char, config, has_transmo=has_transmo)
                 self.statusBar().showMessage(f"Sync scheduled for {char.name}", 3000)
                 return
 
     def _on_config_saved(self, config: object) -> None:
-        from monitor import save_config
         from models import AppConfig
+        from monitor import save_config
+
         if isinstance(config, AppConfig):
             save_config(config)
             self.statusBar().showMessage("Config saved", 3000)
@@ -274,6 +300,7 @@ class MainWindow(QMainWindow):
         backup_path = config.backup_root / folder_name / backup_name
         try:
             from backups import restore_backup
+
             restore_backup(backup_path, config.save_root, folder_name)
             print(f"[*] {char_name} restored from {backup_name}.")
             self.statusBar().showMessage(f"Restored {char_name} from {backup_name}", 5000)
@@ -288,21 +315,21 @@ class MainWindow(QMainWindow):
             "user message."
         )
 
-    def _schedule_preview_capture(self) -> None:
-        QTimer.singleShot(1500, self._capture_preview_if_connected)
-
-    def _capture_preview_if_connected(self) -> None:
-        if not self._dashboard._reader.attached:
-            return
-        try:
-            capture_preview_screenshots(self)
-            self.statusBar().showMessage("Preview screenshots refreshed", 4000)
-        except RuntimeError as exc:
-            print(f"[!] Preview capture skipped: {exc}")
-
     def _handle_input_request(self, prompt: str) -> None:
         text, ok = QInputDialog.getText(self, "Input Required", prompt)
         self._input_bridge.provide(text if ok else "")
+
+    def _report_startup_time(self) -> None:
+        if self._startup_timer_reported or self._startup_started_at is None:
+            return
+        elapsed = time.perf_counter() - self._startup_started_at
+        console_print(f"[*] Startup time to game connection: {elapsed:.2f}s")
+        try:
+            self._startup_metrics_path.write_text(f"{elapsed:.6f}\n", encoding="utf-8")
+        except OSError:
+            pass
+        self.statusBar().showMessage(f"Connected to game in {elapsed:.2f}s", 5000)
+        self._startup_timer_reported = True
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -330,7 +357,7 @@ class MainWindow(QMainWindow):
             parts = name.split("_")
             dt = datetime.strptime(f"{parts[1]}_{parts[2]}", "%Y%m%d_%H%M%S")
             return dt.strftime("%b %d, %Y  %I:%M %p")
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             return name
 
     @staticmethod
@@ -340,16 +367,19 @@ class MainWindow(QMainWindow):
         try:
             data = json.loads(sheet_path.read_text(encoding="utf-8"))
             ch = data.get("Character", {})
-            cls  = ch.get("Class", "")
+            cls = ch.get("Class", "")
             race = ch.get("Race", "")
             class_race = " / ".join(filter(None, [cls, race]))
             level = ch.get("Level / Exp", "").split(" ")[0]
             return class_race, level
-        except (OSError, json.JSONDecodeError, AttributeError):
+        except OSError, json.JSONDecodeError, AttributeError:
             return "", ""
 
     # ── Cleanup ────────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._init_poll.isActive():
+            self._init_poll.stop()
+        self._dashboard.shutdown()
         self._log_bridge.uninstall()
         super().closeEvent(event)

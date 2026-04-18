@@ -8,6 +8,7 @@ PNG layers in add_mos.  This module extracts each layer from tome-gfx.team
 on first use (caching it under Icons/) then stacks them with QPainter to
 produce a single QPixmap.
 """
+
 from __future__ import annotations
 
 import zipfile
@@ -22,12 +23,12 @@ _GFX_TEAM = Path(
     r"C:\Program Files (x86)\Steam\steamapps\common\TalesMajEyal"
     r"\game\modules\tome-gfx.team"
 )
-_ICONS_ROOT   = Path(__file__).resolve().parent.parent / "Icons"
-_GFX_PREFIX   = "data/gfx/shockbolt/"   # path inside the zip
+_ICONS_ROOT = Path(__file__).resolve().parent.parent / "Icons"
+_GFX_PREFIX = "data/gfx/shockbolt/"  # path inside the zip
 
 # ── In-memory caches ──────────────────────────────────────────────────────────
 
-_extract_cache: dict[str, Path | None] = {}         # image_hint → local Path
+_extract_cache: dict[str, Path | None] = {}  # image_hint → local Path
 _compose_cache: dict[tuple[tuple[str, ...], int, bool], QPixmap] = {}  # (layers, size, align_bottom) → QPixmap
 
 _PLAYER_BODY_LAYER_PREFIXES = (
@@ -42,6 +43,7 @@ _PLAYER_BODY_LAYER_PREFIXES = (
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def get_sprite(image_hint: str) -> Path | None:
     """
@@ -69,7 +71,7 @@ def get_sprite(image_hint: str) -> Path | None:
         local.write_bytes(data)
         _extract_cache[image_hint] = local
         return local
-    except (KeyError, zipfile.BadZipFile):
+    except KeyError, zipfile.BadZipFile:
         pass
     except Exception:
         pass

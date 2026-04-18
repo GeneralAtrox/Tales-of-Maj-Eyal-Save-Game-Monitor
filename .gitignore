@@ -6,3 +6,7 @@ config.json
 Backups/
 CharacterSheets/
 .claude/worktrees/
+
+.startup_timing.txt
+gui/_attach_cache.json
+game_data/_talent_cache.json

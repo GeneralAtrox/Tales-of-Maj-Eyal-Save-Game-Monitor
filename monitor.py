@@ -8,8 +8,8 @@ from typing import Final
 from backups import create_backup, ensure_baseline_backup, get_latest_save_mtime
 from models import AppConfig, CharacterConfig
 from parsers import parse_desc_lua, vault_name_matches
+from runtime_output import console_print
 from te4_client import discover_profile_id, get_vault_ids_from_profile, schedule_scrying_sync
-
 
 CONFIG_FILE: Final[Path] = Path("config.json")
 
@@ -85,13 +85,19 @@ def auto_discover_characters(
 
     for char in local_alive:
         print(f"[*] Processing: {char.name}")
-        matches = [(vault_id, display_name) for vault_id, display_name in roster.items() if vault_name_matches(display_name, char.name)]
+        matches = [
+            (vault_id, display_name)
+            for vault_id, display_name in roster.items()
+            if vault_name_matches(display_name, char.name)
+        ]
 
         if len(matches) == 1:
             char.vault_id = matches[0][0]
             print(f"    -> Match found! {matches[0][1]} saved.")
         else:
-            char.vault_id = input(f"    Vault ID not found or multiple matches. Paste manually for {char.name}: ").strip()
+            char.vault_id = input(
+                f"    Vault ID not found or multiple matches. Paste manually for {char.name}: "
+            ).strip()
 
         existing_chars.append(char)
         new_added.append(char)
@@ -139,7 +145,7 @@ def monitor_saves(config: AppConfig) -> None:
         for char in config.characters
     }
 
-    print("--- Temporal Anchor Protocol Online ---\nMonitoring saves")
+    console_print("--- Temporal Anchor Protocol Online ---\nMonitoring saves")
     while True:
         time.sleep(5)
         for char in config.characters:

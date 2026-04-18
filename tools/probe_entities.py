@@ -6,28 +6,28 @@ Run from Administrator terminal with game open and character loaded.
 
     python tools/probe_entities.py
 """
+
 from __future__ import annotations
 
+import os
 import struct
 import sys
-import os
 
 # Add project root to path so we can import gui.memory_reader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gui.memory_reader import (
+    _LJ_TNUMX,
+    _LJ_TSTR,
+    _LJ_TTAB,
+    _NODE_SIZE,
     MemoryReader,
-    _tab_find_strkey,
-    _tab_get_table,
-    _tab_get_number,
     _is_heap,
     _rpm,
     _ru32,
-    _rf64,
-    _LJ_TSTR,
-    _LJ_TTAB,
-    _LJ_TNUMX,
-    _NODE_SIZE,
+    _tab_find_strkey,
+    _tab_get_number,
+    _tab_get_table,
 )
 
 
@@ -45,14 +45,14 @@ def _tab_get_string(h: int, tab_ptr: int, key: str) -> str | None:
     slen_raw = _rpm(h, gcs + 12, 4)
     if not slen_raw:
         return None
-    slen = struct.unpack('<I', slen_raw)[0]
+    slen = struct.unpack("<I", slen_raw)[0]
     if slen > 256:
         return None
     raw = _rpm(h, gcs + 16, slen)
     if not raw:
         return None
     try:
-        return raw.decode('utf-8')
+        return raw.decode("utf-8")
     except UnicodeDecodeError:
         return None
 
@@ -64,9 +64,9 @@ def _tab_all_entries(h: int, tab_ptr: int) -> list[tuple[str, int, int]]:
     key_info is the string content (for strings) or raw value.
     """
     node_ptr = _ru32(h, tab_ptr + 20)
-    hmask    = _ru32(h, tab_ptr + 28)
-    asize    = _ru32(h, tab_ptr + 24)
-    arr_ptr  = _ru32(h, tab_ptr + 8)
+    hmask = _ru32(h, tab_ptr + 28)
+    asize = _ru32(h, tab_ptr + 24)
+    arr_ptr = _ru32(h, tab_ptr + 8)
 
     entries = []
 
@@ -86,26 +86,26 @@ def _tab_all_entries(h: int, tab_ptr: int) -> list[tuple[str, int, int]]:
         if bulk:
             for i in range(hmask + 1):
                 off = i * _NODE_SIZE
-                val_it = struct.unpack_from('<I', bulk, off + 4)[0]
+                val_it = struct.unpack_from("<I", bulk, off + 4)[0]
                 if val_it == 0xFFFFFFFF:  # nil value = empty slot
                     continue
-                key_it = struct.unpack_from('<I', bulk, off + 12)[0]
-                key_lo = struct.unpack_from('<I', bulk, off + 8)[0]
+                key_it = struct.unpack_from("<I", bulk, off + 12)[0]
+                key_lo = struct.unpack_from("<I", bulk, off + 8)[0]
 
                 if key_it == _LJ_TSTR and _is_heap(key_lo):
                     slen_raw = _rpm(h, key_lo + 12, 4)
                     if slen_raw:
-                        slen = struct.unpack('<I', slen_raw)[0]
+                        slen = struct.unpack("<I", slen_raw)[0]
                         if 0 < slen < 128:
                             raw = _rpm(h, key_lo + 16, slen)
                             if raw:
                                 try:
-                                    entries.append(("string", raw.decode('utf-8'), node_ptr + off))
+                                    entries.append(("string", raw.decode("utf-8"), node_ptr + off))
                                 except UnicodeDecodeError:
                                     entries.append(("string_bad", f"0x{key_lo:08X}", node_ptr + off))
                 elif key_it < _LJ_TNUMX:
                     # Number key
-                    nval = struct.unpack_from('<d', bulk, off + 8)[0]
+                    nval = struct.unpack_from("<d", bulk, off + 8)[0]
                     entries.append(("number", str(nval), node_ptr + off))
                 elif key_it == _LJ_TTAB:
                     entries.append(("table_key", f"0x{key_lo:08X}", node_ptr + off))
@@ -123,7 +123,7 @@ def main() -> None:
         sys.exit(1)
     print("Attached.\n")
 
-    h  = reader._handle
+    h = reader._handle
     gt = reader._global_table
 
     game_tab = _tab_get_table(h, gt, "game")
@@ -174,14 +174,14 @@ def main() -> None:
 
     entries = _tab_all_entries(h, entities_tab)
     print(f"  total entries: {len(entries)}")
-    print(f"  key types: ", end="")
+    print("  key types: ", end="")
     types = {}
     for ktype, _, _ in entries:
         types[ktype] = types.get(ktype, 0) + 1
     print(types)
 
     # ── Read first few entities ──
-    print(f"\n=== First 10 entities ===")
+    print("\n=== First 10 entities ===")
     count = 0
     for ktype, kinfo, val_addr in entries:
         if count >= 10:
@@ -193,15 +193,15 @@ def main() -> None:
         if not ent_tab or not _is_heap(ent_tab):
             continue
 
-        name    = _tab_get_string(h, ent_tab, "name")
-        rank    = _tab_get_string(h, ent_tab, "rank")
-        life    = _tab_get_number(h, ent_tab, "life")
+        name = _tab_get_string(h, ent_tab, "name")
+        rank = _tab_get_string(h, ent_tab, "rank")
+        life = _tab_get_number(h, ent_tab, "life")
         maxlife = _tab_get_number(h, ent_tab, "max_life")
         faction = _tab_get_string(h, ent_tab, "faction")
-        lvl     = _tab_get_number(h, ent_tab, "level")
-        x       = _tab_get_number(h, ent_tab, "x")
-        y       = _tab_get_number(h, ent_tab, "y")
-        dead    = _tab_find_strkey(h, ent_tab, "dead")
+        lvl = _tab_get_number(h, ent_tab, "level")
+        x = _tab_get_number(h, ent_tab, "x")
+        y = _tab_get_number(h, ent_tab, "y")
+        dead = _tab_find_strkey(h, ent_tab, "dead")
 
         is_dead = False
         if dead is not None:
@@ -210,11 +210,11 @@ def main() -> None:
 
         print(f"\n  [{ktype}={kinfo}]")
         print(f"    name={name}  rank={rank}  level={lvl}")
-        print(f"    hp={life:.0f}/{maxlife:.0f}" if life and maxlife else f"    hp=?/?")
+        print(f"    hp={life:.0f}/{maxlife:.0f}" if life and maxlife else "    hp=?/?")
         print(f"    faction={faction}  pos=({x},{y})  dead={is_dead}")
 
         # Check for combat stats
-        armor   = _tab_get_number(h, ent_tab, "combat_armor")
+        armor = _tab_get_number(h, ent_tab, "combat_armor")
         defense = _tab_get_number(h, ent_tab, "combat_def")
         phys_save = _tab_get_number(h, ent_tab, "combat_physresist")
         spell_save = _tab_get_number(h, ent_tab, "combat_spellresist")

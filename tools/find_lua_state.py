@@ -9,6 +9,7 @@ containing "game", then walks game -> player -> life/max_life.
 Run from an Administrator terminal:
     python tools/find_lua_state.py
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -18,24 +19,24 @@ import sys
 import time
 
 # ── Win32 ─────────────────────────────────────────────────────────────────────
-PROCESS_VM_READ           = 0x0010
+PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
-MEM_COMMIT                = 0x1000
-PAGE_NOACCESS             = 0x01
-PAGE_GUARD                = 0x100
+MEM_COMMIT = 0x1000
+PAGE_NOACCESS = 0x01
+PAGE_GUARD = 0x100
 
 k32 = ctypes.windll.kernel32
 
 
 class MEMORY_BASIC_INFORMATION(ctypes.Structure):
     _fields_ = [
-        ("BaseAddress",       ctypes.c_void_p),
-        ("AllocationBase",    ctypes.c_void_p),
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
         ("AllocationProtect", ctypes.wintypes.DWORD),
-        ("RegionSize",        ctypes.c_size_t),
-        ("State",             ctypes.wintypes.DWORD),
-        ("Protect",           ctypes.wintypes.DWORD),
-        ("Type",              ctypes.wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.wintypes.DWORD),
+        ("Protect", ctypes.wintypes.DWORD),
+        ("Type", ctypes.wintypes.DWORD),
     ]
 
 
@@ -52,18 +53,19 @@ class MEMORY_BASIC_INFORMATION(ctypes.Structure):
 #   LJ_TNIL  = ~0u  = 0xFFFFFFFF
 #   number: itype < ~13u (0xFFFFFFF2)
 
-GCT_STR    = 0x04    # gct byte in GCstr header
-GCT_TAB    = 0x0B    # gct byte in GCtab header
-GCT_THREAD = 0x06    # gct byte in lua_State header
+GCT_STR = 0x04  # gct byte in GCstr header
+GCT_TAB = 0x0B  # gct byte in GCtab header
+GCT_THREAD = 0x06  # gct byte in lua_State header
 
-LJ_TSTR    = 0xFFFFFFFB  # TValue itype for string
-LJ_TTAB    = 0xFFFFFFF4  # TValue itype for table
-LJ_TNIL    = 0xFFFFFFFF
-LJ_TNUMX   = 0xFFFFFFF2  # itype < this means it's a double
+LJ_TSTR = 0xFFFFFFFB  # TValue itype for string
+LJ_TTAB = 0xFFFFFFF4  # TValue itype for table
+LJ_TNIL = 0xFFFFFFFF
+LJ_TNUMX = 0xFFFFFFF2  # itype < this means it's a double
 
-NODE_SIZE  = 24  # sizeof(Node) in 32-bit LuaJIT 2
+NODE_SIZE = 24  # sizeof(Node) in 32-bit LuaJIT 2
 
 # ── Memory helpers ────────────────────────────────────────────────────────────
+
 
 def _open_process(pid: int) -> int:
     h = k32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
@@ -76,20 +78,20 @@ def _open_process(pid: int) -> int:
 
 
 def _read(h: int, addr: int, n: int) -> bytes | None:
-    buf  = ctypes.create_string_buffer(n)
+    buf = ctypes.create_string_buffer(n)
     read = ctypes.c_size_t(0)
-    ok   = k32.ReadProcessMemory(h, ctypes.c_void_p(addr), buf, n, ctypes.byref(read))
+    ok = k32.ReadProcessMemory(h, ctypes.c_void_p(addr), buf, n, ctypes.byref(read))
     return bytes(buf) if (ok and read.value == n) else None
 
 
 def ru32(h: int, addr: int) -> int | None:
     b = _read(h, addr, 4)
-    return struct.unpack('<I', b)[0] if b else None
+    return struct.unpack("<I", b)[0] if b else None
 
 
 def rf64(h: int, addr: int) -> float | None:
     b = _read(h, addr, 8)
-    return struct.unpack('<d', b)[0] if b else None
+    return struct.unpack("<d", b)[0] if b else None
 
 
 def is_heap(v: int) -> bool:
@@ -98,20 +100,22 @@ def is_heap(v: int) -> bool:
 
 # ── Region iterator ────────────────────────────────────────────────────────────
 
+
 def iter_regions(h: int):
     addr = 0
-    mbi  = MEMORY_BASIC_INFORMATION()
+    mbi = MEMORY_BASIC_INFORMATION()
     while True:
-        ret = k32.VirtualQueryEx(h, ctypes.c_void_p(addr),
-                                 ctypes.byref(mbi), ctypes.sizeof(mbi))
+        ret = k32.VirtualQueryEx(h, ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi))
         if not ret:
             break
         base = mbi.BaseAddress or 0
         size = mbi.RegionSize
-        ok   = (mbi.State == MEM_COMMIT
-                and not (mbi.Protect & PAGE_NOACCESS)
-                and not (mbi.Protect & PAGE_GUARD)
-                and size > 0)
+        ok = (
+            mbi.State == MEM_COMMIT
+            and not (mbi.Protect & PAGE_NOACCESS)
+            and not (mbi.Protect & PAGE_GUARD)
+            and size > 0
+        )
         if ok:
             data = _read(h, base, size)
             if data:
@@ -123,11 +127,12 @@ def iter_regions(h: int):
 
 # ── GCtab traversal ───────────────────────────────────────────────────────────
 
+
 def tab_find_strkey(h: int, tab_ptr: int, key: str) -> int | None:
     """Return address of val TValue for string key, or None."""
-    key_b    = key.encode()
+    key_b = key.encode()
     node_ptr = ru32(h, tab_ptr + 20)
-    hmask    = ru32(h, tab_ptr + 28)
+    hmask = ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not is_heap(node_ptr):
         return None
     total_bytes = (hmask + 1) * NODE_SIZE
@@ -137,17 +142,17 @@ def tab_find_strkey(h: int, tab_ptr: int, key: str) -> int | None:
     if not bulk:
         return None
     for i in range(hmask + 1):
-        off    = i * NODE_SIZE
-        key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+        off = i * NODE_SIZE
+        key_it = struct.unpack_from("<I", bulk, off + 12)[0]
         if key_it != LJ_TSTR:
             continue
-        gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+        gcs = struct.unpack_from("<I", bulk, off + 8)[0]
         if not is_heap(gcs):
             continue
         slen_raw = _read(h, gcs + 12, 4)
         if not slen_raw:
             continue
-        slen = struct.unpack('<I', slen_raw)[0]
+        slen = struct.unpack("<I", slen_raw)[0]
         if slen != len(key_b):
             continue
         raw = _read(h, gcs + 16, slen)
@@ -178,32 +183,32 @@ def tab_get_number(h: int, tab_ptr: int, key: str) -> float | None:
 
 def tab_str_keys(h: int, tab_ptr: int, limit: int = 20) -> list[str]:
     node_ptr = ru32(h, tab_ptr + 20)
-    hmask    = ru32(h, tab_ptr + 28)
+    hmask = ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not is_heap(node_ptr):
         return []
     total = min((hmask + 1) * NODE_SIZE, 4096 * NODE_SIZE)
-    bulk  = _read(h, node_ptr, total)
+    bulk = _read(h, node_ptr, total)
     if not bulk:
         return []
     keys: list[str] = []
     for i in range(min(hmask + 1, 4096)):
-        off    = i * NODE_SIZE
-        key_it = struct.unpack_from('<I', bulk, off + 12)[0]
+        off = i * NODE_SIZE
+        key_it = struct.unpack_from("<I", bulk, off + 12)[0]
         if key_it != LJ_TSTR:
             continue
-        gcs = struct.unpack_from('<I', bulk, off + 8)[0]
+        gcs = struct.unpack_from("<I", bulk, off + 8)[0]
         if not is_heap(gcs):
             continue
         meta = _read(h, gcs + 12, 4)
         if not meta:
             continue
-        slen = struct.unpack('<I', meta)[0]
+        slen = struct.unpack("<I", meta)[0]
         if not (0 < slen < 64):
             continue
         raw = _read(h, gcs + 16, slen)
         if raw:
             try:
-                keys.append(raw.decode('utf-8'))
+                keys.append(raw.decode("utf-8"))
             except UnicodeDecodeError:
                 pass
         if len(keys) >= limit:
@@ -212,6 +217,7 @@ def tab_str_keys(h: int, tab_ptr: int, limit: int = 20) -> list[str]:
 
 
 # ── GCtab scanner ──────────────────────────────────────────────────────────────
+
 
 def scan_for_global_tables(h: int) -> list[int]:
     """
@@ -234,8 +240,8 @@ def scan_for_global_tables(h: int) -> list[int]:
 
             if off + 32 > dlen:
                 continue
-            node_ptr = struct.unpack_from('<I', data, off + 20)[0]
-            hmask    = struct.unpack_from('<I', data, off + 28)[0]
+            node_ptr = struct.unpack_from("<I", data, off + 20)[0]
+            hmask = struct.unpack_from("<I", data, off + 28)[0]
 
             if hmask < 63 or hmask > 0xFFFF:
                 continue
@@ -253,11 +259,14 @@ def scan_for_global_tables(h: int) -> list[int]:
 
 # ── Process helper ────────────────────────────────────────────────────────────
 
+
 def get_pid(name: str) -> int | None:
     import subprocess
+
     r = subprocess.run(
         ["tasklist", "/FI", f"IMAGENAME eq {name}", "/FO", "CSV", "/NH"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     for line in r.stdout.splitlines():
         parts = line.strip().strip('"').split('","')
@@ -267,6 +276,7 @@ def get_pid(name: str) -> int | None:
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     pid = get_pid("t-engine.exe")
@@ -290,14 +300,14 @@ def main() -> None:
 
     for i, tab_ptr in enumerate(large_tabs):
         if (i + 1) % 100 == 0:
-            print(f"  checked {i+1}/{len(large_tabs)}...")
+            print(f"  checked {i + 1}/{len(large_tabs)}...")
 
         game_node = tab_find_strkey(h, tab_ptr, "game")
         if game_node is None:
             continue
 
         hmask = ru32(h, tab_ptr + 28)
-        keys  = tab_str_keys(h, tab_ptr, limit=15)
+        keys = tab_str_keys(h, tab_ptr, limit=15)
         print(f"\n  _G found: 0x{tab_ptr:08X}  hmask={hmask}")
         print(f"  sample keys: {keys}")
 
@@ -313,7 +323,7 @@ def main() -> None:
             continue
         print(f"  player table = 0x{player_tab:08X}")
 
-        life     = tab_get_number(h, player_tab, "life")
+        life = tab_get_number(h, player_tab, "life")
         max_life = tab_get_number(h, player_tab, "max_life")
 
         if life is not None and max_life is not None:

@@ -41,22 +41,32 @@ class LogBridge(QObject):
     def uninstall(self) -> None:
         sys.stdout = self._original_stdout
         sys.stderr = self._original_stderr
+        if self._drain_timer.isActive():
+            self._drain_timer.stop()
+        try:
+            self._drain_timer.timeout.disconnect(self._drain)
+        except (RuntimeError, TypeError):
+            pass
 
     # ── stdout / stderr protocol ──────────────────────────────────────────
     def write(self, text: str) -> int:
         stripped = text.rstrip("\n")
         if stripped:
             self._queue.put(stripped)
+        self._original_stdout.write(text)
         return len(text)
 
     def flush(self) -> None:
-        pass
+        self._original_stdout.flush()
+        self._original_stderr.flush()
 
     def _drain(self) -> None:
         try:
             while True:
                 self.message_ready.emit(self._queue.get_nowait())
         except queue.Empty:
+            pass
+        except RuntimeError:
             pass
 
 
@@ -112,6 +122,7 @@ class MonitorThread(threading.Thread):
         builtins.input = self.input_bridge.request  # type: ignore[assignment]
         try:
             from monitor import initialize_system, monitor_saves
+
             self._config = initialize_system(self.config_path)
             monitor_saves(self._config)
         finally:

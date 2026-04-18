@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -21,34 +21,49 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from game_data.talent_db import lookup_talent_description
-from gui.theme import (
-    BG, BLUE, BORDER, GREEN, MAUVE, OVERLAY, RED, TEAL,
-    SUBTEXT0, SUBTEXT1, SURFACE0, SURFACE1, SURFACE2, TEXT, YELLOW,
-)
+from game_data.talent_db import lookup_talent_description, lookup_talent_icon
 from gui.sprite_composer import compose_layers, get_sprite, normalize_sprite_layers
+from gui.theme import (
+    BG,
+    BLUE,
+    BORDER,
+    GREEN,
+    MAUVE,
+    OVERLAY,
+    RED,
+    SUBTEXT0,
+    SUBTEXT1,
+    SURFACE0,
+    SURFACE1,
+    SURFACE2,
+    TEAL,
+    TEXT,
+    YELLOW,
+)
 
 # ── Asset paths ───────────────────────────────────────────────────────────────
-_ROOT        = Path(__file__).parent.parent
+_ROOT = Path(__file__).parent.parent
 TALENT_ICONS = _ROOT / "Icons" / "talents"
-STAT_ICONS   = _ROOT / "Icons" / "stats"
-CLASS_ICONS  = _ROOT / "Icons" / "class-icons"
+STAT_ICONS = _ROOT / "Icons" / "stats"
+CLASS_ICONS = _ROOT / "Icons" / "class-icons"
 
 # ── Sizes ─────────────────────────────────────────────────────────────────────
-_ICON_GRID   = 44   # talent icon in the grid
-_ICON_DETAIL = 64   # talent icon in the detail panel
-_ICON_STAT   = 28   # stat icon
-_ICON_CLASS  = 32   # class icon in header
+_ICON_GRID = 44  # talent icon in the grid
+_ICON_DETAIL = 64  # talent icon in the detail panel
+_ICON_STAT = 28  # stat icon
+_ICON_CLASS = 32  # class icon in header
 _ICON_SPRITE = 192  # live player sprite beside primary stats
+_ICON_ITEM_CARD = 30
+_ICON_ITEM_DETAIL = 72
 
 # ── Stat icon filename mapping ────────────────────────────────────────────────
 _STAT_ICONS: dict[str, str] = {
-    "Strength":     "strength",
-    "Dexterity":    "dexterity",
+    "Strength": "strength",
+    "Dexterity": "dexterity",
     "Constitution": "constitution",
-    "Magic":        "magic",
-    "Willpower":    "willpower",
-    "Cunning":      "cunning",
+    "Magic": "magic",
+    "Willpower": "willpower",
+    "Cunning": "cunning",
 }
 _STAT_ORDER = list(_STAT_ICONS)
 
@@ -56,18 +71,19 @@ _STAT_ORDER = list(_STAT_ICONS)
 # Talent names whose icon filename doesn't match their snake_case name.
 # Value is the stem (no .png) of the file in Icons/talents/.
 _ICON_OVERRIDES: dict[str, str] = {
-    "Pulverising Auger":     "dig",
-    "Pulverizing Auger":     "dig",
-    "Mirror Image":          "mirror_images",
-    "Temporal Shield":       "time_shield",
+    "Pulverising Auger": "dig",
+    "Pulverizing Auger": "dig",
+    "Mirror Image": "mirror_images",
+    "Temporal Shield": "time_shield",
     "Arcane Reconstruction": "heal",
-    "Ogric Wrath":           "ogre_wrath",
+    "Ogric Wrath": "ogre_wrath",
     "Heavy Armour Training": "armour_training",
-    "Combat Accuracy":       "weapon_combat",
-    "Dagger Mastery":        "knife_mastery",
+    "Combat Accuracy": "weapon_combat",
+    "Dagger Mastery": "knife_mastery",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _to_snake(name: str) -> str:
     """'Stunning Blow' → 'stunning_blow', "Hunter's Sight" → 'hunters_sight'."""
@@ -75,12 +91,39 @@ def _to_snake(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", s).strip("_")
 
 
+def _normalize_talent_icon_name(icon_value: str) -> str:
+    icon_value = icon_value.strip()
+    if not icon_value:
+        return ""
+    return PurePosixPath(icon_value).name
+
+
+def _resolve_talent_icon_path(name: str, data: Any) -> Path:
+    if isinstance(data, dict):
+        icon_value = data.get("Icon")
+        if isinstance(icon_value, str):
+            icon_name = _normalize_talent_icon_name(icon_value)
+            if icon_name:
+                candidate = TALENT_ICONS / icon_name
+                if candidate.exists():
+                    return candidate
+
+    fallback_icon = lookup_talent_icon(name)
+    if fallback_icon:
+        candidate = TALENT_ICONS / fallback_icon
+        if candidate.exists():
+            return candidate
+
+    return TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png"
+
+
 def _load_pixmap(path: Path, size: int) -> QPixmap:
     if path.exists():
         px = QPixmap(str(path))
         if not px.isNull():
             return px.scaled(
-                size, size,
+                size,
+                size,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -115,12 +158,7 @@ def _load_stat_pixmap(path: Path, size: int) -> QPixmap:
 
     def is_dark(x: int, y: int) -> bool:
         color = image.pixelColor(x, y)
-        return (
-            color.alpha() > 0
-            and color.red() <= 40
-            and color.green() <= 40
-            and color.blue() <= 40
-        )
+        return color.alpha() > 0 and color.red() <= 40 and color.green() <= 40 and color.blue() <= 40
 
     for x in range(width):
         if is_dark(x, height - 1):
@@ -248,10 +286,11 @@ def _is_zero_level(level_str: str) -> bool:
 
 # ── Widgets ───────────────────────────────────────────────────────────────────
 
+
 class _TalentIcon(QWidget):
     """Single clickable talent icon with level badge."""
 
-    clicked = Signal(str, object)   # talent_name, data
+    clicked = Signal(str, object)  # talent_name, data
 
     def __init__(self, name: str, data: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -259,7 +298,7 @@ class _TalentIcon(QWidget):
         self._data = data
 
         level = _level_of(data)
-        zero  = _is_zero_level(level)
+        zero = _is_zero_level(level)
 
         self.setFixedSize(_ICON_GRID + 10, _ICON_GRID + 20)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -270,7 +309,7 @@ class _TalentIcon(QWidget):
         lay.setSpacing(2)
 
         # Icon
-        px = _load_pixmap(TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png", _ICON_GRID)
+        px = _load_pixmap(_resolve_talent_icon_path(name, data), _ICON_GRID)
         if zero:
             # Dim the icon for unlearned talents
             dimmed = QPixmap(px.size())
@@ -290,9 +329,7 @@ class _TalentIcon(QWidget):
         level_lbl = QLabel(level)
         level_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         level_color = SUBTEXT0 if zero else GREEN
-        level_lbl.setStyleSheet(
-            f"font-size: 10px; font-weight: 600; color: {level_color};"
-        )
+        level_lbl.setStyleSheet(f"font-size: 10px; font-weight: 600; color: {level_color};")
 
         lay.addWidget(icon_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(level_lbl)
@@ -336,20 +373,12 @@ class _TalentDetailPanel(QWidget):
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         name_col = QVBoxLayout()
         self._name_lbl = QLabel()
-        self._name_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {TEXT};"
-        )
+        self._name_lbl.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {TEXT};")
         self._name_lbl.setWordWrap(True)
-        self._name_lbl.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self._name_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._category_lbl = QLabel()
-        self._category_lbl.setStyleSheet(
-            f"font-size: 11px; color: {SUBTEXT0};"
-        )
-        self._category_lbl.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self._category_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
+        self._category_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         name_col.addWidget(self._name_lbl)
         name_col.addWidget(self._category_lbl)
         name_col.addStretch()
@@ -382,27 +411,34 @@ class _TalentDetailPanel(QWidget):
 
     # ── Field color map ───────────────────────────────────────────────────
     _COLORS: dict[str, str] = {
-        "Level":        GREEN,
-        "Range":        BLUE,
-        "Cooldown":     YELLOW,
+        "Level": GREEN,
+        "Range": BLUE,
+        "Cooldown": YELLOW,
         "Travel Speed": SUBTEXT1,
-        "Usage Speed":  SUBTEXT1,
-        "Scales With":  MAUVE,
-        "Turn Duration":GREEN,
-        "Stats":        TEXT,
+        "Usage Speed": SUBTEXT1,
+        "Scales With": MAUVE,
+        "Turn Duration": GREEN,
+        "Stats": TEXT,
         "Stats per turn": TEXT,
-        "Description":  SUBTEXT1,
+        "Description": SUBTEXT1,
     }
     _ORDER = [
-        "Level", "Range", "Cooldown", "Travel Speed",
-        "Usage Speed", "Scales With", "Turn Duration",
-        "Stats", "Stats per turn", "Description",
+        "Level",
+        "Range",
+        "Cooldown",
+        "Travel Speed",
+        "Usage Speed",
+        "Scales With",
+        "Turn Duration",
+        "Stats",
+        "Stats per turn",
+        "Description",
     ]
 
     def show_talent(self, name: str, data: Any, category: str = "") -> None:
         self._clear_fields()
 
-        px = _load_pixmap(TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png", _ICON_DETAIL)
+        px = _load_pixmap(_resolve_talent_icon_path(name, data), _ICON_DETAIL)
         self._icon_lbl.setPixmap(px)
         self._name_lbl.setText(name)
         self._category_lbl.setText(category)
@@ -460,11 +496,7 @@ class _CategoryHeader(QLabel):
         display = f"  {name}  (×{mastery})"
         super().__init__(display, parent)
         self.setStyleSheet(
-            f"color: {YELLOW};"
-            f" font-size: 11px;"
-            f" font-weight: 600;"
-            f" padding: 4px 0 2px 0;"
-            f" letter-spacing: 0.3px;"
+            f"color: {YELLOW}; font-size: 11px; font-weight: 600; padding: 4px 0 2px 0; letter-spacing: 0.3px;"
         )
 
 
@@ -511,9 +543,7 @@ class _StatsRow(QWidget):
 
             val_lbl = QLabel(current)
             val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            val_lbl.setStyleSheet(
-                f"font-size: 13px; font-weight: 700; color: {TEXT};"
-            )
+            val_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {TEXT};")
 
             abbr = QLabel(stat_name[:3].upper())
             abbr.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -577,10 +607,180 @@ _SLOT_ORDER = {
     "Feet": 7,
     "Belt": 8,
     "Neck": 9,
+    "Ring": 10,
     "Left ring": 10,
     "Right ring": 11,
     "Lite": 12,
     "Tool": 13,
+}
+
+_ITEM_PROPERTY_ORDER = [
+    "Base power",
+    "Uses stat",
+    "Uses stats",
+    "Damage type",
+    "Accuracy bonus",
+    "Accuracy",
+    "Armour penetration",
+    "Armour Penetration",
+    "Critical multiplier",
+    "Crit. chance",
+    "Physical crit. chance",
+    "Mental crit. chance",
+    "Spell crit. chance",
+    "Attack speed",
+    "Travel speed",
+    "Defense",
+    "Ranged Defense",
+    "Armour",
+    "Block",
+    "On shield block",
+    "Capacity",
+    "Power source",
+    "Activates",
+    "When used",
+    "Description",
+]
+
+_ITEM_NAME_PREFIXES = (
+    "when you leave the level.",
+    "when you enter the level.",
+)
+_ITEM_MATERIAL_FAMILIES = {
+    "jewelry": ("copper", "steel", "gold", "stralite", "voratun"),
+    "metal": ("iron", "steel", "dsteel", "stralite", "voratun"),
+    "leather": ("rough", "cured", "hardened", "reinforced", "drakeskin"),
+    "cloth": ("linen", "woollen", "cashmere", "silk", "elvensilk"),
+    "wood": ("elm", "ash", "yew", "elvenwood", "dragonbone"),
+    "nature": ("mossy", "vined", "thorned", "pulsing", "living"),
+    "lite": ("brass", "", "dwarven", "", "faenorian"),
+}
+_ITEM_ICON_RULES = {
+    ("jewelry", "ring"): ("ring", "jewelry"),
+    ("jewelry", "amulet"): ("amulet", "jewelry"),
+    ("armor", "belt"): ("belt", "leather"),
+    ("armor", "cloth"): ("robe", "cloth"),
+    ("armor", "light"): ("leather", "leather"),
+    ("armor", "heavy"): ("mail", "metal"),
+    ("armor", "massive"): ("plate", "metal"),
+    ("armor", "cloak"): ("cloak", "cloth"),
+    ("armor", "shield"): ("shield", "metal"),
+    ("weapon", "staff"): ("staff", "wood"),
+    ("weapon", "dagger"): ("knife", "metal"),
+    ("weapon", "knife"): ("knife", "metal"),
+    ("weapon", "sword"): ("sword", "metal"),
+    ("weapon", "axe"): ("axe", "metal"),
+    ("weapon", "waraxe"): ("axe", "metal"),
+    ("weapon", "mace"): ("mace", "metal"),
+    ("weapon", "greatmace"): ("2hmace", "metal"),
+    ("weapon", "bow"): ("longbow", "wood"),
+    ("weapon", "longbow"): ("longbow", "wood"),
+    ("weapon", "sling"): ("sling", "leather"),
+    ("weapon", "mindstar"): ("mindstar", "nature"),
+    ("charm", "wand"): ("wand", "wood"),
+    ("charm", "torque"): ("torque", "metal"),
+    ("lite", "lite"): ("lite", "lite"),
+    ("ammo", "shot"): ("shot", "metal"),
+}
+_ITEM_MODDABLE_TILE_RULES = {
+    "robe": ("robe", "cloth"),
+    "light": ("leather", "leather"),
+    "heavy": ("mail", "metal"),
+    "massive": ("plate", "metal"),
+    "cloak": ("cloak", "cloth"),
+    "shield": ("shield", "metal"),
+    "staff": ("staff", "wood"),
+    "sword": ("sword", "metal"),
+    "dagger": ("knife", "metal"),
+    "axe": ("axe", "metal"),
+    "mace": ("mace", "metal"),
+    "2hmace": ("2hmace", "metal"),
+    "bow": ("longbow", "wood"),
+    "sling": ("sling", "leather"),
+    "mindstar": ("mindstar", "nature"),
+    "wizard_hat": ("wizardhat", "cloth"),
+    "helm": ("helm", "metal"),
+    "leather_cap": ("cap", "leather"),
+    "gauntlets": ("hgloves", "metal"),
+    "gloves": ("gloves", "leather"),
+    "leather_boots": ("boots", "leather"),
+    "heavy_boots": ("hboots", "metal"),
+}
+_ITEM_ARTIFACT_ICON_OVERRIDES = {
+    "rogue plight": "object/artifact/armor_rogue_plight.png",
+    "blood-letter": "object/artifact/weapon_axe_blood_letter.png",
+}
+_ITEM_STAT_LABELS = {
+    "Strength": "STR",
+    "Dexterity": "DEX",
+    "Constitution": "CON",
+    "Magic": "MAG",
+    "Willpower": "WIL",
+    "Cunning": "CUN",
+    "Str": "STR",
+    "Dex": "DEX",
+    "Con": "CON",
+    "Mag": "MAG",
+    "Wil": "WIL",
+    "Cun": "CUN",
+    "Physical power": "PHYS",
+    "Spellpower": "SPELL",
+    "Mindpower": "MIND",
+    "Accuracy": "ACC",
+    "Defense": "DEF",
+    "Ranged Defense": "RDEF",
+    "Armour": "ARM",
+    "Armour penetration": "APR",
+    "Armour Penetration": "APR",
+    "Crit. chance": "CRIT",
+    "Physical crit. chance": "PCRIT",
+    "Mental crit. chance": "MCRIT",
+    "Spell crit. chance": "SCRIT",
+    "Maximum life": "LIFE",
+    "Maximum mana": "MANA",
+    "Maximum stamina": "STAM",
+    "Maximum vim": "VIM",
+    "Life regen": "REGEN",
+    "Mana each turn": "MANA/T",
+    "Stamina each turn": "STAM/T",
+}
+_ITEM_STAT_PRIORITY = (
+    "Changes stats",
+    "Physical power",
+    "Spellpower",
+    "Mindpower",
+    "Accuracy",
+    "Defense",
+    "Ranged Defense",
+    "Armour",
+    "Armour penetration",
+    "Armour Penetration",
+    "Crit. chance",
+    "Physical crit. chance",
+    "Mental crit. chance",
+    "Spell crit. chance",
+    "Maximum life",
+    "Maximum mana",
+    "Maximum stamina",
+    "Maximum vim",
+    "Life regen",
+    "Mana each turn",
+    "Stamina each turn",
+)
+
+_ITEM_SLOT_ALIASES = {
+    "On feet": "Feet",
+    "On hands": "Hands",
+    "On head": "Head",
+    "Around neck": "Neck",
+    "On fingers": "Ring",
+    "Light source": "Lite",
+    "On body": "Body",
+    "In main hand": "Mainhand",
+    "In offhand": "Offhand",
+    "Main hand": "Mainhand",
+    "Off hand": "Offhand",
+    "In quiver": "Quiver",
 }
 
 
@@ -612,9 +812,539 @@ def _item_property(item: dict[str, Any], *keys: str) -> str | None:
     return None
 
 
+def _clean_item_name_text(name: str) -> str:
+    cleaned = re.sub(r"^\d+\s+", "", name).strip()
+    lowered = cleaned.lower()
+    for prefix in _ITEM_NAME_PREFIXES:
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+            lowered = cleaned.lower()
+    while True:
+        updated = re.sub(r"(?:\s+\[[^\]]+\]|\s+\([^()]*\))+$", "", cleaned).strip()
+        if updated == cleaned:
+            break
+        cleaned = updated
+    return cleaned or name.strip()
+
+
+def _label_selectable(label: QLabel) -> None:
+    label.setTextInteractionFlags(
+        Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    )
+
+
 def _display_item_name(item: dict[str, Any]) -> str:
     name = str(item.get("Name") or "Unknown Item")
-    return re.sub(r"^\d+\s+", "", name).strip()
+    return _clean_item_name_text(name)
+
+
+def _normalize_item_slot(slot: str) -> str:
+    slot = " ".join(slot.split()).strip()
+    return _ITEM_SLOT_ALIASES.get(slot, slot)
+
+
+def _normalize_item_tags(tags: Any) -> list[str]:
+    if not isinstance(tags, list):
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_tag in tags:
+        tag = " ".join(str(raw_tag).split()).strip()
+        if not tag:
+            continue
+        key = tag.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(tag)
+    return normalized
+
+
+def _parse_inventory_dump_item(text: str) -> dict[str, Any]:
+    compact = " ".join(text.split()).strip()
+    if not compact:
+        return {"Name": "Unknown Item"}
+
+    segments = [segment.strip() for segment in compact.split(" | ") if segment.strip()]
+    if not segments:
+        return {"Name": compact}
+
+    entry: dict[str, Any] = {"Name": segments[0]}
+    tags: list[str] = []
+    properties: dict[str, str] = {}
+    description_parts: list[str] = []
+
+    for segment in segments[1:]:
+        for tag in re.findall(r"\[([^\]]+)\]", segment):
+            clean_tag = " ".join(tag.split()).strip()
+            if clean_tag:
+                tags.append(clean_tag)
+
+        clean_segment = re.sub(r"\s*\[[^\]]+\]", "", segment).strip()
+        tier_match = re.fullmatch(r"tier\s+(\d+)", clean_segment, flags=re.IGNORECASE)
+        if tier_match:
+            entry["Tier"] = int(tier_match.group(1))
+            continue
+
+        if ":" in clean_segment:
+            key, value = clean_segment.split(":", 1)
+            key = " ".join(key.split()).strip()
+            value = " ".join(value.split()).strip()
+            if key and value:
+                properties[key] = value
+            continue
+
+        if clean_segment:
+            description_parts.append(clean_segment)
+
+    normalized_tags = _normalize_item_tags(tags)
+    if normalized_tags:
+        entry["Tags"] = normalized_tags
+    if description_parts:
+        properties["Description"] = " ".join(description_parts)
+    if properties:
+        entry["Properties"] = properties
+    return entry
+
+
+def _normalize_item_record(item: Any) -> dict[str, Any] | None:
+    if isinstance(item, str):
+        return _parse_inventory_dump_item(item)
+    if not isinstance(item, dict):
+        return None
+
+    entry = dict(item)
+    name = " ".join(str(entry.get("Name") or "Unknown Item").split()).strip()
+    entry["Name"] = name or "Unknown Item"
+
+    slot = entry.get("Slot")
+    if isinstance(slot, str) and slot.strip():
+        entry["Slot"] = _normalize_item_slot(slot)
+
+    type_value = entry.get("Type")
+    if isinstance(type_value, str):
+        clean_type = " ".join(type_value.split()).strip()
+        if " / " in clean_type and not entry.get("Subtype"):
+            base_type, subtype = clean_type.split(" / ", 1)
+            entry["Type"] = base_type
+            entry["Subtype"] = subtype
+        else:
+            entry["Type"] = clean_type
+
+    subtype = entry.get("Subtype")
+    if isinstance(subtype, str):
+        entry["Subtype"] = " ".join(subtype.split()).strip()
+
+    normalized_tags = _normalize_item_tags(entry.get("Tags"))
+    if normalized_tags:
+        entry["Tags"] = normalized_tags
+    elif "Tags" in entry:
+        entry.pop("Tags", None)
+    identified = any(tag.lower() == "identified" for tag in normalized_tags)
+
+    props = entry.get("Properties")
+    normalized_props: dict[str, str] = {}
+    if isinstance(props, dict):
+        for raw_key, raw_value in props.items():
+            key = " ".join(str(raw_key).split()).strip()
+            if not key:
+                continue
+            if isinstance(raw_value, list):
+                value = ", ".join(" ".join(str(part).split()).strip() for part in raw_value if str(part).strip())
+            else:
+                value = " ".join(str(raw_value).split()).strip()
+            if value:
+                normalized_props[key] = value
+
+    description = entry.get("Description")
+    if isinstance(description, str) and description.strip() and "Description" not in normalized_props:
+        normalized_props["Description"] = " ".join(description.split()).strip()
+    if identified:
+        normalized_props.pop("Unidentified name", None)
+
+    if normalized_props:
+        entry["Properties"] = normalized_props
+    elif "Properties" in entry:
+        entry.pop("Properties", None)
+
+    icon = entry.get("Icon")
+    if isinstance(icon, str):
+        clean_icon = " ".join(icon.split()).strip()
+        if clean_icon.endswith(".png"):
+            entry["Icon"] = clean_icon
+        elif "Icon" in entry:
+            entry.pop("Icon", None)
+    elif "Icon" in entry:
+        entry.pop("Icon", None)
+
+    return entry
+
+
+def _display_item_term(value: str) -> str:
+    clean = " ".join(value.split()).strip()
+    if not clean:
+        return ""
+    parts = re.split(r"([ -])", clean)
+    return "".join(part[:1].upper() + part[1:] if part not in {" ", "-"} else part for part in parts)
+
+
+def _item_kind_label(item: dict[str, Any]) -> str:
+    item_type = _display_item_term(str(item.get("Type") or ""))
+    subtype = _display_item_term(str(item.get("Subtype") or ""))
+    if item_type and subtype:
+        return f"{item_type} / {subtype}"
+    return item_type or subtype
+
+
+def _item_description(item: dict[str, Any]) -> str:
+    description = _item_property(item, "Description")
+    return description or ""
+
+
+def _item_icon_hint(item: dict[str, Any]) -> str:
+    icon = item.get("Icon")
+    if not isinstance(icon, str):
+        return ""
+    return icon.strip()
+
+
+def _resolve_existing_icon_hint(candidates: list[str]) -> str:
+    for candidate in candidates:
+        if candidate and get_sprite(candidate) is not None:
+            return candidate
+    return ""
+
+
+def _item_material_level(item: dict[str, Any]) -> int | None:
+    for key in ("MaterialLevel", "Tier"):
+        value = item.get(key)
+        if isinstance(value, (int, float)):
+            return max(1, int(value))
+    return None
+
+
+def _resolve_material_name(family: str, level: int | None) -> str:
+    materials = _ITEM_MATERIAL_FAMILIES.get(family)
+    if not materials or level is None:
+        return ""
+    index = min(max(level, 1), len(materials)) - 1
+    return materials[index]
+
+
+def _item_name_candidates(item: dict[str, Any]) -> list[str]:
+    candidates = [
+        _display_item_name(item).lower(),
+        str(_item_property(item, "Unidentified name") or "").lower(),
+        str(item.get("Name") or "").lower(),
+        str(item.get("ShortName") or "").lower(),
+    ]
+    return [candidate for candidate in candidates if candidate]
+
+
+def _resolve_material_icon_hint(item: dict[str, Any]) -> str:
+    def candidate_icon(stem: str, family: str) -> str:
+        material = _resolve_material_name(family, level)
+        if not material:
+            return ""
+        return _resolve_existing_icon_hint([f"object/{stem}_{material}.png"])
+
+    level = _item_material_level(item)
+    if level is None:
+        return ""
+
+    moddable_tile = str(item.get("ModdableTile") or "").strip().lower()
+    if moddable_tile:
+        rule = _ITEM_MODDABLE_TILE_RULES.get(moddable_tile)
+        if rule:
+            stem, family = rule
+            if icon_hint := candidate_icon(stem, family):
+                return icon_hint
+
+    item_type = str(item.get("Type") or "").strip().lower()
+    subtype = str(item.get("Subtype") or "").strip().lower()
+    if rule := _ITEM_ICON_RULES.get((item_type, subtype)):
+        stem, family = rule
+        if icon_hint := candidate_icon(stem, family):
+            return icon_hint
+
+    name_candidates = _item_name_candidates(item)
+    if item_type == "armor" and subtype == "head":
+        if any("wizard hat" in name for name in name_candidates):
+            if icon_hint := candidate_icon("wizardhat", "cloth"):
+                return icon_hint
+        if any("cap" in name for name in name_candidates):
+            if icon_hint := candidate_icon("cap", "leather"):
+                return icon_hint
+        if icon_hint := candidate_icon("helm", "metal"):
+            return icon_hint
+
+    if item_type == "armor" and subtype == "hands":
+        if any("gauntlet" in name for name in name_candidates):
+            if icon_hint := candidate_icon("hgloves", "metal"):
+                return icon_hint
+        if icon_hint := candidate_icon("gloves", "leather"):
+            return icon_hint
+
+    if item_type == "armor" and subtype == "feet":
+        heavy_boot_markers = ("mail boots", "iron boots", "steel boots", "stralite boots", "voratun boots")
+        if any(any(marker in name for marker in heavy_boot_markers) for name in name_candidates):
+            if icon_hint := candidate_icon("hboots", "metal"):
+                return icon_hint
+        if icon_hint := candidate_icon("boots", "leather"):
+            return icon_hint
+
+    return ""
+
+
+def _guess_item_icon_hint_from_name(item: dict[str, Any]) -> str:
+    clean_name_candidates = [_clean_item_name_text(candidate).lower() for candidate in _item_name_candidates(item)]
+
+    def find_material(noun: str, family: str) -> str:
+        materials = _ITEM_MATERIAL_FAMILIES.get(family, ())
+        for name in clean_name_candidates:
+            for material in materials:
+                if material and re.search(rf"\b{re.escape(material)}\s+{re.escape(noun)}\b", name):
+                    return material
+        return ""
+
+    if any(" ring" in name for name in clean_name_candidates):
+        if material := find_material("ring", "jewelry"):
+            return _resolve_existing_icon_hint([f"object/ring_{material}.png"])
+
+    if any(" amulet" in name for name in clean_name_candidates):
+        if material := find_material("amulet", "jewelry"):
+            return _resolve_existing_icon_hint([f"object/amulet_{material}.png"])
+
+    if any(" belt" in name for name in clean_name_candidates):
+        if material := find_material("belt", "leather"):
+            return _resolve_existing_icon_hint([f"object/belt_{material}.png"])
+
+    if any(" robe" in name for name in clean_name_candidates):
+        if material := find_material("robe", "cloth"):
+            return _resolve_existing_icon_hint([f"object/robe_{material}.png"])
+
+    if any("wizard hat" in name for name in clean_name_candidates):
+        if material := find_material("wizard hat", "cloth"):
+            return _resolve_existing_icon_hint([f"object/wizardhat_{material}.png"])
+
+    if any("gauntlet" in name for name in clean_name_candidates):
+        if material := find_material("gauntlets", "metal"):
+            return _resolve_existing_icon_hint([f"object/hgloves_{material}.png"])
+
+    if any("glove" in name for name in clean_name_candidates):
+        if material := find_material("gloves", "leather"):
+            return _resolve_existing_icon_hint([f"object/gloves_{material}.png"])
+
+    return ""
+
+
+def _guess_item_icon_hint(item: dict[str, Any]) -> str:
+    icon_hint = _item_icon_hint(item)
+    if icon_hint:
+        return icon_hint
+
+    name_candidates = _item_name_candidates(item)
+    clean_name_candidates = [_clean_item_name_text(candidate).lower() for candidate in name_candidates]
+
+    for name in clean_name_candidates:
+        override = _ITEM_ARTIFACT_ICON_OVERRIDES.get(name)
+        if override:
+            return override
+
+    artifact_stems = [_to_snake(name) for name in clean_name_candidates if name]
+    if artifact_hint := _resolve_existing_icon_hint([f"object/artifact/{stem}.png" for stem in artifact_stems]):
+        return artifact_hint
+
+    if material_hint := _resolve_material_icon_hint(item):
+        return material_hint
+
+    if fallback_hint := _guess_item_icon_hint_from_name(item):
+        return fallback_hint
+
+    return ""
+
+
+def _item_icon_pixmap(item: dict[str, Any], size: int) -> QPixmap:
+    icon_hint = _guess_item_icon_hint(item)
+    if icon_hint:
+        sprite_path = get_sprite(icon_hint)
+        if sprite_path is not None:
+            return _load_pixmap(sprite_path, size)
+    fallback_letter = _display_item_name(item)[:1] or str(item.get("Type") or "?")[:1] or "?"
+    return _placeholder(size, fallback_letter)
+
+
+def _item_preview_text(item: dict[str, Any]) -> str:
+    summary = _item_summary_fields(item)
+    if summary:
+        return "  |  ".join(summary)
+    description = _item_description(item)
+    if not description:
+        return ""
+    return description if len(description) <= 160 else f"{description[:157].rstrip()}..."
+
+
+def _ordered_item_properties(item: dict[str, Any]) -> list[tuple[str, str]]:
+    props = item.get("Properties")
+    if not isinstance(props, dict):
+        return []
+
+    priority = {key: index for index, key in enumerate(_ITEM_PROPERTY_ORDER)}
+    rows: list[tuple[str, str]] = []
+    for raw_key, raw_value in props.items():
+        key = " ".join(str(raw_key).split()).strip()
+        if not key:
+            continue
+        if isinstance(raw_value, list):
+            value = ", ".join(str(part) for part in raw_value)
+        else:
+            value = " ".join(str(raw_value).split()).strip()
+        if not value:
+            continue
+        rows.append((key, value))
+
+    rows.sort(key=lambda item_row: (priority.get(item_row[0], len(priority)), item_row[0].lower()))
+    return rows
+
+
+def _inventory_item_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    properties = tuple(_ordered_item_properties(item)[:8])
+    return (
+        _display_item_name(item).lower(),
+        str(item.get("Slot") or "").lower(),
+        str(item.get("Type") or "").lower(),
+        str(item.get("Subtype") or "").lower(),
+        item.get("Tier"),
+        tuple(str(tag).lower() for tag in item.get("Tags", [])),
+        properties,
+    )
+
+
+def _items_match(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if _display_item_name(left).lower() != _display_item_name(right).lower():
+        return False
+    for field in ("Slot", "Type", "Subtype"):
+        left_value = str(left.get(field) or "").strip().lower()
+        right_value = str(right.get(field) or "").strip().lower()
+        if left_value and right_value and left_value != right_value:
+            return False
+    for field in ("Tier", "Count"):
+        left_value = left.get(field)
+        right_value = right.get(field)
+        if left_value is not None and right_value is not None and left_value != right_value:
+            return False
+    return True
+
+
+def _merge_item_record(live_item: dict[str, Any], file_item: dict[str, Any] | None) -> dict[str, Any]:
+    if file_item is None:
+        return dict(live_item)
+
+    merged = dict(file_item)
+    merged.update(live_item)
+
+    merged_tags = _normalize_item_tags(
+        [*list(file_item.get("Tags") or []), *list(live_item.get("Tags") or [])]
+    )
+    if merged_tags:
+        merged["Tags"] = merged_tags
+    else:
+        merged.pop("Tags", None)
+
+    properties: dict[str, str] = {}
+    for source in (file_item.get("Properties"), live_item.get("Properties")):
+        if not isinstance(source, dict):
+            continue
+        for raw_key, raw_value in source.items():
+            key = " ".join(str(raw_key).split()).strip()
+            value = " ".join(str(raw_value).split()).strip()
+            if key and value:
+                properties[key] = value
+
+    if any(tag.lower() == "identified" for tag in merged_tags):
+        properties.pop("Unidentified name", None)
+    if properties:
+        merged["Properties"] = properties
+    else:
+        merged.pop("Properties", None)
+
+    return _normalize_item_record(merged) or dict(merged)
+
+
+def _merge_item_sources(live_items: list[Any] | None, file_items: list[Any] | None) -> list[dict[str, Any]]:
+    normalized_live = [_normalize_item_record(item) for item in (live_items or [])]
+    normalized_file = [_normalize_item_record(item) for item in (file_items or [])]
+    live_records = [item for item in normalized_live if item is not None]
+    file_records = [item for item in normalized_file if item is not None]
+
+    if not live_records:
+        return list(file_records)
+    if not file_records:
+        return list(live_records)
+
+    merged: list[dict[str, Any]] = []
+    used_file_indexes: set[int] = set()
+    for live_item in live_records:
+        matched_file: dict[str, Any] | None = None
+        for index, file_item in enumerate(file_records):
+            if index in used_file_indexes:
+                continue
+            if _items_match(live_item, file_item):
+                matched_file = file_item
+                used_file_indexes.add(index)
+                break
+        merged.append(_merge_item_record(live_item, matched_file))
+
+    for index, file_item in enumerate(file_records):
+        if index not in used_file_indexes:
+            merged.append(dict(file_item))
+    return merged
+
+
+def _parse_changes_stats(value: str) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for part in value.split("/"):
+        clean = " ".join(part.split()).strip()
+        if not clean:
+            continue
+        match = re.match(r"([+-]?\d+(?:\.\d+)?%?)\s+([A-Za-z]+)$", clean)
+        if not match:
+            continue
+        raw_value, raw_stat = match.groups()
+        label = _ITEM_STAT_LABELS.get(raw_stat, raw_stat.upper())
+        rows.append((label, raw_value))
+    return rows
+
+
+def _item_stat_highlights(item: dict[str, Any], *, limit: int = 8) -> list[tuple[str, str]]:
+    highlights: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    changes = _item_property(item, "Changes stats")
+    if changes:
+        for label, value in _parse_changes_stats(changes):
+            key = f"{label}|{value}"
+            if key in seen:
+                continue
+            seen.add(key)
+            highlights.append((label, value))
+
+    for prop_key in _ITEM_STAT_PRIORITY:
+        if prop_key == "Changes stats":
+            continue
+        value = _item_property(item, prop_key)
+        if not value:
+            continue
+        label = _ITEM_STAT_LABELS.get(prop_key, prop_key.upper())
+        key = f"{label}|{value}"
+        if key in seen:
+            continue
+        seen.add(key)
+        highlights.append((label, value))
+        if len(highlights) >= limit:
+            break
+
+    return highlights[:limit]
 
 
 def _item_summary_fields(item: dict[str, Any]) -> list[str]:
@@ -640,28 +1370,35 @@ def _item_summary_fields(item: dict[str, Any]) -> list[str]:
 
 
 class _ItemCard(QFrame):
+    clicked = Signal(object)
+
     def __init__(self, item: dict[str, Any], *, show_slot: bool, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        accent = _item_rank_color(item)
-        self.setStyleSheet(
-            f"background: {SURFACE0}; border: 1px solid {BORDER}; border-left: 3px solid {accent}; border-radius: 4px;"
-        )
+        self._item = item
+        self._accent = _item_rank_color(item)
+        self._selected = False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._apply_style()
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(4)
+        lay.setSpacing(5)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(_ICON_ITEM_CARD, _ICON_ITEM_CARD)
+        icon_lbl.setPixmap(_item_icon_pixmap(item, _ICON_ITEM_CARD))
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_row.addWidget(icon_lbl)
         if show_slot and item.get("Slot"):
             slot_lbl = QLabel(str(item["Slot"]))
             slot_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
             title_row.addWidget(slot_lbl)
 
         name_lbl = QLabel(_display_item_name(item))
-        name_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {_item_rank_color(item)};"
-        )
+        name_lbl.setWordWrap(True)
+        name_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {self._accent};")
         title_row.addWidget(name_lbl, 1)
 
         meta_parts: list[str] = []
@@ -672,38 +1409,71 @@ class _ItemCard(QFrame):
             meta_parts.append(" ".join(f"[{tag}]" for tag in tags))
         if meta_parts:
             meta_lbl = QLabel("  ".join(meta_parts))
+            meta_lbl.setWordWrap(True)
             meta_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
             title_row.addWidget(meta_lbl)
         lay.addLayout(title_row)
 
-        summary = _item_summary_fields(item)
-        if summary:
-            summary_lbl = QLabel("  |  ".join(summary))
-            summary_lbl.setWordWrap(True)
-            summary_lbl.setStyleSheet(f"font-size: 12px; color: {TEXT};")
-            lay.addWidget(summary_lbl)
+        secondary_parts: list[str] = []
+        if not show_slot and item.get("Slot"):
+            secondary_parts.append(str(item["Slot"]))
+        if kind := _item_kind_label(item):
+            secondary_parts.append(kind)
+        if secondary_parts:
+            secondary_lbl = QLabel("  •  ".join(secondary_parts))
+            secondary_lbl.setWordWrap(True)
+            secondary_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
+            lay.addWidget(secondary_lbl)
+
+        preview = _item_preview_text(item)
+        if preview:
+            preview_lbl = QLabel(preview)
+            preview_lbl.setWordWrap(True)
+            preview_lbl.setStyleSheet(f"font-size: 12px; color: {TEXT};")
+            lay.addWidget(preview_lbl)
+
+    def _apply_style(self) -> None:
+        background = SURFACE1 if self._selected else SURFACE0
+        border = TEAL if self._selected else BORDER
+        self.setStyleSheet(
+            f"background: {background}; border: 1px solid {border}; border-left: 3px solid {self._accent};"
+            f" border-radius: 4px;"
+        )
+
+    def set_selected(self, selected: bool) -> None:
+        if selected == self._selected:
+            return
+        self._selected = selected
+        self._apply_style()
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        self.clicked.emit(self._item)
+        super().mousePressEvent(event)
 
 
 class _ItemListPanel(QWidget):
+    item_selected = Signal(str, object)
+
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._title = title
+        self._items: list[dict[str, Any]] = []
+        self._cards: list[tuple[_ItemCard, tuple[Any, ...]]] = []
+        self._last_items: list[Any] = []
+        self._last_show_slot = False
+
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 6, 0, 0)
         root.setSpacing(6)
 
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px;"
-        )
-        root.addWidget(title_lbl)
+        self._title_lbl = QLabel(title)
+        self._title_lbl.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px;")
+        root.addWidget(self._title_lbl)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(
-            f"QScrollArea {{ border: none; background: {BG}; }}"
-            f"QWidget {{ background: {BG}; }}"
-        )
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}QWidget {{ background: {BG}; }}")
         self._body = QWidget()
         self._body_lay = QVBoxLayout(self._body)
         self._body_lay.setContentsMargins(0, 0, 0, 8)
@@ -711,37 +1481,251 @@ class _ItemListPanel(QWidget):
         self._body_lay.addStretch()
         self._scroll.setWidget(self._body)
         root.addWidget(self._scroll, 1)
-        self._last_items: list[Any] = []
-        self._last_show_slot: bool = False
 
-    def set_items(self, items: list[Any], *, show_slot: bool) -> None:
-        if items == self._last_items and show_slot == self._last_show_slot:
-            return
+    @property
+    def title(self) -> str:
+        return self._title
+
+    def set_items(self, items: list[Any], *, show_slot: bool) -> list[dict[str, Any]]:
+        normalized_items: list[dict[str, Any]] = []
+        for raw_item in items:
+            if normalized := _normalize_item_record(raw_item):
+                normalized_items.append(normalized)
+
+        if normalized_items == self._items and show_slot == self._last_show_slot:
+            return list(self._items)
+
         self._last_items = list(items)
         self._last_show_slot = show_slot
+        self._items = list(normalized_items)
+        self._title_lbl.setText(f"{self._title}  ·  {len(self._items)}")
+
         while self._body_lay.count() > 1:
             item = self._body_lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        if not items:
+        self._cards = []
+
+        if not self._items:
             empty = QLabel("No items")
             empty.setStyleSheet(f"font-size: 12px; color: {SUBTEXT0}; padding: 8px 4px;")
             self._body_lay.insertWidget(0, empty)
-            return
-        normalized_items: list[dict[str, Any]] = []
-        for item in items:
-            if isinstance(item, str):
-                item = {"Name": item}
-            if not isinstance(item, dict):
-                continue
-            normalized_items.append(item)
+            return []
 
         sort_key = _slot_sort_key if show_slot else _inventory_sort_key
-        for item in sorted(normalized_items, key=sort_key):
-            self._body_lay.insertWidget(self._body_lay.count() - 1, _ItemCard(item, show_slot=show_slot))
+        for item_data in sorted(self._items, key=sort_key):
+            card = _ItemCard(item_data, show_slot=show_slot)
+            card.clicked.connect(self._handle_card_clicked)
+            key = _inventory_item_key(item_data)
+            self._cards.append((card, key))
+            self._body_lay.insertWidget(self._body_lay.count() - 1, card)
+        return list(self._items)
+
+    def set_selected_key(self, key: tuple[Any, ...] | None) -> None:
+        for card, card_key in self._cards:
+            card.set_selected(key is not None and card_key == key)
+
+    def find_item(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
+        for item in self._items:
+            if _inventory_item_key(item) == key:
+                return item
+        return None
+
+    def first_item(self) -> dict[str, Any] | None:
+        return self._items[0] if self._items else None
+
+    def _handle_card_clicked(self, item: object) -> None:
+        self.item_selected.emit(self._title, item)
+
+
+class _InventoryDetailPanel(QFrame):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setStyleSheet(f"background: {SURFACE0}; border-left: 1px solid {BORDER};")
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self._header = QLabel("ITEM DETAILS")
+        self._header.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px; padding: 10px 12px 8px 12px;"
+        )
+        root.addWidget(self._header)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {SURFACE0}; }}")
+        root.addWidget(self._scroll, 1)
+
+        body = QWidget()
+        body.setStyleSheet(f"background: {SURFACE0};")
+        self._body_lay = QVBoxLayout(body)
+        self._body_lay.setContentsMargins(12, 8, 12, 16)
+        self._body_lay.setSpacing(10)
+        self._scroll.setWidget(body)
+
+        self._section_lbl = QLabel("Nothing selected")
+        self._section_lbl.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {TEAL}; letter-spacing: 1px;")
+        self._body_lay.addWidget(self._section_lbl)
+        _label_selectable(self._section_lbl)
+
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setFixedSize(_ICON_ITEM_DETAIL, _ICON_ITEM_DETAIL)
+        self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._body_lay.addWidget(self._icon_lbl, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        self._name_lbl = QLabel("Select an inventory item to inspect its details.")
+        self._name_lbl.setWordWrap(True)
+        self._name_lbl.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {TEXT};")
+        self._body_lay.addWidget(self._name_lbl)
+        _label_selectable(self._name_lbl)
+
+        self._meta_lbl = QLabel("")
+        self._meta_lbl.setWordWrap(True)
+        self._meta_lbl.setStyleSheet(f"font-size: 12px; color: {SUBTEXT0};")
+        self._body_lay.addWidget(self._meta_lbl)
+        _label_selectable(self._meta_lbl)
+
+        self._summary_lbl = QLabel("")
+        self._summary_lbl.setWordWrap(True)
+        self._summary_lbl.setStyleSheet(f"font-size: 12px; color: {TEXT};")
+        self._body_lay.addWidget(self._summary_lbl)
+        _label_selectable(self._summary_lbl)
+
+        self._stats_title = QLabel("STAT HIGHLIGHTS")
+        self._stats_title.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px;"
+        )
+        self._body_lay.addWidget(self._stats_title)
+
+        self._stats_host = QWidget()
+        self._stats_host_lay = QGridLayout(self._stats_host)
+        self._stats_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._stats_host_lay.setHorizontalSpacing(6)
+        self._stats_host_lay.setVerticalSpacing(6)
+        self._body_lay.addWidget(self._stats_host)
+
+        self._properties_title = QLabel("PROPERTIES")
+        self._properties_title.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px;"
+        )
+        self._body_lay.addWidget(self._properties_title)
+
+        self._properties_host = QWidget()
+        self._properties_host_lay = QVBoxLayout(self._properties_host)
+        self._properties_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._properties_host_lay.setSpacing(6)
+        self._body_lay.addWidget(self._properties_host)
+
+        self._description_title = QLabel("DESCRIPTION")
+        self._description_title.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px; padding-top: 4px;"
+        )
+        self._body_lay.addWidget(self._description_title)
+
+        self._description_lbl = QLabel("")
+        self._description_lbl.setWordWrap(True)
+        self._description_lbl.setStyleSheet(
+            f"font-size: 12px; color: {TEXT}; background: {SURFACE1}; border: 1px solid {BORDER}; border-radius: 6px;"
+            " padding: 10px;"
+        )
+        self._body_lay.addWidget(self._description_lbl)
+        _label_selectable(self._description_lbl)
+        self._body_lay.addStretch()
+
+        self.clear()
+
+    def clear(self) -> None:
+        self.set_item("", None)
+
+    def set_item(self, source: str, item: dict[str, Any] | None) -> None:
+        while self._stats_host_lay.count():
+            child = self._stats_host_lay.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        while self._properties_host_lay.count():
+            child = self._properties_host_lay.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        if item is None:
+            self._section_lbl.setText("Nothing selected")
+            self._icon_lbl.setPixmap(_placeholder(_ICON_ITEM_DETAIL))
+            self._name_lbl.setText("Select an inventory item to inspect its details.")
+            self._meta_lbl.hide()
+            self._summary_lbl.hide()
+            self._stats_title.hide()
+            self._stats_host.hide()
+            self._properties_title.hide()
+            self._properties_host.hide()
+            self._description_title.hide()
+            self._description_lbl.hide()
+            return
+
+        self._section_lbl.setText(source or "Item")
+        self._icon_lbl.setPixmap(_item_icon_pixmap(item, _ICON_ITEM_DETAIL))
+        self._name_lbl.setText(_display_item_name(item))
+
+        meta_parts: list[str] = []
+        if slot := str(item.get("Slot") or "").strip():
+            meta_parts.append(slot)
+        if kind := _item_kind_label(item):
+            meta_parts.append(kind)
+        if isinstance(item.get("Tier"), int):
+            meta_parts.append(f"Tier {item['Tier']}")
+        tags = item.get("Tags")
+        if isinstance(tags, list) and tags:
+            meta_parts.extend(f"[{tag}]" for tag in tags)
+        self._meta_lbl.setText("  •  ".join(meta_parts))
+        self._meta_lbl.setVisible(bool(meta_parts))
+
+        preview = _item_preview_text(item)
+        self._summary_lbl.setText(preview)
+        self._summary_lbl.setVisible(bool(preview))
+
+        stat_rows = _item_stat_highlights(item)
+        self._stats_title.setVisible(bool(stat_rows))
+        self._stats_host.setVisible(bool(stat_rows))
+        for index, (label, value) in enumerate(stat_rows):
+            chip = QLabel(f"{label}  {value}")
+            chip.setStyleSheet(
+                f"font-size: 11px; font-weight: 700; color: {TEXT}; background: {SURFACE1};"
+                f" border: 1px solid {BORDER}; border-radius: 5px; padding: 7px 9px;"
+            )
+            self._stats_host_lay.addWidget(chip, index // 2, index % 2)
+
+        property_rows = [(key, value) for key, value in _ordered_item_properties(item) if key != "Description"]
+        self._properties_title.setVisible(bool(property_rows))
+        self._properties_host.setVisible(bool(property_rows))
+        for key, value in property_rows:
+            row = QFrame()
+            row.setStyleSheet(f"background: {SURFACE1}; border: 1px solid {BORDER}; border-radius: 6px;")
+            row_lay = QVBoxLayout(row)
+            row_lay.setContentsMargins(10, 8, 10, 8)
+            row_lay.setSpacing(2)
+
+            key_lbl = QLabel(key.upper())
+            key_lbl.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 0.7px;")
+            row_lay.addWidget(key_lbl)
+            _label_selectable(key_lbl)
+
+            value_lbl = QLabel(value)
+            value_lbl.setWordWrap(True)
+            value_lbl.setStyleSheet(f"font-size: 12px; color: {TEXT};")
+            row_lay.addWidget(value_lbl)
+            _label_selectable(value_lbl)
+            self._properties_host_lay.addWidget(row)
+
+        description = _item_description(item)
+        self._description_title.setVisible(bool(description))
+        self._description_lbl.setVisible(bool(description))
+        self._description_lbl.setText(description)
 
 
 # ── Main widget ───────────────────────────────────────────────────────────────
+
 
 class CharacterSheetView(QWidget):
     """Visual character sheet: stats row + icon talent grid + detail panel."""
@@ -760,6 +1744,8 @@ class CharacterSheetView(QWidget):
         self._live_transmog: list[dict[str, Any]] | None = None
         self._live_talents: dict[str, dict[str, Any]] | None = None
         self._live_prodigies: list[str] | None = None
+        self._selected_inventory_source = ""
+        self._selected_inventory_key: tuple[Any, ...] | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -771,9 +1757,7 @@ class CharacterSheetView(QWidget):
 
         # ── Fixed player overview ────────────────────────────────────────
         self._player_box = QFrame()
-        self._player_box.setStyleSheet(
-            f"background: {BG}; border-bottom: 1px solid {BORDER};"
-        )
+        self._player_box.setStyleSheet(f"background: {BG}; border-bottom: 1px solid {BORDER};")
         self._player_box_lay = QVBoxLayout(self._player_box)
         self._player_box_lay.setContentsMargins(12, 0, 12, 8)
         self._player_box_lay.setSpacing(0)
@@ -795,10 +1779,7 @@ class CharacterSheetView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(
-            f"QScrollArea {{ border: none; background: {BG}; }}"
-            f"QWidget {{ background: {BG}; }}"
-        )
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}QWidget {{ background: {BG}; }}")
         self._talents_scroll = scroll
         self._left = QWidget()
         self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -823,12 +1804,15 @@ class CharacterSheetView(QWidget):
         talents_root.addWidget(splitter)
         self._content_tabs.addTab(talents_tab, "Talents")
 
-        # Inventory tab: equipped | current+transmog
+        # Inventory tab: equipped | current+transmog | detail
         inventory_tab = QWidget()
         inventory_root = QVBoxLayout(inventory_tab)
         inventory_root.setContentsMargins(0, 0, 0, 0)
         inventory_root.setSpacing(0)
 
+        inventory_workspace = QSplitter(Qt.Orientation.Horizontal)
+        inventory_workspace.setHandleWidth(1)
+        inventory_workspace.setChildrenCollapsible(False)
         inventory_splitter = QSplitter(Qt.Orientation.Horizontal)
         inventory_splitter.setHandleWidth(1)
         inventory_splitter.setChildrenCollapsible(False)
@@ -848,10 +1832,20 @@ class CharacterSheetView(QWidget):
         inventory_splitter.setSizes([420, 520])
         inventory_splitter.setStretchFactor(0, 1)
         inventory_splitter.setStretchFactor(1, 1)
-        inventory_root.addWidget(inventory_splitter)
+        self._inventory_detail_panel = _InventoryDetailPanel()
+        inventory_workspace.addWidget(inventory_splitter)
+        inventory_workspace.addWidget(self._inventory_detail_panel)
+        inventory_workspace.setSizes([900, 360])
+        inventory_workspace.setStretchFactor(0, 2)
+        inventory_workspace.setStretchFactor(1, 1)
+        inventory_root.addWidget(inventory_workspace)
+        self._equipped_panel.item_selected.connect(self._on_inventory_item_selected)
+        self._inventory_panel.item_selected.connect(self._on_inventory_item_selected)
+        self._transmog_panel.item_selected.connect(self._on_inventory_item_selected)
         self._content_tabs.addTab(inventory_tab, "Inventory")
 
         from gui.progression_tab import ProgressionTab
+
         self._progression_tab = ProgressionTab()
         self._content_tabs.addTab(self._progression_tab, "Progression")
 
@@ -943,11 +1937,7 @@ class CharacterSheetView(QWidget):
         current: list[dict[str, Any]] | None,
         transmog: list[dict[str, Any]] | None,
     ) -> None:
-        if (
-            equipment == self._live_equipment
-            and current == self._live_inventory
-            and transmog == self._live_transmog
-        ):
+        if equipment == self._live_equipment and current == self._live_inventory and transmog == self._live_transmog:
             return
         self._live_equipment = equipment
         self._live_inventory = current
@@ -1021,14 +2011,9 @@ class CharacterSheetView(QWidget):
             return ordered
 
         file_headers = [
-            self._normalized_category_name(name)
-            for name, value in file_section.items()
-            if _is_category_header(value)
+            self._normalized_category_name(name) for name, value in file_section.items() if _is_category_header(value)
         ]
-        block_lookup = {
-            self._normalized_category_name(header): block
-            for header, block in blocks
-        }
+        block_lookup = {self._normalized_category_name(header): block for header, block in blocks}
 
         ordered: dict[str, Any] = {}
         used_headers: set[str] = set()
@@ -1118,10 +2103,7 @@ class CharacterSheetView(QWidget):
 
         file_equipment = self._current_data.get("Equipment", [])
         inventory = self._current_data.get("Inventory", [])
-        equipment_items = self._live_equipment if self._live_equipment is not None else (
-            file_equipment if isinstance(file_equipment, list) else []
-        )
-        self._equipped_panel.set_items(equipment_items, show_slot=True)
+        file_equipment_items = file_equipment if isinstance(file_equipment, list) else []
         if isinstance(inventory, dict):
             file_current = inventory.get("Current", [])
             transmog_items = inventory.get("Transmog Chest", [])
@@ -1131,15 +2113,76 @@ class CharacterSheetView(QWidget):
         else:
             file_current = []
             transmog_items = []
-        current_items = self._live_inventory if self._live_inventory is not None else file_current
-        transmog_live = self._live_transmog if self._live_transmog is not None else transmog_items
-        self._inventory_panel.set_items(current_items if isinstance(current_items, list) else [], show_slot=False)
-        self._transmog_panel.set_items(transmog_live if isinstance(transmog_live, list) else [], show_slot=False)
+        equipment_items = _merge_item_sources(self._live_equipment, file_equipment_items)
+        current_items = _merge_item_sources(
+            self._live_inventory,
+            file_current if isinstance(file_current, list) else [],
+        )
+        transmog_live = _merge_item_sources(
+            self._live_transmog,
+            transmog_items if isinstance(transmog_items, list) else [],
+        )
+        equipped_records = self._equipped_panel.set_items(equipment_items, show_slot=True)
+        current_records = self._inventory_panel.set_items(
+            current_items,
+            show_slot=False,
+        )
+        transmog_records = self._transmog_panel.set_items(
+            transmog_live,
+            show_slot=False,
+        )
+        self._restore_inventory_selection(
+            (
+                (self._equipped_panel.title, equipped_records),
+                (self._inventory_panel.title, current_records),
+                (self._transmog_panel.title, transmog_records),
+            )
+        )
         self._left.adjustSize()
         QTimer.singleShot(
             0,
             lambda value=talent_scroll_value: self._talents_scroll.verticalScrollBar().setValue(value),
         )
+
+    def _restore_inventory_selection(self, sections: tuple[tuple[str, list[dict[str, Any]]], ...]) -> None:
+        if self._selected_inventory_key is not None and self._selected_inventory_source:
+            for source, items in sections:
+                if source != self._selected_inventory_source:
+                    continue
+                for item in items:
+                    if _inventory_item_key(item) == self._selected_inventory_key:
+                        self._set_selected_inventory(source, item)
+                        return
+
+        for source, items in sections:
+            if items:
+                self._set_selected_inventory(source, items[0])
+                return
+
+        self._selected_inventory_source = ""
+        self._selected_inventory_key = None
+        self._equipped_panel.set_selected_key(None)
+        self._inventory_panel.set_selected_key(None)
+        self._transmog_panel.set_selected_key(None)
+        self._inventory_detail_panel.clear()
+
+    def _set_selected_inventory(self, source: str, item: dict[str, Any]) -> None:
+        self._selected_inventory_source = source
+        self._selected_inventory_key = _inventory_item_key(item)
+        self._equipped_panel.set_selected_key(
+            self._selected_inventory_key if source == self._equipped_panel.title else None
+        )
+        self._inventory_panel.set_selected_key(
+            self._selected_inventory_key if source == self._inventory_panel.title else None
+        )
+        self._transmog_panel.set_selected_key(
+            self._selected_inventory_key if source == self._transmog_panel.title else None
+        )
+        self._inventory_detail_panel.set_item(source, item)
+
+    def _on_inventory_item_selected(self, source: str, item: object) -> None:
+        if isinstance(item, dict):
+            self._set_selected_inventory(source, item)
 
     def set_enemy_panel(self, panel: QWidget) -> None:
         while self._enemy_host_lay.count():
@@ -1179,12 +2222,7 @@ class CharacterSheetView(QWidget):
             lay.addWidget(section_widget, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         add_section("Class Talents", class_section)
-        if (
-            isinstance(class_section, dict)
-            and class_section
-            and isinstance(generic_section, dict)
-            and generic_section
-        ):
+        if isinstance(class_section, dict) and class_section and isinstance(generic_section, dict) and generic_section:
             divider = QFrame()
             divider.setFrameShape(QFrame.Shape.VLine)
             divider.setLineWidth(1)
@@ -1219,8 +2257,7 @@ class CharacterSheetView(QWidget):
 
         title = QLabel("PRODIGIES")
         title.setStyleSheet(
-            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0};"
-            f" letter-spacing: 1px; padding-bottom: 2px;"
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px; padding-bottom: 2px;"
         )
         lay.addWidget(title)
 
@@ -1230,9 +2267,7 @@ class CharacterSheetView(QWidget):
         gl.setSpacing(4)
         for idx, name in enumerate(names):
             icon_w = _TalentIcon(name, {"Level": "0/1"})
-            icon_w.clicked.connect(
-                lambda n, d: self._on_talent_clicked(n, d, "Prodigies")
-            )
+            icon_w.clicked.connect(lambda n, d: self._on_talent_clicked(n, d, "Prodigies"))
             gl.addWidget(icon_w, idx // 2, idx % 2)
         lay.addWidget(gw)
         return w
@@ -1246,8 +2281,7 @@ class CharacterSheetView(QWidget):
         # Section title (e.g. "CLASS TALENTS")
         sec_lbl = QLabel(title.upper())
         sec_lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0};"
-            f" letter-spacing: 1px; padding-bottom: 2px;"
+            f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px; padding-bottom: 2px;"
         )
         lay.addWidget(sec_lbl)
 
@@ -1264,9 +2298,7 @@ class CharacterSheetView(QWidget):
             gl.setSpacing(4)
             for idx, (t_name, t_data) in enumerate(grid_items):
                 icon_w = _TalentIcon(t_name, t_data)
-                icon_w.clicked.connect(
-                    lambda n, d, cat=current_category: self._on_talent_clicked(n, d, cat)
-                )
+                icon_w.clicked.connect(lambda n, d, cat=current_category: self._on_talent_clicked(n, d, cat))
                 gl.addWidget(icon_w, idx // 4, idx % 4)
             lay.addWidget(gw)
 
@@ -1316,12 +2348,14 @@ class CharacterSheetView(QWidget):
             if sprite_path:
                 raw = QPixmap(str(sprite_path))
                 if not raw.isNull():
-                    return _trim_transparent_bounds(raw.scaled(
-                        _ICON_SPRITE,
-                        _ICON_SPRITE,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.FastTransformation,
-                    ))
+                    return _trim_transparent_bounds(
+                        raw.scaled(
+                            _ICON_SPRITE,
+                            _ICON_SPRITE,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.FastTransformation,
+                        )
+                    )
         return None
 
 
@@ -1415,10 +2449,10 @@ class _HeaderBar(QWidget):
         lay.addWidget(self._exp_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def update_from(self, char: dict[str, str], char_name: str = "") -> None:
-        cls   = char.get("Class", "")
-        race  = char.get("Race", "")
+        cls = char.get("Class", "")
+        race = char.get("Race", "")
         level = char.get("Level / Exp", "").split(" ")[0]
-        mode  = char.get("Mode", "")
+        mode = char.get("Mode", "")
 
         # Class icon
         if cls:
@@ -1432,7 +2466,7 @@ class _HeaderBar(QWidget):
         label = "   ·   ".join(parts) if parts else "No character loaded"
         self._char_btn.setText(f"{label}  \u25be")
 
-    _HP_STYLE   = "font-size: 13px; font-weight: 700; padding-left: 8px; padding-right: 4px;"
+    _HP_STYLE = "font-size: 13px; font-weight: 700; padding-left: 8px; padding-right: 4px;"
     _MANA_STYLE = "font-size: 13px; font-weight: 700; padding-left: 2px; padding-right: 4px;"
 
     def set_hp(self, life: float, max_life: float) -> None:

@@ -4,6 +4,7 @@ enemy_panel.py
 Collapsible enemy list widget for the dashboard.  Shows enemies from
 game.level.entities, scanned on map change only.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,15 +21,15 @@ from PySide6.QtWidgets import (
 )
 
 from game_data.npc_db import NpcRecord, get_npc_db, lookup_by_sprite
-from gui.sprite_composer import compose_layers, get_sprite
 from gui.memory_reader import (
-    DANGER_DEADLY,
     DANGER_DANGEROUS,
+    DANGER_DEADLY,
     DANGER_EASY,
     DANGER_MODERATE,
     DANGER_TRIVIAL,
     EntityInfo,
 )
+from gui.sprite_composer import compose_layers
 from gui.theme import (
     BLUE,
     BORDER,
@@ -38,16 +39,15 @@ from gui.theme import (
     RED,
     SUBTEXT0,
     SURFACE0,
-    SURFACE2,
-    TEXT,
     TEAL,
+    TEXT,
     YELLOW,
 )
 
 # ── NPC sprite lookup ────────────────────────────────────────────────────────
 
 _ICONS_ROOT = Path(__file__).resolve().parent.parent / "Icons"
-_ICON_CACHE: dict[str, Path | None] = {}   # image_hint key → Path or None
+_ICON_CACHE: dict[str, Path | None] = {}  # image_hint key → Path or None
 _ICON_SIZE = 32
 _PREVIEW_SIZE = 160
 
@@ -79,6 +79,7 @@ def _resolve_icon(image_hint: str) -> Path | None:
     _ICON_CACHE[image_hint] = result
     return result
 
+
 # Rank → display colour
 _RANK_COLORS: dict[str, str] = {
     "Boss": RED,
@@ -91,11 +92,11 @@ _RANK_COLORS: dict[str, str] = {
 
 # Danger label → display colour
 _DANGER_COLORS: dict[str, str] = {
-    DANGER_TRIVIAL:   OVERLAY,
-    DANGER_EASY:      GREEN,
-    DANGER_MODERATE:  YELLOW,
-    DANGER_DANGEROUS: "#fab387",   # Catppuccin peach / orange
-    DANGER_DEADLY:    RED,
+    DANGER_TRIVIAL: OVERLAY,
+    DANGER_EASY: GREEN,
+    DANGER_MODERATE: YELLOW,
+    DANGER_DANGEROUS: "#fab387",  # Catppuccin peach / orange
+    DANGER_DEADLY: RED,
 }
 
 _RESIST_LABELS: dict[str, str] = {
@@ -176,10 +177,7 @@ class _HoverPreviewLabel(QLabel):
         self._preview.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview.setStyleSheet(
-            f"background: {SURFACE0};"
-            f"border: 1px solid {BORDER};"
-            f"border-radius: 6px;"
-            f"padding: 8px;"
+            f"background: {SURFACE0};border: 1px solid {BORDER};border-radius: 6px;padding: 8px;"
         )
         self._preview.setPixmap(pixmap)
         self._preview.adjustSize()
@@ -212,11 +210,7 @@ class _EnemyCard(QFrame):
         super().__init__(parent)
         self.setObjectName("EnemyCard")
         self.setStyleSheet(
-            f"#EnemyCard {{"
-            f"  background: {SURFACE0};"
-            f"  border: 1px solid {BORDER};"
-            f"  border-radius: 4px;"
-            f"}}"
+            f"#EnemyCard {{  background: {SURFACE0};  border: 1px solid {BORDER};  border-radius: 4px;}}"
         )
         self.setToolTip("")
 
@@ -374,9 +368,7 @@ class _EnemyCard(QFrame):
                 display_text = one_line
             desc_lbl = QLabel(display_text)
             desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet(
-                f"color: {SUBTEXT0}; font-size: 11px; font-style: italic;"
-            )
+            desc_lbl.setStyleSheet(f"color: {SUBTEXT0}; font-size: 11px; font-style: italic;")
             info.addWidget(desc_lbl)
 
         outer.addLayout(info, stretch=1)
@@ -420,7 +412,7 @@ class EnemyPanel(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(f"background: transparent;")
+        self._scroll.setStyleSheet("background: transparent;")
 
         self._container = QWidget()
         self._card_layout = QVBoxLayout(self._container)

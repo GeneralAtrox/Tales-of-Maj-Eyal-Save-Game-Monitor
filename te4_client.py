@@ -131,7 +131,7 @@ def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig, *, has_tr
         vault_url = f"https://te4.org/characters/{config.profile_id}/tome/{char_info.vault_id}"
         data = {
             "_meta": {
-                "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
                 "vault_url": vault_url,
                 "schema_version": "1",
             },
@@ -149,7 +149,9 @@ def sync_scrying_mirror(char_info: CharacterConfig, config: AppConfig, *, has_tr
         print(f" > Sync error: {exc}")
 
 
-def schedule_scrying_sync(char_info: CharacterConfig, config: AppConfig, delay: float = 0, *, has_transmo: bool = True) -> None:
+def schedule_scrying_sync(
+    char_info: CharacterConfig, config: AppConfig, delay: float = 0, *, has_transmo: bool = True
+) -> None:
     """Schedule a debounced vault sync so backup monitoring stays responsive."""
     if not char_info.vault_id or not config.profile_id:
         return

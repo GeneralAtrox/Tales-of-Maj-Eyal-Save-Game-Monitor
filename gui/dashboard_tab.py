@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 from game_data.npc_db import get_npc_db
 from game_data.talent_db import get_talent_db
 from gui.enemy_panel import EnemyPanel
-from gui.memory_reader import MemoryReader, take_preattached_reader
+from gui.memory_reader import MemoryReader, is_process_running, take_preattached_reader
 from gui.sheet_view import CharacterSheetView
 from gui.theme import BORDER, SURFACE0
 
@@ -31,10 +32,11 @@ _MONO_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
 class DashboardTab(QWidget):
     """Main monitor workspace: character sub-tabs | enemies | output log."""
 
-    analyze_requested    = Signal(str, str)  # folder_name, question
-    game_status_changed  = Signal(bool)      # True = active
-    game_connected       = Signal()          # emitted after a successful game attach
-    _enemies_ready       = Signal(list)      # list[EntityInfo] — bg thread → main thread
+    analyze_requested = Signal(str, str)  # folder_name, question
+    game_status_changed = Signal(bool)  # True = active
+    game_connected = Signal()  # emitted after a successful game attach
+    _attach_succeeded = Signal()
+    _enemies_ready = Signal(list)  # list[EntityInfo] — bg thread → main thread
     _live_inventory_ready = Signal(object, object, object, object)
 
     def __init__(
@@ -43,33 +45,37 @@ class DashboardTab(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._sheets_root: Path | None  = None
+        self._sheets_root: Path | None = None
         self._current_folder: str | None = None
-        self._chars: dict[str, str] = {}   # folder_name → display name
+        self._chars: dict[str, str] = {}  # folder_name → display name
         self._settings_tab: QWidget | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Warm NPC database in background (zip parse / cache load) ──────
-        threading.Thread(target=get_npc_db, daemon=True).start()
-        threading.Thread(target=get_talent_db, daemon=True).start()
-
         # ── Memory reader (state only; finalization is deferred below) ────
-        # Adopt the pre-warmed reader if app.py kicked one off at startup.
-        # We wait briefly (≤2.5s) for the bg attach to finish — if it hasn't,
-        # take_preattached_reader returns None to avoid racing a second
-        # attach() on the same instance.
-        self._reader = take_preattached_reader(wait_timeout=2.5) or MemoryReader()
+        # App startup kicks off a background pre-attach.  We do not block the
+        # UI waiting for it here; instead we poll briefly and adopt the reader
+        # once it finishes, falling back to a local attach only if needed.
+        self._reader = MemoryReader()
         self._attach_pending = False
-        self._hp_fail_count  = 0
+        self._awaiting_preattach = True
+        self._preattach_deadline = time.monotonic() + 5.0
+        self._hp_fail_count = 0
         self._last_level_id: str | None = None
         self._game_session_ready = False
         self._inventory_poll_pending = False
+        self._cache_warm_started = False
+        self._shutting_down = False
+
+        self._preattach_poll = QTimer(self)
+        self._preattach_poll.setInterval(100)
+        self._preattach_poll.timeout.connect(self._check_preattached_reader)
+        self._preattach_poll.start()
 
         self._game_poll = QTimer(self)
-        self._game_poll.setInterval(3000)
+        self._game_poll.setInterval(1000)
         self._game_poll.timeout.connect(self._check_game_process)
         self._game_poll.start()
 
@@ -106,13 +112,14 @@ class DashboardTab(QWidget):
         # Left — character sub-tabs
         self._subtabs = QTabWidget()
         self._sheet_visual = CharacterSheetView()
-        self._subtabs.addTab(self._sheet_visual,         "Character Sheet")
-        self._subtabs.addTab(self._build_sheet_tab(),    "Sheet")
+        self._subtabs.addTab(self._sheet_visual, "Character Sheet")
+        self._subtabs.addTab(self._build_sheet_tab(), "Sheet")
         self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
         splitter.addWidget(self._subtabs)
 
         self._enemy_panel = EnemyPanel()
         self._sheet_visual.set_enemy_panel(self._enemy_panel)
+        self._attach_succeeded.connect(self._on_attach_succeeded)
         self._enemies_ready.connect(self._handle_enemies_ready)
         self._live_inventory_ready.connect(self._handle_live_inventory_ready)
         splitter.addWidget(log_panel)
@@ -127,11 +134,9 @@ class DashboardTab(QWidget):
         # flow via the event loop so it fires after __init__ fully returns
         # and MainWindow has had a chance to register characters, or (b) no
         # hot reader → fall through to the normal process-detection path.
-        if self._reader.attached:
-            self.game_status_changed.emit(True)
-            QTimer.singleShot(0, self._on_attach_succeeded)
-        else:
-            self._check_game_process()
+        QTimer.singleShot(0, self._start_background_warmup)
+        QTimer.singleShot(0, self._check_preattached_reader)
+        QTimer.singleShot(0, self._check_game_process)
 
     # ── Sub-tab builders ───────────────────────────────────────────────────
 
@@ -163,8 +168,7 @@ class DashboardTab(QWidget):
         q_label.setProperty("subheading", True)
         self._analysis_input = QPlainTextEdit()
         self._analysis_input.setPlaceholderText(
-            "Ask a question about this character…\n"
-            'e.g. "What should I fix before entering Dreadfell?"'
+            'Ask a question about this character…\ne.g. "What should I fix before entering Dreadfell?"'
         )
         self._analysis_input.setFixedHeight(80)
 
@@ -180,9 +184,7 @@ class DashboardTab(QWidget):
         self._analysis_output = QTextEdit()
         self._analysis_output.setReadOnly(True)
         self._analysis_output.setStyleSheet("font-size: 13px;")
-        self._analysis_output.setPlaceholderText(
-            "Analysis results will appear here after you click Analyze."
-        )
+        self._analysis_output.setPlaceholderText("Analysis results will appear here after you click Analyze.")
 
         lay.addWidget(q_label)
         lay.addWidget(self._analysis_input)
@@ -209,6 +211,26 @@ class DashboardTab(QWidget):
         if self._current_folder:
             self._load_sheet(self._current_folder)
 
+    def shutdown(self) -> None:
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        for timer in (
+            self._preattach_poll,
+            self._game_poll,
+            self._hp_poll,
+            self._level_poll,
+            self._progression_poll,
+            self._inventory_poll,
+            self._prodigy_poll,
+        ):
+            if timer.isActive():
+                timer.stop()
+        self._attach_pending = False
+        self._awaiting_preattach = False
+        self._inventory_poll_pending = False
+        self._reader.detach()
+
     def set_analysis_result(self, text: str) -> None:
         self._analysis_output.setPlainText(text)
         self._analyze_btn.setEnabled(True)
@@ -229,7 +251,7 @@ class DashboardTab(QWidget):
     def _load_sheet(self, folder_name: str) -> None:
         if not self._sheets_root:
             return
-        char_name  = self._chars.get(folder_name, "")
+        char_name = self._chars.get(folder_name, "")
         if not self._game_session_ready:
             self._sheet_view.setPlainText("Connecting to game...\n\nCharacter data will load after a live attach.")
             self._sheet_visual.set_game_connected(False)
@@ -249,8 +271,7 @@ class DashboardTab(QWidget):
                 self._sheet_visual.load({}, char_name)
                 return
         placeholder = (
-            "No character sheet available yet.\n\n"
-            "Save in-game to trigger a sync, or use Actions \u2192 Force Sync."
+            "No character sheet available yet.\n\nSave in-game to trigger a sync, or use Actions \u2192 Force Sync."
         )
         self._sheet_view.setPlainText(placeholder)
         self._sheet_visual.set_game_connected(True)
@@ -258,15 +279,53 @@ class DashboardTab(QWidget):
 
     # ── Memory reader polling ──────────────────────────────────────────────
 
-    def _check_game_process(self) -> None:
+    def _start_background_warmup(self) -> None:
+        if self._cache_warm_started:
+            return
+        self._cache_warm_started = True
+        threading.Thread(target=get_npc_db, daemon=True).start()
+        threading.Thread(target=get_talent_db, daemon=True).start()
+
+    def _check_preattached_reader(self) -> None:
+        if self._shutting_down:
+            return
+        if not self._awaiting_preattach:
+            return
+
         try:
-            result = subprocess.run(
-                ["tasklist"], capture_output=True, text=True, timeout=2,
-            )
-            active = "t-engine" in result.stdout.lower()
-        except (OSError, subprocess.TimeoutExpired):
-            active = False
+            reader = take_preattached_reader(wait_timeout=0.0)
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
+        if reader is None:
+            if time.monotonic() < self._preattach_deadline:
+                return
+            self._awaiting_preattach = False
+            self._preattach_poll.stop()
+            self._check_game_process()
+            return
+
+        self._awaiting_preattach = False
+        self._preattach_poll.stop()
+        self._reader = reader
+        if self._reader.attached:
+            self.game_status_changed.emit(True)
+            self._attach_succeeded.emit()
+        else:
+            self._check_game_process()
+
+    def _check_game_process(self) -> None:
+        if self._shutting_down:
+            return
+        try:
+            active = is_process_running("t-engine.exe")
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
         self.game_status_changed.emit(active)
+
+        if self._awaiting_preattach:
+            return
 
         if active and not self._reader.attached and not self._attach_pending:
             self._attach_pending = True
@@ -287,12 +346,14 @@ class DashboardTab(QWidget):
             ok = self._reader.attach()
         finally:
             self._attach_pending = False
-        if ok:
-            self._on_attach_succeeded()
+        if ok and not self._shutting_down:
+            self._attach_succeeded.emit()
 
     def _on_attach_succeeded(self) -> None:
         """Post-attach finalization — runs from either the bg attach thread or
         the main thread when adopting a pre-warmed reader."""
+        if self._shutting_down:
+            return
         self._game_session_ready = True
         self._sheet_visual.set_game_connected(True)
         self.refresh_current()
@@ -301,24 +362,34 @@ class DashboardTab(QWidget):
         self.game_connected.emit()
 
     def _poll_hp(self) -> None:
+        if self._shutting_down:
+            return
         if not self._reader.attached:
             return
-        hp = self._reader.read_player_hp()
+        try:
+            hp = self._reader.read_player_hp()
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
         if hp is not None:
             self._hp_fail_count = 0
             life, max_life = hp
             self._sheet_visual.set_hp(life, max_life)
-            sprite = self._reader.read_player_sprite()
+            try:
+                sprite = self._reader.read_player_sprite()
+                mana = self._reader.read_player_mana()
+                exp = self._reader.read_player_exp()
+            except KeyboardInterrupt:
+                self._handle_forced_interrupt()
+                return
             if sprite is not None:
                 self._sheet_visual.set_sprite(*sprite)
             else:
                 self._sheet_visual.clear_sprite()
-            mana = self._reader.read_player_mana()
             if mana is not None:
                 self._sheet_visual.set_mana(*mana)
             else:
                 self._sheet_visual.clear_mana()
-            exp = self._reader.read_player_exp()
             if exp is not None:
                 self._sheet_visual.set_exp(*exp)
             else:
@@ -329,7 +400,7 @@ class DashboardTab(QWidget):
                 self._reader.detach()
                 self._game_session_ready = False
                 self._enemy_panel.set_loading(False)
-                self._sheet_visual.clear_hp()   # also clears mana via clear_hp
+                self._sheet_visual.clear_hp()  # also clears mana via clear_hp
                 self._sheet_visual.clear_exp()
                 self._sheet_visual.clear_sprite()
                 self._sheet_visual.clear_live_inventory()
@@ -339,9 +410,15 @@ class DashboardTab(QWidget):
                 self._hp_fail_count = 0
 
     def _poll_level_id(self) -> None:
+        if self._shutting_down:
+            return
         if not self._reader.attached:
             return
-        level_id = self._reader.read_level_id()
+        try:
+            level_id = self._reader.read_level_id()
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
         if level_id is None:
             return
         if level_id != self._last_level_id:
@@ -358,14 +435,22 @@ class DashboardTab(QWidget):
         self._enemy_panel.update_enemies(entities)
 
     def _poll_progression(self) -> None:
+        if self._shutting_down:
+            return
         if not self._reader.attached:
             return
-        visited = self._reader.read_visited_zones()
-        deaths  = self._reader.read_unique_deaths()
-        current = self._reader.read_current_zone()
+        try:
+            visited = self._reader.read_visited_zones()
+            deaths = self._reader.read_unique_deaths()
+            current = self._reader.read_current_zone()
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
         self._sheet_visual.update_progression(visited, deaths, current)
 
     def _poll_inventory(self) -> None:
+        if self._shutting_down:
+            return
         if not self._reader.attached:
             self._sheet_visual.clear_live_inventory()
             self._sheet_visual.set_live_talents(None)
@@ -376,10 +461,17 @@ class DashboardTab(QWidget):
         threading.Thread(target=self._read_live_inventory_bundle, daemon=True).start()
 
     def _poll_talents(self) -> None:
+        if self._shutting_down:
+            return
         if not self._reader.attached:
             self._sheet_visual.set_live_talents(None)
             return
-        self._sheet_visual.set_live_talents(self._reader.read_player_talents())
+        try:
+            talents = self._reader.read_player_talents()
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
+        self._sheet_visual.set_live_talents(talents)
 
     def _read_live_inventory_bundle(self) -> None:
         try:
@@ -397,11 +489,23 @@ class DashboardTab(QWidget):
         self._sheet_visual.set_live_talents(talents)
 
     def _poll_prodigies(self) -> None:
+        if self._shutting_down:
+            return
         if not self._reader.attached:
             self._sheet_visual.set_live_prodigies(None)
             return
-        available = self._reader.read_prodigies()
+        try:
+            available = self._reader.read_prodigies()
+        except KeyboardInterrupt:
+            self._handle_forced_interrupt()
+            return
         self._sheet_visual.set_live_prodigies(available if available else None)
+
+    def _handle_forced_interrupt(self) -> None:
+        self.shutdown()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     # ── Analysis ───────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from models import AppConfig, CharacterConfig
 
@@ -42,9 +43,28 @@ def ensure_baseline_backup(char: CharacterConfig, config: AppConfig) -> None:
 def restore_backup(backup_path: Path, save_root: Path, folder_name: str) -> None:
     """Overwrite the current save directory with the contents of *backup_path*."""
     save_path = save_root / folder_name
-    if save_path.exists():
-        shutil.rmtree(save_path)
-    shutil.copytree(backup_path, save_path)
+    if not backup_path.is_dir():
+        raise OSError(f"Backup not found: {backup_path}")
+
+    temp_restore_path = save_root / f".{folder_name}.restore-{uuid4().hex}"
+    rollback_path = save_root / f".{folder_name}.rollback-{uuid4().hex}"
+
+    try:
+        shutil.copytree(backup_path, temp_restore_path)
+
+        if save_path.exists():
+            save_path.replace(rollback_path)
+
+        temp_restore_path.replace(save_path)
+    except OSError:
+        if temp_restore_path.exists():
+            shutil.rmtree(temp_restore_path, ignore_errors=True)
+        if rollback_path.exists() and not save_path.exists():
+            rollback_path.replace(save_path)
+        raise
+    else:
+        if rollback_path.exists():
+            shutil.rmtree(rollback_path)
 
 
 def get_latest_save_mtime(path: Path) -> float:

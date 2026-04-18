@@ -23,16 +23,16 @@ from pathlib import Path
 
 # ── Hue ranges (degrees, 0-360) ───────────────────────────────────────────────
 _HUE_RANGES: dict[str, list[tuple[int, int]]] = {
-    "red":    [(0, 15), (345, 360)],
+    "red": [(0, 15), (345, 360)],
     "orange": [(15, 40)],
     "yellow": [(40, 70)],
-    "green":  [(70, 165)],
-    "blue":   [(165, 260)],
+    "green": [(70, 165)],
+    "blue": [(165, 260)],
     "purple": [(260, 320)],
-    "pink":   [(320, 345)],
-    "grey":   [],   # handled separately via saturation
-    "gray":   [],
-    "white":  [],   # handled separately via lightness
+    "pink": [(320, 345)],
+    "grey": [],  # handled separately via saturation
+    "gray": [],
+    "white": [],  # handled separately via lightness
 }
 
 
@@ -54,7 +54,7 @@ def dominant_color_score(path: Path, target: str) -> float:
     matches = 0
 
     for r, g, b, a in pixels:
-        if a < 30:          # skip near-transparent pixels
+        if a < 30:  # skip near-transparent pixels
             continue
         total += 1
 
@@ -76,9 +76,9 @@ def dominant_color_score(path: Path, target: str) -> float:
                 matches += 1
             continue
 
-        if delta == 0:      # achromatic — no hue
+        if delta == 0:  # achromatic — no hue
             continue
-        if sat < 0.20:      # too desaturated to call a color
+        if sat < 0.20:  # too desaturated to call a color
             continue
 
         if cmax == rf:
@@ -113,7 +113,7 @@ def main() -> None:
     threshold = float(sys.argv[2]) if len(sys.argv) > 2 else 0.25
     icons_dir = Path(__file__).parent.parent / "Icons" / "talents"
 
-    print(f"Scanning {icons_dir} for icons with >{threshold*100:.0f}% {target} pixels...\n")
+    print(f"Scanning {icons_dir} for icons with >{threshold * 100:.0f}% {target} pixels...\n")
 
     results: list[tuple[float, str]] = []
     files = sorted(icons_dir.glob("*.png"))
@@ -127,7 +127,7 @@ def main() -> None:
     results.sort(reverse=True)
     print(f"\n{len(results)} icons found:\n")
     for score, stem in results:
-        print(f"  {score*100:5.1f}%  {stem}")
+        print(f"  {score * 100:5.1f}%  {stem}")
 
 
 if __name__ == "__main__":

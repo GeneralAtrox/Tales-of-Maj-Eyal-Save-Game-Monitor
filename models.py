@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
-
 DEFAULT_SAVE_ROOT: Final[Path] = Path.home() / "T-Engine" / "4.0" / "tome" / "save"
 
 
@@ -56,11 +55,7 @@ class AppConfig:
             save_root=Path(str(data.get("save_root", DEFAULT_SAVE_ROOT))),
             backup_limit=int(data.get("backup_limit", 3)),
             profile_id=str(data.get("profile_id", "")),
-            characters=[
-                CharacterConfig.from_dict(item)
-                for item in raw_chars
-                if isinstance(item, dict)
-            ],
+            characters=[CharacterConfig.from_dict(item) for item in raw_chars if isinstance(item, dict)],
         )
 
     def to_dict(self) -> dict[str, object]:

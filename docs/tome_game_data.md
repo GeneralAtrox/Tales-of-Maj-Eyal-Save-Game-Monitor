@@ -71,6 +71,36 @@ With argument labels: `{1}=damage%, {2}=power, {3}=duration`
 - Helper functions differ per file — no shared stdlib
 - `require` fields reference global constants (`cuns_req1`, `cuns_req2`, …) defined either at the file top or in `engine/` base files
 
+### Talent Tree Layout And Ordering
+
+The in-game talent tree layout is not driven by the raw `data/talents/...` files alone.
+The runtime UI uses the actor's category list and each category's ordered talent list.
+
+Confirmed source files inside:
+`C:\Program Files (x86)\Steam\steamapps\common\TalesMajEyal\game\modules\tome.team`
+
+- `mod/dialogs/LevelupDialog.lua`
+- `mod/dialogs/CharacterSheet.lua`
+- `mod/class/interface/PlayerDumpJSON.lua`
+
+Confirmed runtime rules:
+
+1. Category order is built from `ipairs(self.actor.talents_types_def)`.
+2. Talent order inside a category is built from `ipairs(tt.talents)`.
+3. Hidden categories are skipped with `not tt.hide`.
+4. A category is shown only if `self.talents_types[tt.type]` is not `nil`.
+5. In the levelup dialog, known categories are shown before locked-but-available categories.
+6. Category labels are formatted as:
+   `("%s / %s"):format(_t(cat, "talent category"):capitalize(), tt.name:capitalize())`
+
+Practical implication for this project:
+
+- Do not derive final talent ordering from unordered memory hash iteration.
+- Do not hardcode talent category order per class.
+- Prefer the actor/runtime category list semantics used by the Lua UI.
+- If reproducing the in-game ordering from live memory, mirror the same rules the dialogs use:
+  category list order from runtime defs, then known categories first, then `tt.talents` order within each category.
+
 ---
 
 ## 2. Quests — `data/quests/`

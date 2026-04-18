@@ -29,6 +29,7 @@ class EquipmentEntry(TypedDict, total=False):
     Properties: dict[str, ItemFieldValue]
     Notes: list[str]
 
+
 HEADING_TAGS: Final[tuple[str, ...]] = ("h2", "h3", "h4")
 IGNORED_SECTION_TITLES: Final[frozenset[str]] = frozenset({"Features:"})
 BUILD_ANALYSIS_CHARACTER_FIELDS: Final[tuple[str, ...]] = (
@@ -42,28 +43,30 @@ BUILD_ANALYSIS_CHARACTER_FIELDS: Final[tuple[str, ...]] = (
     "Lifes / Deaths",
 )
 LOW_SIGNAL_SECTIONS: Final[frozenset[str]] = frozenset({"Quests"})
-SIMPLE_KEY_VALUE_SECTIONS: Final[frozenset[str]] = frozenset({
-    "Primary Stats",
-    "Resources",
-    "Speed",
-    "Vision",
-    "Offense: Mainhand",
-    "Offense: Offhand",
-    "Offense: Spell",
-    "Offense: Mind",
-    "Offense: Damage Bonus",
-    "Offense: Damage Penetration",
-    "Defense: Base",
-    "Defense: Resistances",
-    "Defense: Immunities",
-})
+SIMPLE_KEY_VALUE_SECTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "Primary Stats",
+        "Resources",
+        "Speed",
+        "Vision",
+        "Offense: Mainhand",
+        "Offense: Offhand",
+        "Offense: Spell",
+        "Offense: Mind",
+        "Offense: Damage Bonus",
+        "Offense: Damage Penetration",
+        "Defense: Base",
+        "Defense: Resistances",
+        "Defense: Immunities",
+    }
+)
 UI_CLUTTER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(This item will automatically be transmogrified|Crafted by a master|Infused by psionic forces|Powered by arcane forces)\s*"
 )
 CHARACTER_NAME_SUFFIX_PATTERN: Final[re.Pattern[str]] = re.compile(r"\s+by\S+$")
 SHORT_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r'(?m)^\s*short_name\b\s*=\s*["\']([^"\']+)["\']')
 NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r'(?m)^\s*name\b\s*=\s*["\']([^"\']+)["\']')
-LOADABLE_PATTERN: Final[re.Pattern[str]] = re.compile(r'(?m)^\s*loadable\b\s*=\s*(true|false)\b')
+LOADABLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?m)^\s*loadable\b\s*=\s*(true|false)\b")
 LIFE_DEATHS_SUMMARY_PATTERN: Final[re.Pattern[str]] = re.compile(r"(\d+\s*/\s*\d+)\s*$")
 TALENT_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"([A-Z][A-Za-z' -]+)$")
 TALENT_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
@@ -80,8 +83,12 @@ TALENT_STAT_BONUS_PATTERN: Final[re.Pattern[str]] = re.compile(
 TALENT_SCALE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?:increase|improve|scale)(?:s|d)?\s+(?:with|based on)\s+(?:your\s+)?([A-Z][A-Za-z]+(?:\s+and\s+[A-Z][A-Za-z]+)*)",
 )
-TALENT_DURATION_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?:for|lasts?|duration of)\s+(\d+\s+turns?)", flags=re.IGNORECASE)
-ITEM_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"^(?:[^|]+\s+\|\s+)?(?P<name>.+?)\s+\d+(?:\.\d+)?\s+Encumbrance\.")
+TALENT_DURATION_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?:for|lasts?|duration of)\s+(\d+\s+turns?)", flags=re.IGNORECASE
+)
+ITEM_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^(?:[^|]+\s+\|\s+)?(?P<name>.+?)\s+\d+(?:\.\d+)?\s+Encumbrance\."
+)
 ITEM_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"Type:\s*([^;]+)\s*;")
 ITEM_TIER_PATTERN: Final[re.Pattern[str]] = re.compile(r"\btier\s+\d+\b")
 ITEM_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(r"\[[^\]]+\]")
@@ -108,36 +115,40 @@ INSCRIPTION_DESCRIPTION_PATTERN: Final[re.Pattern[str]] = re.compile(
 ACTIVATION_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"It can be used to (.*?)(?=\s+Activation puts|\s+Activation costs|\s+When used:|\s+Range:|\s+Cooldown:|\s+Travel Speed:|\s+Usage Speed:|\s+Description:|$)"
 )
-ACTIVATION_COOLDOWN_PATTERN: Final[re.Pattern[str]] = re.compile(r"Activation puts .*? cooldown for \d+\s+turns?\.", flags=re.IGNORECASE)
+ACTIVATION_COOLDOWN_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"Activation puts .*? cooldown for \d+\s+turns?\.", flags=re.IGNORECASE
+)
 ITEM_DESCRIPTION_PATTERN: Final[re.Pattern[str]] = re.compile(r"Description:\s*(.*)$")
 ITEM_SECTION_MARKER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\s*(?:When wielded/worn|When inscribed on your body|When carried):\s*"
 )
 EFFECT_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^(.*?)\s+\|\s+(.*)$")
-INVENTORY_GEM_NAMES: Final[frozenset[str]] = frozenset({
-    "agate",
-    "almandine",
-    "amethyst",
-    "ametrine",
-    "aquamarine",
-    "bloodstone",
-    "citrine",
-    "diamond",
-    "emerald",
-    "garnet",
-    "jade",
-    "lapis lazuli",
-    "moonstone",
-    "onyx",
-    "opal",
-    "quartz",
-    "ruby",
-    "sapphire",
-    "spinel",
-    "topaz",
-    "turquoise",
-    "zircon",
-})
+INVENTORY_GEM_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "agate",
+        "almandine",
+        "amethyst",
+        "ametrine",
+        "aquamarine",
+        "bloodstone",
+        "citrine",
+        "diamond",
+        "emerald",
+        "garnet",
+        "jade",
+        "lapis lazuli",
+        "moonstone",
+        "onyx",
+        "opal",
+        "quartz",
+        "ruby",
+        "sapphire",
+        "spinel",
+        "topaz",
+        "turquoise",
+        "zircon",
+    }
+)
 ITEM_FIELD_LABELS: Final[tuple[str, ...]] = (
     "Accuracy bonus",
     "Accuracy",
@@ -280,7 +291,11 @@ def extract_optimized_data(html_content: str, *, has_transmo: bool = True) -> Ag
 
     for section in soup.find_all(HEADING_TAGS):
         section_title = section.get_text(strip=True)
-        if section_title == character_title or section_title in IGNORED_SECTION_TITLES or section_title in LOW_SIGNAL_SECTIONS:
+        if (
+            section_title == character_title
+            or section_title in IGNORED_SECTION_TITLES
+            or section_title in LOW_SIGNAL_SECTIONS
+        ):
             continue
 
         content_list = _collect_section_content(section)
@@ -323,7 +338,9 @@ def _collect_section_content(section) -> list[str]:
         if node.name == "table":
             content_list.extend(_extract_table_rows(node))
         elif node.name == "ul":
-            content_list.extend(" ".join(item.get_text(separator=" ", strip=True).split()) for item in node.find_all("li"))
+            content_list.extend(
+                " ".join(item.get_text(separator=" ", strip=True).split()) for item in node.find_all("li")
+            )
         node = node.find_next_sibling()
     return content_list
 
@@ -447,7 +464,9 @@ def _parse_quests_section(content_list: list[str]) -> list[str]:
             parsed.append(row)
             continue
         description, status = row.rsplit(" | ", 1)
-        fragments = [fragment.strip(" *") for fragment in re.split(r"\.\s+|!\s+|\s+\*\s+", description) if fragment.strip(" *")]
+        fragments = [
+            fragment.strip(" *") for fragment in re.split(r"\.\s+|!\s+|\s+\*\s+", description) if fragment.strip(" *")
+        ]
         title = fragments[-1] if fragments else description.strip()
         parsed.append(f"{title} | {status.strip()}")
     return parsed
@@ -614,7 +633,7 @@ def _render_item_metadata(tier: int | None, tags: list[str]) -> str:
 def _extract_item_segments(body: str) -> list[str]:
     mechanics = body
     if encumbrance_match := ITEM_ENCUMBRANCE_PATTERN.search(mechanics):
-        mechanics = mechanics[encumbrance_match.end():].strip()
+        mechanics = mechanics[encumbrance_match.end() :].strip()
     mechanics = re.sub(r"^(?:\[[^\]]+\]\s*)*(?:Type:[^;]+;\s*)?(?:tier\s+\d+\b)?\s*", "", mechanics).strip()
     mechanics = ITEM_SECTION_MARKER_PATTERN.sub(" ", mechanics)
     mechanics = mechanics.replace("It must be held with both hands.", " ").strip()
@@ -702,7 +721,9 @@ def _extract_talent_name(raw_desc: str) -> str:
         tail_fragment = re.split(r"(?<=[.!?])\s+", description)[-1].strip()
         if tail_fragment and (name_search := TALENT_NAME_PATTERN.fullmatch(tail_fragment)):
             return name_search.group(1).strip()
-        if tail_fragment and (fallback_search := re.search(r"([A-Z][A-Za-z']+(?:\s+[A-Z][A-Za-z']+)?)$", tail_fragment)):
+        if tail_fragment and (
+            fallback_search := re.search(r"([A-Z][A-Za-z']+(?:\s+[A-Z][A-Za-z']+)?)$", tail_fragment)
+        ):
             return fallback_search.group(1).strip()
     if name_search := TALENT_NAME_PATTERN.search(raw_desc):
         return name_search.group(1).strip()

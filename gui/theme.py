@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 # Catppuccin Mocha-inspired dark palette
-BG       = "#1e1e2e"
+BG = "#1e1e2e"
 SURFACE0 = "#181825"
 SURFACE1 = "#313244"
 SURFACE2 = "#45475a"
-OVERLAY  = "#6c7086"
-TEXT     = "#cdd6f4"
+OVERLAY = "#6c7086"
+TEXT = "#cdd6f4"
 SUBTEXT1 = "#bac2de"
 SUBTEXT0 = "#a6adc8"
-BLUE     = "#89b4fa"
-GREEN    = "#a6e3a1"
-YELLOW   = "#f9e2af"
-RED      = "#f38ba8"
-MAUVE    = "#cba6f7"
-TEAL     = "#94e2d5"
-BORDER   = "#313244"
+BLUE = "#89b4fa"
+GREEN = "#a6e3a1"
+YELLOW = "#f9e2af"
+RED = "#f38ba8"
+MAUVE = "#cba6f7"
+TEAL = "#94e2d5"
+BORDER = "#313244"
 
 STYLESHEET = f"""
 /* ── Global ── */

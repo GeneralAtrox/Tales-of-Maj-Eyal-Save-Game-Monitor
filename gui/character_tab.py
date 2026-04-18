@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -19,16 +19,16 @@ from PySide6.QtWidgets import (
 )
 
 from gui.sheet_view import CharacterSheetView
-from gui.theme import BORDER, SUBTEXT0, SURFACE0, SURFACE1, TEXT
+from gui.theme import BORDER, SURFACE0
 
-_MONO_FONT = "\"Cascadia Code\", \"Consolas\", \"Courier New\", monospace"
+_MONO_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
 
 
 class CharacterTab(QWidget):
     """Per-character detail view: Sheet JSON, Backups list, Analysis prompt."""
 
-    analyze_requested  = Signal(str, str)  # folder_name, question
-    restore_requested  = Signal(str, str)  # folder_name, backup_name
+    analyze_requested = Signal(str, str)  # folder_name, question
+    restore_requested = Signal(str, str)  # folder_name, backup_name
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class CharacterTab(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._sheets_root  = sheets_root
+        self._sheets_root = sheets_root
         self._backups_root = backups_root
         self._current_folder: str | None = None
         self._chars: dict[str, str] = {}  # folder_name → display name
@@ -64,15 +64,15 @@ class CharacterTab(QWidget):
 
         # Sub-tab indices (keep in sync with SUBTAB_* constants below)
         self._sheet_visual = CharacterSheetView()
-        self._subtabs.addTab(self._sheet_visual,          "Character Sheet")
-        self._subtabs.addTab(self._build_sheet_tab(),     "Sheet")
-        self._subtabs.addTab(self._build_backups_tab(),   "Backups")
-        self._subtabs.addTab(self._build_analysis_tab(),  "Analysis")
+        self._subtabs.addTab(self._sheet_visual, "Character Sheet")
+        self._subtabs.addTab(self._build_sheet_tab(), "Sheet")
+        self._subtabs.addTab(self._build_backups_tab(), "Backups")
+        self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
 
     SUBTAB_CHARACTER_SHEET = 0
-    SUBTAB_RAW_SHEET       = 1
-    SUBTAB_BACKUPS         = 2
-    SUBTAB_ANALYSIS        = 3
+    SUBTAB_RAW_SHEET = 1
+    SUBTAB_BACKUPS = 2
+    SUBTAB_ANALYSIS = 3
 
     # ── Tab builders ─────────────────────────────────────────────────────
 
@@ -124,8 +124,7 @@ class CharacterTab(QWidget):
         q_label.setProperty("subheading", True)
         self._analysis_input = QPlainTextEdit()
         self._analysis_input.setPlaceholderText(
-            "Ask a question about this character…\n"
-            "e.g. \"What should I fix before entering Dreadfell?\""
+            'Ask a question about this character…\ne.g. "What should I fix before entering Dreadfell?"'
         )
         self._analysis_input.setFixedHeight(80)
 
@@ -140,10 +139,8 @@ class CharacterTab(QWidget):
         a_label.setProperty("subheading", True)
         self._analysis_output = QTextEdit()
         self._analysis_output.setReadOnly(True)
-        self._analysis_output.setStyleSheet(f"font-size: 13px;")
-        self._analysis_output.setPlaceholderText(
-            "Analysis results will appear here after you click Analyze."
-        )
+        self._analysis_output.setStyleSheet("font-size: 13px;")
+        self._analysis_output.setPlaceholderText("Analysis results will appear here after you click Analyze.")
 
         for widget in (q_label, self._analysis_input):
             lay.addWidget(widget)
@@ -189,7 +186,7 @@ class CharacterTab(QWidget):
 
     def _load_sheet(self, folder_name: str) -> None:
         sheet_path = self._sheets_root / f"data_{folder_name}.json"
-        char_name  = self._chars.get(folder_name, "")
+        char_name = self._chars.get(folder_name, "")
         if sheet_path.exists():
             try:
                 data = json.loads(sheet_path.read_text(encoding="utf-8"))

@@ -29,8 +29,8 @@ class SettingsTab(QWidget):
     compact.
     """
 
-    config_saved = Signal(object)    # emits AppConfig
-    config_reloaded = Signal(object) # emits AppConfig (for status bar)
+    config_saved = Signal(object)  # emits AppConfig
+    config_reloaded = Signal(object)  # emits AppConfig (for status bar)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -86,8 +86,7 @@ class SettingsTab(QWidget):
         self._backup_limit_spin.setValue(3)
         self._backup_limit_spin.setFixedWidth(80)
         self._backup_limit_spin.setToolTip(
-            "Maximum number of timestamped backups kept per character.\n"
-            "Oldest are removed when the limit is exceeded."
+            "Maximum number of timestamped backups kept per character.\nOldest are removed when the limit is exceeded."
         )
         backup_form.addRow("Keep last N backups:", self._backup_limit_spin)
         root.addWidget(backup_box)
@@ -105,8 +104,8 @@ class SettingsTab(QWidget):
         config_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         config_menu = QMenu(config_btn)
-        config_menu.addAction("Save",            self._save_config)
-        config_menu.addAction("Reload",          self._reload_fields)
+        config_menu.addAction("Save", self._save_config)
+        config_menu.addAction("Reload", self._reload_fields)
         config_menu.addSeparator()
         config_menu.addAction("Reset to Defaults", self._reset_defaults)
         config_btn.setMenu(config_menu)
@@ -136,8 +135,8 @@ class SettingsTab(QWidget):
     def _save_config(self) -> None:
         if not self._config:
             return
-        self._config.save_root    = Path(self._save_root_edit.text()).expanduser()
-        self._config.profile_id   = self._profile_id_edit.text().strip()
+        self._config.save_root = Path(self._save_root_edit.text()).expanduser()
+        self._config.profile_id = self._profile_id_edit.text().strip()
         self._config.backup_limit = self._backup_limit_spin.value()
         self.config_saved.emit(self._config)
 
