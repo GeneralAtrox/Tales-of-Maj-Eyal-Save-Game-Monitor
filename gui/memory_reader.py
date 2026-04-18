@@ -14,77 +14,165 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes
+import re
 import struct
 import subprocess
 import sys
+import zipfile
+from pathlib import Path
 from typing import Any, Final
 
 # ── Prodigy database ─────────────────────────────────────────────────────────
-# Static map: T_* ID → (display_name, primary_stat_key).
-# Sourced from data/talents/uber/*.lua (uberTalent{} blocks); hidden prodigies
-# (not_listed = true) are excluded.  Stat key matches game.player.stats sub-table
-# keys: "str" | "dex" | "con" | "mag" | "wil" | "cun".
+# Dynamically parsed from the game's tome.team zip archive at startup; falls
+# back to a hardcoded snapshot if the archive cannot be found/parsed.
+# Map: T_* ID → (display_name, primary_stat_key).
+# Stat key matches game.player.stats sub-table: "str"|"dex"|"con"|"mag"|"wil"|"cun".
 # All prodigies require level 25 and 50+ in the listed stat.
-_PRODIGY_DB: Final[dict[str, tuple[str, str]]] = {
-    # Constitution
-    "T_DRACONIC_BODY":           ("Draconic Body",             "con"),
-    "T_BLOODSPRING":             ("Bloodspring",               "con"),
-    "T_ETERNAL_GUARD":           ("Eternal Guard",             "con"),
-    "T_NEVER_STOP_RUNNING":      ("Never Stop Running",        "con"),
-    "T_ARMOUR_OF_SHADOWS":       ("Armour of Shadows",         "con"),
-    "T_SPINE_OF_THE_WORLD":      ("Spine of the World",        "con"),
-    "T_FUNGAL_BLOOD":            ("Fungal Blood",              "con"),
-    "T_CORRUPTED_SHELL":         ("Corrupted Shell",           "con"),
-    # Cunning  (T_FAST_AS_LIGHTNING excluded: not_listed=true)
-    "T_TRICKY_DEFENSES":         ("Tricky Defenses",           "cun"),
-    "T_ENDLESS_WOES":            ("Endless Woes",              "cun"),
-    "T_SECRETS_OF_TELOS":        ("Secrets of Telos",          "cun"),
-    "T_ELEMENTAL_SURGE":         ("Elemental Surge",           "cun"),
-    "T_EYE_OF_THE_TIGER":        ("Eye of the Tiger",          "cun"),
-    "T_WORLDLY_KNOWLEDGE":       ("Worldly Knowledge",         "cun"),
-    "T_ADEPT":                   ("Adept",                     "cun"),
-    "T_TRICKS_OF_THE_TRADE":     ("Tricks of the Trade",       "cun"),
-    # Dexterity
-    "T_FLEXIBLE_COMBAT":         ("Flexible Combat",           "dex"),
-    "T_THROUGH_THE_CROWD":       ("Through The Crowd",         "dex"),
-    "T_SWIFT_HANDS":             ("Swift Hands",               "dex"),
-    "T_WINDBLADE":               ("Windblade",                 "dex"),
-    "T_WINDTOUCHED_SPEED":       ("Windtouched Speed",         "dex"),
-    "T_CRAFTY_HANDS":            ("Crafty Hands",              "dex"),
-    "T_ROLL_WITH_IT":            ("Roll With It",              "dex"),
-    "T_VITAL_SHOT":              ("Vital Shot",                "dex"),
-    # Magic  (T_SPECTRAL_SHIELD excluded: not_listed=true)
-    "T_ETHEREAL_FORM":           ("Ethereal Form",             "mag"),
-    "T_AETHER_PERMEATION":       ("Aether Permeation",         "mag"),
-    "T_MYSTICAL_CUNNING":        ("Mystical Cunning",          "mag"),
-    "T_ARCANE_MIGHT":            ("Arcane Might",              "mag"),
-    "T_TEMPORAL_FORM":           ("Temporal Form",             "mag"),
-    "T_BLIGHTED_SUMMONING":      ("Blighted Summoning",        "mag"),
-    "T_REVISIONIST_HISTORY":     ("Revisionist History",       "mag"),
-    "T_CAUTERIZE":               ("Cauterize",                 "mag"),
-    "T_LICH":                    ("Lich",                      "mag"),
-    "T_HIGH_THAUMATURGIST":      ("High Thaumaturgist",        "mag"),
-    # Strength
-    "T_GIANT_LEAP":              ("Giant Leap",                "str"),
-    "T_TITAN_S_SMASH":           ("You Shall Be My Weapon!",   "str"),
-    "T_MASSIVE_BLOW":            ("Massive Blow",              "str"),
-    "T_STEAMROLLER":             ("Steamroller",               "str"),
-    "T_IRRESISTIBLE_SUN":        ("Irresistible Sun",          "str"),
-    "T_NO_FATIGUE":              ("I Can Carry The World!",    "str"),
-    "T_LEGACY_OF_THE_NALOREN":   ("Legacy of the Naloren",     "str"),
-    "T_SUPERPOWER":              ("Superpower",                "str"),
-    "T_AVATAR_OF_A_DISTANT_SUN": ("Avatar of a Distant Sun",  "str"),
-    # Willpower
-    "T_DRACONIC_WILL":           ("Draconic Will",             "wil"),
-    "T_METEORIC_CRASH":          ("Meteoric Crash",            "wil"),
-    "T_GARKUL_S_REVENGE":        ("Garkul's Revenge",          "wil"),
-    "T_HIDDEN_RESOURCES":        ("Hidden Resources",          "wil"),
-    "T_LUCKY_DAY":               ("Lucky Day",                 "wil"),
-    "T_UNBREAKABLE_WILL":        ("Unbreakable Will",          "wil"),
-    "T_SPELL_FEEDBACK":          ("Spell Feedback",            "wil"),
-    "T_MENTAL_TYRANNY":          ("Mental Tyranny",            "wil"),
-    "T_FALLEN":                  ("Fallen",                    "wil"),
+
+_UBER_STAT_FILES: Final[dict[str, str]] = {
+    "data/talents/uber/str.lua":   "str",
+    "data/talents/uber/dex.lua":   "dex",
+    "data/talents/uber/const.lua": "con",
+    "data/talents/uber/mag.lua":   "mag",
+    "data/talents/uber/wil.lua":   "wil",
+    "data/talents/uber/cun.lua":   "cun",
 }
+
+# Regex to pull the body of each uberTalent{} block.
+# We match from "uberTalent{" up to a lone "}" on its own line (the closing brace).
+_RE_UBER_BLOCK = re.compile(
+    r"uberTalent\s*\{(.*?)^\}",
+    re.DOTALL | re.MULTILINE,
+)
+_RE_NAME        = re.compile(r'\bname\s*=\s*"([^"]+)"')
+_RE_SHORT_NAME  = re.compile(r'\bshort_name\s*=\s*"([^"]+)"')
+_RE_NOT_LISTED  = re.compile(r'\bnot_listed\s*=\s*true\b')
+
+
+def _find_tome_team() -> Path | None:
+    """Locate the game's tome.team zip in common places."""
+    import os
+    candidates = [
+        Path(os.environ.get("TEMP", "")) / "tome.team",
+        Path(os.environ.get("TMP",  "")) / "tome.team",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "T-Engine" / "tome.team",
+        Path(os.environ.get("APPDATA", ""))       / "T-Engine" / "tome.team",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+def _name_to_tid(name: str) -> str:
+    """Convert a prodigy display name to its T_* ID (mirrors ToME's Lua logic)."""
+    tid = re.sub(r"[^A-Za-z0-9]", "_", name).upper()
+    return f"T_{tid}"
+
+
+def _parse_prodigy_db(team_path: Path) -> dict[str, tuple[str, str]]:
+    """Parse prodigy definitions from the game archive, skipping hidden ones."""
+    db: dict[str, tuple[str, str]] = {}
+    try:
+        with zipfile.ZipFile(team_path, "r") as zf:
+            names_in_zip = set(zf.namelist())
+            for lua_path, stat_key in _UBER_STAT_FILES.items():
+                if lua_path not in names_in_zip:
+                    continue
+                try:
+                    src = zf.read(lua_path).decode("utf-8", errors="replace")
+                except Exception:  # noqa: BLE001
+                    continue
+                for m in _RE_UBER_BLOCK.finditer(src):
+                    body = m.group(1)
+                    if _RE_NOT_LISTED.search(body):
+                        continue
+                    name_m = _RE_NAME.search(body)
+                    if not name_m:
+                        continue
+                    display_name = name_m.group(1)
+                    short_m = _RE_SHORT_NAME.search(body)
+                    if short_m:
+                        tid = f"T_{short_m.group(1).upper()}"
+                    else:
+                        tid = _name_to_tid(display_name)
+                    db[tid] = (display_name, stat_key)
+    except Exception:  # noqa: BLE001
+        pass
+    return db
+
+
+def _build_prodigy_db() -> dict[str, tuple[str, str]]:
+    """Return dynamic DB if parseable; otherwise fall back to static snapshot."""
+    team_path = _find_tome_team()
+    if team_path is not None:
+        db = _parse_prodigy_db(team_path)
+        if db:
+            return db
+    # ── Static fallback snapshot (ToME 1.7.x) ────────────────────────────────
+    return {
+        # Constitution
+        "T_DRACONIC_BODY":           ("Draconic Body",             "con"),
+        "T_BLOODSPRING":             ("Bloodspring",               "con"),
+        "T_ETERNAL_GUARD":           ("Eternal Guard",             "con"),
+        "T_NEVER_STOP_RUNNING":      ("Never Stop Running",        "con"),
+        "T_ARMOUR_OF_SHADOWS":       ("Armour of Shadows",         "con"),
+        "T_SPINE_OF_THE_WORLD":      ("Spine of the World",        "con"),
+        "T_FUNGAL_BLOOD":            ("Fungal Blood",              "con"),
+        "T_CORRUPTED_SHELL":         ("Corrupted Shell",           "con"),
+        # Cunning  (T_FAST_AS_LIGHTNING excluded: not_listed=true)
+        "T_TRICKY_DEFENSES":         ("Tricky Defenses",           "cun"),
+        "T_ENDLESS_WOES":            ("Endless Woes",              "cun"),
+        "T_SECRETS_OF_TELOS":        ("Secrets of Telos",          "cun"),
+        "T_ELEMENTAL_SURGE":         ("Elemental Surge",           "cun"),
+        "T_EYE_OF_THE_TIGER":        ("Eye of the Tiger",          "cun"),
+        "T_WORLDLY_KNOWLEDGE":       ("Worldly Knowledge",         "cun"),
+        "T_ADEPT":                   ("Adept",                     "cun"),
+        "T_TRICKS_OF_THE_TRADE":     ("Tricks of the Trade",       "cun"),
+        # Dexterity
+        "T_FLEXIBLE_COMBAT":         ("Flexible Combat",           "dex"),
+        "T_THROUGH_THE_CROWD":       ("Through The Crowd",         "dex"),
+        "T_SWIFT_HANDS":             ("Swift Hands",               "dex"),
+        "T_WINDBLADE":               ("Windblade",                 "dex"),
+        "T_WINDTOUCHED_SPEED":       ("Windtouched Speed",         "dex"),
+        "T_CRAFTY_HANDS":            ("Crafty Hands",              "dex"),
+        "T_ROLL_WITH_IT":            ("Roll With It",              "dex"),
+        "T_VITAL_SHOT":              ("Vital Shot",                "dex"),
+        # Magic  (T_SPECTRAL_SHIELD excluded: not_listed=true)
+        "T_ETHEREAL_FORM":           ("Ethereal Form",             "mag"),
+        "T_AETHER_PERMEATION":       ("Aether Permeation",         "mag"),
+        "T_MYSTICAL_CUNNING":        ("Mystical Cunning",          "mag"),
+        "T_ARCANE_MIGHT":            ("Arcane Might",              "mag"),
+        "T_TEMPORAL_FORM":           ("Temporal Form",             "mag"),
+        "T_BLIGHTED_SUMMONING":      ("Blighted Summoning",        "mag"),
+        "T_REVISIONIST_HISTORY":     ("Revisionist History",       "mag"),
+        "T_CAUTERIZE":               ("Cauterize",                 "mag"),
+        "T_LICH":                    ("Lich",                      "mag"),
+        "T_HIGH_THAUMATURGIST":      ("High Thaumaturgist",        "mag"),
+        # Strength
+        "T_GIANT_LEAP":              ("Giant Leap",                "str"),
+        "T_TITAN_S_SMASH":           ("You Shall Be My Weapon!",   "str"),
+        "T_MASSIVE_BLOW":            ("Massive Blow",              "str"),
+        "T_STEAMROLLER":             ("Steamroller",               "str"),
+        "T_IRRESISTIBLE_SUN":        ("Irresistible Sun",          "str"),
+        "T_NO_FATIGUE":              ("I Can Carry The World!",    "str"),
+        "T_LEGACY_OF_THE_NALOREN":   ("Legacy of the Naloren",     "str"),
+        "T_SUPERPOWER":              ("Superpower",                "str"),
+        "T_AVATAR_OF_A_DISTANT_SUN": ("Avatar of a Distant Sun",  "str"),
+        # Willpower
+        "T_DRACONIC_WILL":           ("Draconic Will",             "wil"),
+        "T_METEORIC_CRASH":          ("Meteoric Crash",            "wil"),
+        "T_GARKUL_S_REVENGE":        ("Garkul's Revenge",          "wil"),
+        "T_HIDDEN_RESOURCES":        ("Hidden Resources",          "wil"),
+        "T_LUCKY_DAY":               ("Lucky Day",                 "wil"),
+        "T_UNBREAKABLE_WILL":        ("Unbreakable Will",          "wil"),
+        "T_SPELL_FEEDBACK":          ("Spell Feedback",            "wil"),
+        "T_MENTAL_TYRANNY":          ("Mental Tyranny",            "wil"),
+        "T_FALLEN":                  ("Fallen",                    "wil"),
+    }
+
+
+_PRODIGY_DB: Final[dict[str, tuple[str, str]]] = _build_prodigy_db()
 
 # ── Win32 constants ───────────────────────────────────────────────────────────
 PROCESS_VM_READ           = 0x0010
@@ -1535,3 +1623,67 @@ class MemoryReader:
                 available.append(name)
 
         return sorted(available)
+
+
+# ── Background pre-attach ─────────────────────────────────────────────────────
+# Lets app.py kick off the t-engine.exe scan + Lua _G locate at the earliest
+# possible point during startup, in parallel with QApplication construction
+# and the existing-instance shutdown wait.  The DashboardTab then adopts the
+# pre-warmed reader instead of constructing a fresh one and waiting on a
+# synchronous tasklist call.
+
+import threading as _threading
+
+_preattach_lock:  _threading.Lock  = _threading.Lock()
+_preattach_event: _threading.Event = _threading.Event()
+_preattached_reader: "MemoryReader | None" = None
+
+
+def start_background_preattach() -> None:
+    """Begin attaching to t-engine.exe in a background daemon thread.
+
+    Idempotent — calling twice is a no-op.  The result is consumed once via
+    :func:`take_preattached_reader`; until then the reader (whether attached
+    successfully or not) is stashed at module level.
+    """
+    global _preattached_reader
+    with _preattach_lock:
+        if _preattached_reader is not None:
+            return
+        reader = MemoryReader()
+        _preattached_reader = reader
+
+    def _go() -> None:
+        try:
+            reader.attach()  # silent failure if game not running
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            _preattach_event.set()
+
+    _threading.Thread(target=_go, daemon=True, name="MemoryReader.preattach").start()
+
+
+def take_preattached_reader(*, wait_timeout: float = 0.0) -> "MemoryReader | None":
+    """Take ownership of the pre-attached reader, if one was started AND its
+    background attach has fully finished.
+
+    Returns ``None`` if :func:`start_background_preattach` was never called,
+    OR the bg attach thread is still in flight after the optional wait.  Not
+    returning an in-flight reader is critical: otherwise a subsequent
+    ``attach()`` call from the dashboard would race the bg thread on the same
+    instance, clobbering each other's process handle mid-scan.
+    """
+    if wait_timeout > 0:
+        completed = _preattach_event.wait(wait_timeout)
+    else:
+        completed = _preattach_event.is_set()
+    if not completed:
+        # Orphan the in-flight reader — it'll finish writing to itself and be
+        # garbage-collected.  Dashboard will construct a fresh instance.
+        return None
+    global _preattached_reader
+    with _preattach_lock:
+        r = _preattached_reader
+        _preattached_reader = None
+    return r

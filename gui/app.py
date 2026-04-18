@@ -135,6 +135,13 @@ def main() -> None:
             sys.exit(0)
         print("[!] Running without Administrator — live HP reading disabled.")
 
+    # ── Kick off the t-engine.exe attach in a background thread NOW, so it
+    #    runs in parallel with QApplication setup, existing-instance shutdown,
+    #    and MainWindow construction.  By the time the dashboard needs the
+    #    reader, the Lua _G scan is typically already complete.
+    from gui.memory_reader import start_background_preattach
+    start_background_preattach()
+
     # High-DPI scaling (Qt 6 default) — kept explicit for clarity
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
 

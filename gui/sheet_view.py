@@ -711,8 +711,14 @@ class _ItemListPanel(QWidget):
         self._body_lay.addStretch()
         self._scroll.setWidget(self._body)
         root.addWidget(self._scroll, 1)
+        self._last_items: list[Any] = []
+        self._last_show_slot: bool = False
 
     def set_items(self, items: list[Any], *, show_slot: bool) -> None:
+        if items == self._last_items and show_slot == self._last_show_slot:
+            return
+        self._last_items = list(items)
+        self._last_show_slot = show_slot
         while self._body_lay.count() > 1:
             item = self._body_lay.takeAt(0)
             if item.widget():

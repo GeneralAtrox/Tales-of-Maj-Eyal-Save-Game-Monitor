@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from game_data.npc_db import get_npc_db
 from game_data.talent_db import get_talent_db
 from gui.enemy_panel import EnemyPanel
-from gui.memory_reader import MemoryReader
+from gui.memory_reader import MemoryReader, take_preattached_reader
 from gui.sheet_view import CharacterSheetView
 from gui.theme import BORDER, SURFACE0
 
@@ -56,8 +56,12 @@ class DashboardTab(QWidget):
         threading.Thread(target=get_npc_db, daemon=True).start()
         threading.Thread(target=get_talent_db, daemon=True).start()
 
-        # ── Memory reader ──────────────────────────────────────────────────
-        self._reader = MemoryReader()
+        # ── Memory reader (state only; finalization is deferred below) ────
+        # Adopt the pre-warmed reader if app.py kicked one off at startup.
+        # We wait briefly (≤2.5s) for the bg attach to finish — if it hasn't,
+        # take_preattached_reader returns None to avoid racing a second
+        # attach() on the same instance.
+        self._reader = take_preattached_reader(wait_timeout=2.5) or MemoryReader()
         self._attach_pending = False
         self._hp_fail_count  = 0
         self._last_level_id: str | None = None
@@ -68,7 +72,6 @@ class DashboardTab(QWidget):
         self._game_poll.setInterval(3000)
         self._game_poll.timeout.connect(self._check_game_process)
         self._game_poll.start()
-        self._check_game_process()
 
         self._hp_poll = QTimer(self)
         self._hp_poll.setInterval(1000)
@@ -118,6 +121,17 @@ class DashboardTab(QWidget):
         splitter.setStretchFactor(1, 2)
         splitter.setSizes([1180, 560])
         root.addWidget(splitter)
+
+        # ── Finalize the memory reader now that _sheet_visual exists ──────
+        # Either (a) pre-attach already located _G → defer the post-attach
+        # flow via the event loop so it fires after __init__ fully returns
+        # and MainWindow has had a chance to register characters, or (b) no
+        # hot reader → fall through to the normal process-detection path.
+        if self._reader.attached:
+            self.game_status_changed.emit(True)
+            QTimer.singleShot(0, self._on_attach_succeeded)
+        else:
+            self._check_game_process()
 
     # ── Sub-tab builders ───────────────────────────────────────────────────
 
@@ -274,12 +288,17 @@ class DashboardTab(QWidget):
         finally:
             self._attach_pending = False
         if ok:
-            self._game_session_ready = True
-            self._sheet_visual.set_game_connected(True)
-            self.refresh_current()
-            self._poll_progression()
-            self._poll_talents()
-            self.game_connected.emit()
+            self._on_attach_succeeded()
+
+    def _on_attach_succeeded(self) -> None:
+        """Post-attach finalization — runs from either the bg attach thread or
+        the main thread when adopting a pre-warmed reader."""
+        self._game_session_ready = True
+        self._sheet_visual.set_game_connected(True)
+        self.refresh_current()
+        self._poll_progression()
+        self._poll_talents()
+        self.game_connected.emit()
 
     def _poll_hp(self) -> None:
         if not self._reader.attached:
