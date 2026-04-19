@@ -1,4 +1,4 @@
-# Tales-of-Maj-Eyal-Save-Game-Monitor
+# Tales-of-Maj-Eyal-Scrying-Mirror
 A project i started to back up my save file, has evolved into an game guidance tool. There is a lot of information this game and its hard to gauge how dangerous an enemy is.
 
 What is this for?
