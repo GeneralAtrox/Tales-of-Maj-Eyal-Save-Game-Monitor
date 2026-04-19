@@ -16,176 +16,44 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import json
-import re
 import struct
 import sys
 import threading as _threading
-import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
+from game_data.prodigy_db import get_prodigy_db as _get_prodigy_db
+from gui.sprite_resolve import is_usable_sprite, pick_actor_image
 from runtime_output import console_print
 
-# ── Prodigy database ─────────────────────────────────────────────────────────
-# Dynamically parsed from the game's tome.team zip archive at startup; falls
-# back to a hardcoded snapshot if the archive cannot be found/parsed.
-# Map: T_* ID → (display_name, primary_stat_key).
-# Stat key matches game.player.stats sub-table: "str"|"dex"|"con"|"mag"|"wil"|"cun".
-# All prodigies require level 25 and 50+ in the listed stat.
-
-_UBER_STAT_FILES: Final[dict[str, str]] = {
-    "data/talents/uber/str.lua": "str",
-    "data/talents/uber/dex.lua": "dex",
-    "data/talents/uber/const.lua": "con",
-    "data/talents/uber/mag.lua": "mag",
-    "data/talents/uber/wil.lua": "wil",
-    "data/talents/uber/cun.lua": "cun",
-}
-
-# Regex to pull the body of each uberTalent{} block.
-# We match from "uberTalent{" up to a lone "}" on its own line (the closing brace).
-_RE_UBER_BLOCK = re.compile(
-    r"uberTalent\s*\{(.*?)^\}",
-    re.DOTALL | re.MULTILINE,
+# Re-exported so ``from gui.memory_reader import DANGER_*`` keeps working
+# for gui.enemy_panel without forcing every consumer to reach into
+# :mod:`scoring.ranks` directly.
+from scoring.ranks import (
+    DANGER_DANGEROUS,
+    DANGER_DEADLY,
+    DANGER_EASY,
+    DANGER_MODERATE,
+    DANGER_TRIVIAL,
 )
-_RE_NAME = re.compile(r'\bname\s*=\s*"([^"]+)"')
-_RE_SHORT_NAME = re.compile(r'\bshort_name\s*=\s*"([^"]+)"')
-_RE_NOT_LISTED = re.compile(r"\bnot_listed\s*=\s*true\b")
+from scoring.ranks import compute_danger as _compute_danger_ranked
+from scoring.ranks import rank_label as _rank_label
 
-
-def _find_tome_team() -> Path | None:
-    """Locate the game's tome.team zip in common places."""
-    import os
-
-    candidates = [
-        Path(os.environ.get("TEMP", "")) / "tome.team",
-        Path(os.environ.get("TMP", "")) / "tome.team",
-        Path(os.environ.get("LOCALAPPDATA", "")) / "T-Engine" / "tome.team",
-        Path(os.environ.get("APPDATA", "")) / "T-Engine" / "tome.team",
-    ]
-    for p in candidates:
-        if p.is_file():
-            return p
-    return None
-
-
-def _name_to_tid(name: str) -> str:
-    """Convert a prodigy display name to its T_* ID (mirrors ToME's Lua logic)."""
-    tid = re.sub(r"[^A-Za-z0-9]", "_", name).upper()
-    return f"T_{tid}"
-
-
-def _parse_prodigy_db(team_path: Path) -> dict[str, tuple[str, str]]:
-    """Parse prodigy definitions from the game archive, skipping hidden ones."""
-    db: dict[str, tuple[str, str]] = {}
-    try:
-        with zipfile.ZipFile(team_path, "r") as zf:
-            names_in_zip = set(zf.namelist())
-            for lua_path, stat_key in _UBER_STAT_FILES.items():
-                if lua_path not in names_in_zip:
-                    continue
-                try:
-                    src = zf.read(lua_path).decode("utf-8", errors="replace")
-                except Exception:  # noqa: BLE001
-                    continue
-                for m in _RE_UBER_BLOCK.finditer(src):
-                    body = m.group(1)
-                    if _RE_NOT_LISTED.search(body):
-                        continue
-                    name_m = _RE_NAME.search(body)
-                    if not name_m:
-                        continue
-                    display_name = name_m.group(1)
-                    short_m = _RE_SHORT_NAME.search(body)
-                    if short_m:
-                        tid = f"T_{short_m.group(1).upper()}"
-                    else:
-                        tid = _name_to_tid(display_name)
-                    db[tid] = (display_name, stat_key)
-    except Exception:  # noqa: BLE001
-        pass
-    return db
-
-
-def _build_prodigy_db() -> dict[str, tuple[str, str]]:
-    """Return dynamic DB if parseable; otherwise fall back to static snapshot."""
-    team_path = _find_tome_team()
-    if team_path is not None:
-        db = _parse_prodigy_db(team_path)
-        if db:
-            return db
-    # ── Static fallback snapshot (ToME 1.7.x) ────────────────────────────────
-    return {
-        # Constitution
-        "T_DRACONIC_BODY": ("Draconic Body", "con"),
-        "T_BLOODSPRING": ("Bloodspring", "con"),
-        "T_ETERNAL_GUARD": ("Eternal Guard", "con"),
-        "T_NEVER_STOP_RUNNING": ("Never Stop Running", "con"),
-        "T_ARMOUR_OF_SHADOWS": ("Armour of Shadows", "con"),
-        "T_SPINE_OF_THE_WORLD": ("Spine of the World", "con"),
-        "T_FUNGAL_BLOOD": ("Fungal Blood", "con"),
-        "T_CORRUPTED_SHELL": ("Corrupted Shell", "con"),
-        # Cunning  (T_FAST_AS_LIGHTNING excluded: not_listed=true)
-        "T_TRICKY_DEFENSES": ("Tricky Defenses", "cun"),
-        "T_ENDLESS_WOES": ("Endless Woes", "cun"),
-        "T_SECRETS_OF_TELOS": ("Secrets of Telos", "cun"),
-        "T_ELEMENTAL_SURGE": ("Elemental Surge", "cun"),
-        "T_EYE_OF_THE_TIGER": ("Eye of the Tiger", "cun"),
-        "T_WORLDLY_KNOWLEDGE": ("Worldly Knowledge", "cun"),
-        "T_ADEPT": ("Adept", "cun"),
-        "T_TRICKS_OF_THE_TRADE": ("Tricks of the Trade", "cun"),
-        # Dexterity
-        "T_FLEXIBLE_COMBAT": ("Flexible Combat", "dex"),
-        "T_THROUGH_THE_CROWD": ("Through The Crowd", "dex"),
-        "T_SWIFT_HANDS": ("Swift Hands", "dex"),
-        "T_WINDBLADE": ("Windblade", "dex"),
-        "T_WINDTOUCHED_SPEED": ("Windtouched Speed", "dex"),
-        "T_CRAFTY_HANDS": ("Crafty Hands", "dex"),
-        "T_ROLL_WITH_IT": ("Roll With It", "dex"),
-        "T_VITAL_SHOT": ("Vital Shot", "dex"),
-        # Magic  (T_SPECTRAL_SHIELD excluded: not_listed=true)
-        "T_ETHEREAL_FORM": ("Ethereal Form", "mag"),
-        "T_AETHER_PERMEATION": ("Aether Permeation", "mag"),
-        "T_MYSTICAL_CUNNING": ("Mystical Cunning", "mag"),
-        "T_ARCANE_MIGHT": ("Arcane Might", "mag"),
-        "T_TEMPORAL_FORM": ("Temporal Form", "mag"),
-        "T_BLIGHTED_SUMMONING": ("Blighted Summoning", "mag"),
-        "T_REVISIONIST_HISTORY": ("Revisionist History", "mag"),
-        "T_CAUTERIZE": ("Cauterize", "mag"),
-        "T_LICH": ("Lich", "mag"),
-        "T_HIGH_THAUMATURGIST": ("High Thaumaturgist", "mag"),
-        # Strength
-        "T_GIANT_LEAP": ("Giant Leap", "str"),
-        "T_TITAN_S_SMASH": ("You Shall Be My Weapon!", "str"),
-        "T_MASSIVE_BLOW": ("Massive Blow", "str"),
-        "T_STEAMROLLER": ("Steamroller", "str"),
-        "T_IRRESISTIBLE_SUN": ("Irresistible Sun", "str"),
-        "T_NO_FATIGUE": ("I Can Carry The World!", "str"),
-        "T_LEGACY_OF_THE_NALOREN": ("Legacy of the Naloren", "str"),
-        "T_SUPERPOWER": ("Superpower", "str"),
-        "T_AVATAR_OF_A_DISTANT_SUN": ("Avatar of a Distant Sun", "str"),
-        # Willpower
-        "T_DRACONIC_WILL": ("Draconic Will", "wil"),
-        "T_METEORIC_CRASH": ("Meteoric Crash", "wil"),
-        "T_GARKUL_S_REVENGE": ("Garkul's Revenge", "wil"),
-        "T_HIDDEN_RESOURCES": ("Hidden Resources", "wil"),
-        "T_LUCKY_DAY": ("Lucky Day", "wil"),
-        "T_UNBREAKABLE_WILL": ("Unbreakable Will", "wil"),
-        "T_SPELL_FEEDBACK": ("Spell Feedback", "wil"),
-        "T_MENTAL_TYRANNY": ("Mental Tyranny", "wil"),
-        "T_FALLEN": ("Fallen", "wil"),
-    }
-
-
-def _get_prodigy_db() -> dict[str, tuple[str, str]]:
-    global _PRODIGY_DB
-    if _PRODIGY_DB is None:
-        _PRODIGY_DB = _build_prodigy_db()
-    return _PRODIGY_DB
-
-
-_PRODIGY_DB: dict[str, tuple[str, str]] | None = None
+__all__ = (
+    "DANGER_DANGEROUS",
+    "DANGER_DEADLY",
+    "DANGER_EASY",
+    "DANGER_MODERATE",
+    "DANGER_TRIVIAL",
+    "EntityInfo",
+    "MemoryReader",
+    "PlayerStats",
+    "compute_danger",
+    "is_process_running",
+    "start_background_preattach",
+    "take_preattached_reader",
+)
 
 # ── Win32 constants ───────────────────────────────────────────────────────────
 PROCESS_VM_READ = 0x0010
@@ -222,6 +90,9 @@ _GCT_TAB = 0x0B
 _LJ_TSTR = 0xFFFFFFFB
 _LJ_TTAB = 0xFFFFFFF4
 _LJ_TNUMX = 0xFFFFFFF2
+_LJ_TTRUE = 0xFFFFFFFD
+_LJ_TFALSE = 0xFFFFFFFE
+_LJ_TNIL = 0xFFFFFFFF
 _NODE_SIZE = 24
 
 
@@ -395,6 +266,50 @@ def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
     return results
 
 
+def _tab_string_keys_with_true(h: int, tab_ptr: int, *, max_key_len: int = 256) -> set[str]:
+    """Return string keys whose value is the Lua literal ``true``.
+
+    ToME uses this "set of names" pattern all over ``game.state`` and
+    ``game.visited_zones``: keys are strings, values are just ``true``.
+    ``max_key_len`` caps how long a key we'll accept (zone names are
+    short; NPC ids can run longer).
+    """
+    node_ptr = _ru32(h, tab_ptr + 20)
+    hmask = _ru32(h, tab_ptr + 28)
+    if not node_ptr or hmask is None or not _is_heap(node_ptr):
+        return set()
+    total = (hmask + 1) * _NODE_SIZE
+    if total > 16 * 1024 * 1024:
+        return set()
+    bulk = _rpm(h, node_ptr, total)
+    if not bulk:
+        return set()
+    result: set[str] = set()
+    for i in range(hmask + 1):
+        off = i * _NODE_SIZE
+        key_it = struct.unpack_from("<I", bulk, off + 12)[0]
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
+        if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
+            continue
+        key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
+        if not _is_heap(key_gcs):
+            continue
+        slen_b = _rpm(h, key_gcs + 12, 4)
+        if not slen_b:
+            continue
+        slen = struct.unpack("<I", slen_b)[0]
+        if slen == 0 or slen > max_key_len:
+            continue
+        raw = _rpm(h, key_gcs + 16, slen)
+        if not raw:
+            continue
+        try:
+            result.add(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            pass
+    return result
+
+
 def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
     """
     Return GCtab* pointers from a table whose keys are integers (1..N),
@@ -460,11 +375,6 @@ def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
     return ordered
 
 
-# LuaJIT itype constants for bool values
-_LJ_TTRUE = 0xFFFFFFFD
-_LJ_TFALSE = 0xFFFFFFFE
-_LJ_TNIL = 0xFFFFFFFF
-_IMAGE_PREFIXES = ("npc/", "player/")
 
 
 def _tab_dump_flat(
@@ -736,38 +646,6 @@ def _validate_global_table(h: int, addr: int) -> int | None:
 
 # ── Entity data ───────────────────────────────────────────────────────────────
 
-# ToME rank values (numeric)
-RANK_CRITTER = 1
-RANK_NORMAL = 2
-RANK_ELITE = 3
-RANK_RARE = 3.2  # may vary
-RANK_UNIQUE = 3.5
-RANK_BOSS = 4
-RANK_ELITE_BOSS = 5
-
-RANK_NAMES: dict[int, str] = {
-    1: "Critter",
-    2: "Normal",
-    3: "Elite",
-    4: "Boss",
-    5: "Elite Boss",
-}
-
-
-def _rank_label(rank: float | None) -> str:
-    if rank is None:
-        return "Unknown"
-    r = int(rank)
-    if r in RANK_NAMES:
-        return RANK_NAMES[r]
-    if rank >= 3.5:
-        return "Unique"
-    if rank >= 3.2:
-        return "Rare"
-    if rank >= 3:
-        return "Elite"
-    return RANK_NAMES.get(r, f"Rank {rank:.1f}")
-
 
 @dataclass(slots=True)
 class PlayerStats:
@@ -780,6 +658,14 @@ class PlayerStats:
     phys_save: float
     spell_save: float
     mental_save: float
+    # Extended fields for threat-math (scoring/enemy_threat). All default
+    # to safe zero values so older callers still work.
+    die_at: float = 0.0
+    armor_hardiness: float = 0.0
+    evasion: float = 0.0
+    ignore_direct_crits: float = 0.0
+    resists: dict[str, float] = field(default_factory=dict)
+    resists_pen: dict[str, float] = field(default_factory=dict)
 
 
 _INVENTORY_BUCKET_SLOT_LABELS: dict[str, str] = {
@@ -799,100 +685,15 @@ _INVENTORY_BUCKET_SLOT_LABELS: dict[str, str] = {
 
 
 # ── Danger rating ────────────────────────────────────────────────────────────
-
-# Rank → weight for danger calculation (higher = scarier)
-_RANK_WEIGHT: dict[int, float] = {
-    1: 0.2,  # critter
-    2: 1.0,  # normal
-    3: 1.8,  # elite
-    4: 3.0,  # boss
-    5: 4.0,  # elite boss
-}
-
-DANGER_TRIVIAL = "Trivial"
-DANGER_EASY = "Easy"
-DANGER_MODERATE = "Moderate"
-DANGER_DANGEROUS = "Dangerous"
-DANGER_DEADLY = "Deadly"
-
-
-def _rank_weight(rank: float) -> float:
-    r = int(rank)
-    if r in _RANK_WEIGHT:
-        w = _RANK_WEIGHT[r]
-    else:
-        w = 1.0
-    # Fractional ranks (3.2=rare, 3.5=unique) interpolate upward
-    if rank >= 3.5:
-        w = max(w, 2.4)  # unique
-    elif rank >= 3.2:
-        w = max(w, 2.0)  # rare
-    return w
+#
+# The math lives in :mod:`scoring.ranks`. Here we only need a thin adapter —
+# :class:`EntityInfo` and :class:`PlayerStats` already expose the fields the
+# ranks module's private dataclasses need, so duck-typing is enough.
 
 
 def compute_danger(enemy: EntityInfo, player: PlayerStats | None) -> tuple[str, float]:
-    """
-    Compute a danger label and numeric score for an enemy relative to the
-    player.  Returns (label, score).  Higher score = more dangerous.
-
-    If player stats are unavailable, falls back to rank-only assessment.
-    """
-    if player is None or player.level <= 0:
-        # Fallback: rank-only
-        score = _rank_weight(enemy.rank) * 10 + enemy.level
-        if score > 40:
-            return DANGER_DEADLY, score
-        if score > 25:
-            return DANGER_DANGEROUS, score
-        if score > 15:
-            return DANGER_MODERATE, score
-        if score > 8:
-            return DANGER_EASY, score
-        return DANGER_TRIVIAL, score
-
-    rw = _rank_weight(enemy.rank)
-
-    # Level delta: positive = enemy is higher level
-    level_delta = enemy.level - player.level
-    # Normalise to a -1..+1ish range, but allow > 1 for big gaps
-    level_factor = level_delta / 5.0  # +5 levels = +1.0, -5 = -1.0
-
-    # HP ratio: how tanky is the enemy compared to you
-    hp_ratio = (enemy.max_life / player.max_life) if player.max_life > 0 else 1.0
-    hp_factor = min(hp_ratio, 5.0) / 2.0  # cap at 5x, normalise ~0..2.5
-
-    # Save advantage: average of enemy saves minus average of player saves
-    enemy_avg_save = (enemy.phys_save + enemy.spell_save + enemy.mental_save) / 3.0
-    player_avg_save = (player.phys_save + player.spell_save + player.mental_save) / 3.0
-    save_delta = (enemy_avg_save - player_avg_save) / 15.0  # ~+-1 range
-
-    # Defense advantage
-    enemy_def = enemy.armor + enemy.defense
-    player_def = player.armor + player.defense
-    def_delta = (enemy_def - player_def) / 20.0  # ~+-1 range
-
-    # Composite score:
-    #   rank_weight is the anchor (1.0 for normal, 3.0 for boss)
-    #   modifiers shift it based on relative stats
-    raw = rw * (1.0 + 0.4 * level_factor + 0.2 * hp_factor + 0.1 * save_delta + 0.1 * def_delta)
-
-    # Clamp to reasonable range
-    score = max(0.0, raw)
-
-    # Thresholds tuned so:
-    #   same-level normal ≈ 1.0 → Easy
-    #   same-level boss ≈ 3.0 → Dangerous
-    #   +5 level boss ≈ 4.2+ → Deadly
-    #   -5 level normal ≈ 0.6 → Trivial
-    if score >= 3.5:
-        return DANGER_DEADLY, score
-    if score >= 2.2:
-        return DANGER_DANGEROUS, score
-    if score >= 1.3:
-        return DANGER_MODERATE, score
-    if score >= 0.7:
-        return DANGER_EASY, score
-    return DANGER_TRIVIAL, score
+    """Return ``(label, score)`` for ``enemy`` relative to ``player``."""
+    return _compute_danger_ranked(enemy, player)  # type: ignore[arg-type]
 
 
 @dataclass(slots=True)
@@ -1074,6 +875,13 @@ class MemoryReader:
         if level is None:
             return None
 
+        def _dump_numeric_subtable(sub_key: str) -> dict[str, float]:
+            sub_ptr = _tab_get_table(h, pt, sub_key)
+            if not sub_ptr:
+                return {}
+            raw = _tab_dump_flat(h, sub_ptr)
+            return {k: float(v) for k, v in raw.items() if isinstance(v, (int, float))}
+
         return PlayerStats(
             level=level,
             max_life=_tab_get_number(h, pt, "max_life") or 0.0,
@@ -1082,6 +890,12 @@ class MemoryReader:
             phys_save=_tab_get_number(h, pt, "combat_physresist") or 0.0,
             spell_save=_tab_get_number(h, pt, "combat_spellresist") or 0.0,
             mental_save=_tab_get_number(h, pt, "combat_mentalresist") or 0.0,
+            die_at=_tab_get_number(h, pt, "die_at") or 0.0,
+            armor_hardiness=_tab_get_number(h, pt, "combat_armor_hardiness") or 0.0,
+            evasion=_tab_get_number(h, pt, "evasion") or 0.0,
+            ignore_direct_crits=_tab_get_number(h, pt, "ignore_direct_crits") or 0.0,
+            resists=_dump_numeric_subtable("resists"),
+            resists_pen=_dump_numeric_subtable("resists_pen"),
         )
 
     def read_player_sprite(self) -> tuple[str, list[str]] | None:
@@ -1377,38 +1191,31 @@ class MemoryReader:
         actor_ptr: int,
         all_fields: dict[str, str | float | bool],
     ) -> tuple[str, list[str]]:
-        """Resolve the representative image and ordered sprite layers for one actor."""
-        raw_image = str(all_fields.get("image") or "")
-        raw_usable = (
-            any(raw_image.startswith(prefix) for prefix in _IMAGE_PREFIXES)
-            and raw_image != "invis.png"
-            and "shadow" not in raw_image
-        )
+        """Resolve the representative image and ordered sprite layers for one actor.
 
-        actor_image = raw_image if raw_usable else ""
+        Memory walk (``add_mos`` layers) lives here; the "is this a usable
+        sprite path?" predicate and final-choice logic live in
+        :mod:`gui.sprite_resolve` so they're testable without a game process.
+        """
         sprite_layers: list[str] = []
-
+        base_layer_image = ""
         add_mos_tab = _tab_get_table(h, actor_ptr, "add_mos")
         if add_mos_tab:
-            base_img = ""
             for sub_ptr in _tab_get_ordered_tables(h, add_mos_tab):
                 sub = _tab_dump_flat(h, sub_ptr)
                 img = str(sub.get("image") or "")
-                if not any(img.startswith(prefix) for prefix in _IMAGE_PREFIXES):
-                    continue
-                if "shadow" in img:
+                if not is_usable_sprite(img):
                     continue
                 sprite_layers.append(img)
-                if not base_img and sub.get("is_inate") == "base":
-                    base_img = img
-            if not actor_image:
-                actor_image = base_img or (sprite_layers[0] if sprite_layers else "")
+                if not base_layer_image and sub.get("is_inate") == "base":
+                    base_layer_image = img
 
-        if not actor_image:
-            attach = str(all_fields.get("attachement_spots") or "")
-            if any(attach.startswith(prefix) for prefix in _IMAGE_PREFIXES):
-                actor_image = attach
-
+        actor_image = pick_actor_image(
+            raw_image=str(all_fields.get("image") or ""),
+            sprite_layers=sprite_layers,
+            base_layer_image=base_layer_image,
+            attachement_spots=str(all_fields.get("attachement_spots") or ""),
+        )
         return actor_image, sprite_layers
 
     def read_entities(self, min_rank: float = 1.5) -> list[EntityInfo]:
@@ -1574,59 +1381,28 @@ class MemoryReader:
         return val is not None and val > 0
 
     def read_visited_zones(self) -> set[str]:
-        """Return set of zone short_names the player has visited."""
+        """Return the set of zone short_names the player has visited."""
         if not self.attached:
             return set()
         h = self._handle
-        gt = self._global_table
-        game_tab = _tab_get_table(h, gt, "game")
+        game_tab = _tab_get_table(h, self._global_table, "game")
         if game_tab is None:
             return set()
         visited_tab = _tab_get_table(h, game_tab, "visited_zones")
         if visited_tab is None:
             return set()
-        node_ptr = _ru32(h, visited_tab + 20)
-        hmask = _ru32(h, visited_tab + 28)
-        if not node_ptr or hmask is None or not _is_heap(node_ptr):
-            return set()
-        total = (hmask + 1) * _NODE_SIZE
-        if total > 16 * 1024 * 1024:
-            return set()
-        bulk = _rpm(h, node_ptr, total)
-        if not bulk:
-            return set()
-        result: set[str] = set()
-        for i in range(hmask + 1):
-            off = i * _NODE_SIZE
-            key_it = struct.unpack_from("<I", bulk, off + 12)[0]
-            val_it = struct.unpack_from("<I", bulk, off + 4)[0]
-            if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
-                continue
-            key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
-            if not _is_heap(key_gcs):
-                continue
-            slen_b = _rpm(h, key_gcs + 12, 4)
-            if not slen_b:
-                continue
-            slen = struct.unpack("<I", slen_b)[0]
-            if slen == 0 or slen > 128:
-                continue
-            raw = _rpm(h, key_gcs + 16, slen)
-            if not raw:
-                continue
-            try:
-                result.add(raw.decode("utf-8"))
-            except UnicodeDecodeError:
-                pass
-        return result
+        return _tab_string_keys_with_true(h, visited_tab, max_key_len=128)
 
     def read_unique_deaths(self) -> set[str]:
-        """Return set of unique entity names in game.state.unique_death (boss kills)."""
+        """Return the set of unique entity names recorded in ``game.state.unique_death``.
+
+        These are boss/unique kills — ToME only sets the flag to ``true`` on
+        death, so this is a useful "which named enemies have I killed" list.
+        """
         if not self.attached:
             return set()
         h = self._handle
-        gt = self._global_table
-        game_tab = _tab_get_table(h, gt, "game")
+        game_tab = _tab_get_table(h, self._global_table, "game")
         if game_tab is None:
             return set()
         state_tab = _tab_get_table(h, game_tab, "state")
@@ -1635,40 +1411,7 @@ class MemoryReader:
         deaths_tab = _tab_get_table(h, state_tab, "unique_death")
         if deaths_tab is None:
             return set()
-        node_ptr = _ru32(h, deaths_tab + 20)
-        hmask = _ru32(h, deaths_tab + 28)
-        if not node_ptr or hmask is None or not _is_heap(node_ptr):
-            return set()
-        total = (hmask + 1) * _NODE_SIZE
-        if total > 16 * 1024 * 1024:
-            return set()
-        bulk = _rpm(h, node_ptr, total)
-        if not bulk:
-            return set()
-        result: set[str] = set()
-        for i in range(hmask + 1):
-            off = i * _NODE_SIZE
-            key_it = struct.unpack_from("<I", bulk, off + 12)[0]
-            val_it = struct.unpack_from("<I", bulk, off + 4)[0]
-            if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
-                continue
-            key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
-            if not _is_heap(key_gcs):
-                continue
-            slen_b = _rpm(h, key_gcs + 12, 4)
-            if not slen_b:
-                continue
-            slen = struct.unpack("<I", slen_b)[0]
-            if slen == 0 or slen > 256:
-                continue
-            raw = _rpm(h, key_gcs + 16, slen)
-            if not raw:
-                continue
-            try:
-                result.add(raw.decode("utf-8"))
-            except UnicodeDecodeError:
-                pass
-        return result
+        return _tab_string_keys_with_true(h, deaths_tab, max_key_len=256)
 
     def read_current_zone(self) -> tuple[str, int, int] | None:
         """Return (short_name, current_floor, max_floors) or None."""
