@@ -36,6 +36,7 @@ class PlayerDefenses:
     evasion_pct: float = 0.0
     resists: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
+    resists_cap: dict[str, float] = field(default_factory=dict)
     ignore_direct_crits_pct: float = 0.0
     """Chance (0..100) that a crit is ignored — the 'ignore_direct_crits' attr."""
 
@@ -162,7 +163,11 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     hit = cm.hit_rate(enemy.atk, player.defense, player.evasion_pct)
     after_armor = cm.armor_absorb(enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr)
 
-    worst_type, worst_mult = cm.worst_damage_multiplier(player.resists, player.resists_pen)
+    worst_type, worst_mult = cm.worst_damage_multiplier(
+        player.resists,
+        enemy.resists_pen,
+        player.resists_cap,
+    )
     best_inc_type, best_inc = cm.best_damage_increase(enemy.inc_damage)
     daminc_mult = 1.0 + best_inc / 100.0
 

@@ -13,7 +13,7 @@ from typing import Final
 # ── ToME constants ──────────────────────────────────────────────────────────
 
 RESIST_CAP: Final[float] = 70.0
-"""Default cap on effective resistance (post-penetration)."""
+"""Default cap on resistance before penetration."""
 
 RESIST_HARD_CAP: Final[float] = 100.0
 """Absolute ceiling some content raises the cap to."""
@@ -74,6 +74,24 @@ def armor_absorb(
     return hardened + soft
 
 
+def resist_cap_for_type(
+    resists_cap: dict[str, float] | None,
+    damage_type: str,
+    default_cap: float = RESIST_CAP,
+) -> float:
+    """Resolve ToME's effective resist ceiling for one damage type.
+
+    `resists_cap` mirrors the engine layout: `"all"` is the global cap
+    and a specific entry adds on top for that damage type.
+    """
+    if not resists_cap:
+        return default_cap
+    all_cap = float(resists_cap.get("all", default_cap))
+    if damage_type == "all":
+        return _clamp(all_cap, -100.0, RESIST_HARD_CAP)
+    return _clamp(all_cap + float(resists_cap.get(damage_type, 0.0)), -100.0, RESIST_HARD_CAP)
+
+
 def effective_resist_multiplier(
     resist_pct: float,
     resist_pen_pct: float = 0.0,
@@ -84,8 +102,10 @@ def effective_resist_multiplier(
     Returns a value in roughly [0, 2]. 1.0 means full damage, 0.3 means
     70% resisted. Negative resist amplifies damage above 1.0.
     """
-    pen = _clamp(resist_pen_pct, 0.0, 100.0) / 100.0
-    effective = _clamp(resist_pct * (1.0 - pen), -100.0, cap)
+    effective = _clamp(resist_pct, -100.0, cap)
+    if effective > 0.0:
+        pen = _clamp(resist_pen_pct, 0.0, 100.0) / 100.0
+        effective *= 1.0 - pen
     return 1.0 - effective / 100.0
 
 
@@ -107,7 +127,7 @@ def crit_expected_multiplier(
 def worst_damage_multiplier(
     resists: dict[str, float],
     resists_pen: dict[str, float] | None = None,
-    cap: float = RESIST_CAP,
+    resists_cap: dict[str, float] | None = None,
 ) -> tuple[str, float]:
     """Given a player's resist table, find the damage type they resist
     least effectively — the attacker's best bet.
@@ -117,12 +137,16 @@ def worst_damage_multiplier(
     resists_pen = resists_pen or {}
     all_r = resists.get("all", 0.0)
     best_type = "all"
-    best_mult = effective_resist_multiplier(all_r, resists_pen.get("all", 0.0), cap)
+    best_mult = effective_resist_multiplier(
+        all_r,
+        resists_pen.get("all", 0.0),
+        resist_cap_for_type(resists_cap, "all"),
+    )
     for dtype, r in resists.items():
         if dtype == "all":
             continue
         pen = resists_pen.get(dtype, resists_pen.get("all", 0.0))
-        mult = effective_resist_multiplier(r, pen, cap)
+        mult = effective_resist_multiplier(r, pen, resist_cap_for_type(resists_cap, dtype))
         if mult > best_mult:
             best_mult = mult
             best_type = dtype

@@ -38,6 +38,7 @@ class EnemyPowers:
     atk: float = 0.0
     dam: float = 0.0
     apr: float = 0.0
+    resists_pen: dict[str, float] = field(default_factory=dict)
     talents: dict[str, int] = field(default_factory=dict)
     """``T_XXX`` → talent level (raw, before mastery)."""
 
@@ -124,9 +125,11 @@ def compute_talent_threat(
         # skip armor (talents typically bypass it) unless this is a
         # physical-scaling talent that does PHYSICAL damage.
         dtype = record.damage_type or ""
+        cap = cm.resist_cap_for_type(player.resists_cap, dtype or "all")
         mult = cm.effective_resist_multiplier(
             player.resists.get(dtype, player.resists.get("all", 0.0)),
-            player.resists_pen.get(dtype, player.resists_pen.get("all", 0.0)),
+            powers.resists_pen.get(dtype, powers.resists_pen.get("all", 0.0)),
+            cap,
         )
         after = raw
         if record.scaling_family == "physical" and dtype == "PHYSICAL":

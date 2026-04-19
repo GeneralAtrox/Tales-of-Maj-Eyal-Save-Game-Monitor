@@ -292,7 +292,15 @@ class _TalentIcon(QWidget):
 
     clicked = Signal(str, object)  # talent_name, data
 
-    def __init__(self, name: str, data: Any, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        data: Any,
+        parent: QWidget | None = None,
+        *,
+        show_level: bool = True,
+        icon_size: int = _ICON_GRID,
+    ) -> None:
         super().__init__(parent)
         self._name = name
         self._data = data
@@ -300,7 +308,7 @@ class _TalentIcon(QWidget):
         level = _level_of(data)
         zero = _is_zero_level(level)
 
-        self.setFixedSize(_ICON_GRID + 10, _ICON_GRID + 20)
+        self.setFixedSize(icon_size + 8, icon_size + (20 if show_level else 8))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(f"{name}  [{level}]")
 
@@ -309,7 +317,7 @@ class _TalentIcon(QWidget):
         lay.setSpacing(2)
 
         # Icon
-        px = _load_pixmap(_resolve_talent_icon_path(name, data), _ICON_GRID)
+        px = _load_pixmap(_resolve_talent_icon_path(name, data), icon_size)
         if zero:
             # Dim the icon for unlearned talents
             dimmed = QPixmap(px.size())
@@ -321,7 +329,7 @@ class _TalentIcon(QWidget):
             px = dimmed
 
         icon_lbl = QLabel()
-        icon_lbl.setFixedSize(_ICON_GRID, _ICON_GRID)
+        icon_lbl.setFixedSize(icon_size, icon_size)
         icon_lbl.setPixmap(px)
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -332,7 +340,8 @@ class _TalentIcon(QWidget):
         level_lbl.setStyleSheet(f"font-size: 10px; font-weight: 600; color: {level_color};")
 
         lay.addWidget(icon_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(level_lbl)
+        if show_level:
+            lay.addWidget(level_lbl)
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
@@ -376,9 +385,12 @@ class _TalentDetailPanel(QWidget):
         self._name_lbl.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {TEXT};")
         self._name_lbl.setWordWrap(True)
         self._name_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._name_lbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._category_lbl = QLabel()
         self._category_lbl.setStyleSheet(f"font-size: 11px; color: {SUBTEXT0};")
         self._category_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._category_lbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._category_lbl.hide()
         name_col.addWidget(self._name_lbl)
         name_col.addWidget(self._category_lbl)
         name_col.addStretch()
@@ -412,26 +424,44 @@ class _TalentDetailPanel(QWidget):
     # ── Field color map ───────────────────────────────────────────────────
     _COLORS: dict[str, str] = {
         "Level": GREEN,
+        "Effective Talent Level": GREEN,
+        "Mode": SUBTEXT0,
+        "Status": YELLOW,
+        "Type": BLUE,
         "Range": BLUE,
         "Cooldown": YELLOW,
         "Travel Speed": SUBTEXT1,
         "Usage Speed": SUBTEXT1,
         "Scales With": MAUVE,
         "Turn Duration": GREEN,
+        "Charges": TEXT,
+        "Stacks": TEXT,
+        "Power": TEXT,
+        "Source": SUBTEXT0,
         "Stats": TEXT,
         "Stats per turn": TEXT,
+        "Remaining Requirements": YELLOW,
         "Description": SUBTEXT1,
     }
     _ORDER = [
         "Level",
+        "Effective Talent Level",
+        "Mode",
+        "Status",
+        "Type",
         "Range",
         "Cooldown",
         "Travel Speed",
         "Usage Speed",
         "Scales With",
         "Turn Duration",
+        "Charges",
+        "Stacks",
+        "Power",
+        "Source",
         "Stats",
         "Stats per turn",
+        "Remaining Requirements",
         "Description",
     ]
 
@@ -442,6 +472,7 @@ class _TalentDetailPanel(QWidget):
         self._icon_lbl.setPixmap(px)
         self._name_lbl.setText(name)
         self._category_lbl.setText(category)
+        self._category_lbl.setVisible(bool(category))
 
         if isinstance(data, dict) and "Description" not in data:
             fallback_desc = lookup_talent_description(name)
@@ -473,6 +504,7 @@ class _TalentDetailPanel(QWidget):
         val.setWordWrap(True)
         val.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        val.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._fields_lay.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._fields_lay.addWidget(val, row, 1, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
@@ -487,6 +519,7 @@ class _TalentDetailPanel(QWidget):
         self._icon_lbl.setPixmap(_placeholder(_ICON_DETAIL, "?"))
         self._name_lbl.setText("Select a talent")
         self._category_lbl.setText("")
+        self._category_lbl.hide()
 
 
 class _CategoryHeader(QLabel):
@@ -560,6 +593,88 @@ class _StatsRow(QWidget):
             lay.addWidget(w, 0, Qt.AlignmentFlag.AlignVCenter)
 
         lay.addStretch()
+
+
+class _CompactTalentStrip(QWidget):
+    """Compact icon-only strip for always-visible live talents such as sustains."""
+
+    clicked = Signal(str, object, str)  # talent_name, data, category
+
+    def __init__(
+        self,
+        talents: dict[str, Any],
+        *,
+        category: str,
+        left_indent: int = 4,
+        icon_size: int = 28,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(left_indent, 2, 4, 0)
+        root.setSpacing(0)
+
+        icons_host = QWidget()
+        icons_lay = QGridLayout(icons_host)
+        icons_lay.setContentsMargins(0, 0, 0, 0)
+        icons_lay.setHorizontalSpacing(4)
+        icons_lay.setVerticalSpacing(4)
+
+        columns = 12
+        for index, (talent_name, talent_data) in enumerate(talents.items()):
+            icon_w = _TalentIcon(talent_name, talent_data, show_level=False, icon_size=icon_size)
+            icon_w.clicked.connect(
+                lambda name, data, cat=category: self.clicked.emit(name, data, cat)
+            )
+            icons_lay.addWidget(icon_w, index // columns, index % columns)
+
+        root.addWidget(icons_host)
+
+
+class _PlayerOverview(QWidget):
+    """Sprite, primary stats, and live sustain/effect strips in one aligned block."""
+
+    clicked = Signal(str, object, str)  # talent_name, data, category
+
+    def __init__(
+        self,
+        stats: dict[str, str],
+        *,
+        sprite: QPixmap | None = None,
+        sustains: dict[str, Any] | None = None,
+        effects: dict[str, Any] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent; border: none;")
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(4, 0, 4, 4)
+        root.setSpacing(12)
+
+        if sprite is not None:
+            sprite_lbl = QLabel()
+            sprite_lbl.setPixmap(sprite)
+            sprite_lbl.setFixedSize(sprite.size())
+            sprite_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            root.addWidget(sprite_lbl, 0, Qt.AlignmentFlag.AlignTop)
+
+        right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
+        right_col.setSpacing(2)
+
+        right_col.addWidget(_StatsRow(stats), 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        for entries in (sustains, effects):
+            if not entries:
+                continue
+            strip = _CompactTalentStrip(entries, category="", left_indent=0, icon_size=24)
+            strip.clicked.connect(self.clicked)
+            right_col.addWidget(strip, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        right_col.addStretch()
+        root.addLayout(right_col, 1)
 
 
 def _item_rank_color(item: dict[str, Any]) -> str:
@@ -1743,7 +1858,9 @@ class CharacterSheetView(QWidget):
         self._live_inventory: list[dict[str, Any]] | None = None
         self._live_transmog: list[dict[str, Any]] | None = None
         self._live_talents: dict[str, dict[str, Any]] | None = None
-        self._live_prodigies: list[str] | None = None
+        self._live_sustains: dict[str, dict[str, Any]] | None = None
+        self._live_effects: dict[str, dict[str, Any]] | None = None
+        self._live_prodigies: list[dict[str, Any]] | None = None
         self._selected_inventory_source = ""
         self._selected_inventory_key: tuple[Any, ...] | None = None
 
@@ -1950,7 +2067,19 @@ class CharacterSheetView(QWidget):
         self._live_talents = sections
         self._reload_current()
 
-    def set_live_prodigies(self, prodigies: list[str] | None) -> None:
+    def set_live_sustains(self, sections: dict[str, dict[str, Any]] | None) -> None:
+        if sections == self._live_sustains:
+            return
+        self._live_sustains = sections
+        self._reload_current()
+
+    def set_live_effects(self, sections: dict[str, dict[str, Any]] | None) -> None:
+        if sections == self._live_effects:
+            return
+        self._live_effects = sections
+        self._reload_current()
+
+    def set_live_prodigies(self, prodigies: list[dict[str, Any]] | None) -> None:
         if prodigies == self._live_prodigies:
             return
         self._live_prodigies = prodigies
@@ -1962,6 +2091,8 @@ class CharacterSheetView(QWidget):
             and self._live_inventory is None
             and self._live_transmog is None
             and self._live_talents is None
+            and self._live_sustains is None
+            and self._live_effects is None
             and self._live_prodigies is None
         ):
             return
@@ -1969,6 +2100,8 @@ class CharacterSheetView(QWidget):
         self._live_inventory = None
         self._live_transmog = None
         self._live_talents = None
+        self._live_sustains = None
+        self._live_effects = None
         self._live_prodigies = None
         self._reload_current()
 
@@ -2083,23 +2216,30 @@ class CharacterSheetView(QWidget):
         char = self._current_data.get("Character", {})
         self._header.update_from(char, self._current_char_name)
 
-        # Stats row
+        # Stats row + live sustain/effect icons
         stats = self._current_data.get("Primary Stats", {})
-        if stats:
-            self._player_box_lay.addWidget(_StatsRow(stats, sprite=self._current_sprite))
+        if not isinstance(stats, dict):
+            stats = {}
+        if stats or self._current_sprite is not None or self._live_sustains or self._live_effects:
+            overview = _PlayerOverview(
+                stats,
+                sprite=self._current_sprite,
+                sustains=self._live_sustains,
+                effects=self._live_effects,
+            )
+            overview.clicked.connect(self._on_summary_talent_clicked)
+            self._player_box_lay.addWidget(overview)
 
         # Talent sections
         talent_sections = self._merge_live_talents()
-        if talent_sections:
-            self._insert(self._left_lay, self._build_talent_columns(talent_sections))
-        else:
-            file_talent_sections = {
+        if not talent_sections:
+            talent_sections = {
                 key: value
                 for key, value in self._current_data.items()
                 if "Talents" in key and isinstance(value, dict) and value
             }
-            if file_talent_sections:
-                self._insert(self._left_lay, self._build_talent_columns(file_talent_sections))
+        if talent_sections:
+            self._insert(self._left_lay, self._build_talent_columns(talent_sections))
 
         file_equipment = self._current_data.get("Equipment", [])
         inventory = self._current_data.get("Inventory", [])
@@ -2195,9 +2335,10 @@ class CharacterSheetView(QWidget):
         self,
         visited: set[str],
         deaths: set[str],
+        uniques: set[str],
         current_zone: tuple[str, int, int] | None,
     ) -> None:
-        self._progression_tab.update(visited, deaths, current_zone)
+        self._progression_tab.update(visited, deaths, uniques, current_zone)
 
     # ── Builders ─────────────────────────────────────────────────────────
 
@@ -2213,6 +2354,11 @@ class CharacterSheetView(QWidget):
 
         class_section = sections.get("Class Talents")
         generic_section = sections.get("Generic Talents")
+        extra_sections = [
+            (section_title, section_data)
+            for section_title, section_data in sections.items()
+            if section_title not in {"Class Talents", "Generic Talents"}
+        ]
 
         def add_section(section_title: str, section_data: dict[str, Any] | None) -> None:
             if not isinstance(section_data, dict) or not section_data:
@@ -2221,26 +2367,31 @@ class CharacterSheetView(QWidget):
             section_widget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             lay.addWidget(section_widget, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        add_section("Class Talents", class_section)
-        if isinstance(class_section, dict) and class_section and isinstance(generic_section, dict) and generic_section:
+        def add_divider() -> None:
             divider = QFrame()
             divider.setFrameShape(QFrame.Shape.VLine)
             divider.setLineWidth(1)
             divider.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
             lay.addWidget(divider)
+
+        add_section("Class Talents", class_section)
+        if isinstance(class_section, dict) and class_section and isinstance(generic_section, dict) and generic_section:
+            add_divider()
         add_section("Generic Talents", generic_section)
 
         if lay.count() == 0:
             for section_title, section_data in sections.items():
                 add_section(section_title, section_data)
+        else:
+            for section_title, section_data in extra_sections:
+                if not isinstance(section_data, dict) or not section_data:
+                    continue
+                add_divider()
+                add_section(section_title, section_data)
 
         # Prodigies column — sourced from live memory, level 25+ only
         if self._live_prodigies:
-            prodigy_divider = QFrame()
-            prodigy_divider.setFrameShape(QFrame.Shape.VLine)
-            prodigy_divider.setLineWidth(1)
-            prodigy_divider.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
-            lay.addWidget(prodigy_divider)
+            add_divider()
             prodigy_col = self._build_prodigy_column(self._live_prodigies)
             prodigy_col.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             lay.addWidget(prodigy_col, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
@@ -2248,7 +2399,7 @@ class CharacterSheetView(QWidget):
         lay.addStretch(1)
         return wrapper
 
-    def _build_prodigy_column(self, names: list[str]) -> QWidget:
+    def _build_prodigy_column(self, prodigies: list[dict[str, Any]]) -> QWidget:
         """Build a compact prodigy column showing available-to-learn prodigies."""
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -2265,8 +2416,13 @@ class CharacterSheetView(QWidget):
         gl = QGridLayout(gw)
         gl.setContentsMargins(0, 2, 0, 6)
         gl.setSpacing(4)
-        for idx, name in enumerate(names):
-            icon_w = _TalentIcon(name, {"Level": "0/1"})
+        for idx, prodigy in enumerate(prodigies):
+            name = str(prodigy.get("Name") or "")
+            if not name:
+                continue
+            detail = dict(prodigy)
+            detail.pop("Name", None)
+            icon_w = _TalentIcon(name, detail)
             icon_w.clicked.connect(lambda n, d: self._on_talent_clicked(n, d, "Prodigies"))
             gl.addWidget(icon_w, idx // 2, idx % 2)
         lay.addWidget(gw)
@@ -2315,6 +2471,14 @@ class CharacterSheetView(QWidget):
         return w
 
     def _on_talent_clicked(self, name: str, data: Any, category: str) -> None:
+        self._show_talent_detail(name, data, category)
+
+    def _on_summary_talent_clicked(self, name: str, data: Any, category: str) -> None:
+        self._content_tabs.setCurrentIndex(0)
+        self._show_talent_detail(name, data, category)
+
+    def _show_talent_detail(self, name: str, data: Any, category: str) -> None:
+        self._current_category = category
         self._detail_panel.show_talent(name, data, category)
 
     # ── Helpers ───────────────────────────────────────────────────────────

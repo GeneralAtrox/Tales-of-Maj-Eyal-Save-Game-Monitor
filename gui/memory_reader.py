@@ -16,6 +16,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import json
+import re
 import struct
 import sys
 import threading as _threading
@@ -23,7 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from game_data.effect_db import lookup_effect_by_id
 from game_data.prodigy_db import get_prodigy_db as _get_prodigy_db
+from game_data.talent_db import lookup_talent_by_id
 from gui.sprite_resolve import is_usable_sprite, pick_actor_image
 from runtime_output import console_print
 
@@ -94,6 +97,103 @@ _LJ_TTRUE = 0xFFFFFFFD
 _LJ_TFALSE = 0xFFFFFFFE
 _LJ_TNIL = 0xFFFFFFFF
 _NODE_SIZE = 24
+
+_PLAYER_BASE_STAT_ORDER: tuple[str, ...] = (
+    "str",
+    "dex",
+    "mag",
+    "wil",
+    "cun",
+    "con",
+    "lck",
+)
+
+_DEFAULT_RESIST_CAP = 70.0
+_QUEST_COMPLETED = 1
+_QUEST_DONE = 100
+_QUEST_FAILED = 101
+_BASE_DAMAGE_TYPE_IDS: dict[str, int] = {
+    "PHYSICAL": 1,
+    "ARCANE": 2,
+    "FIRE": 3,
+    "COLD": 4,
+    "LIGHTNING": 5,
+    "ACID": 6,
+    "NATURE": 7,
+    "BLIGHT": 8,
+    "LIGHT": 9,
+    "DARKNESS": 10,
+    "MIND": 11,
+    "TEMPORAL": 12,
+}
+_RE_REQ_DAMAGE_LOG = re.compile(r"self\.(damage(?:_intake)?_log)")
+_RE_REQ_DAMAGE_TYPE = re.compile(r"DamageType\.(\w+)")
+_RE_REQ_GE = re.compile(r">=\s*(\d+)")
+_RE_REQ_ATTR = re.compile(r'self:attr\("([^"]+)"\)(?:\s*and\s*self:attr\("[^"]+"\)\s*>=\s*(\d+))?')
+_RE_REQ_ATTR_MUST_BE_FALSE = re.compile(r'if\s+self:attr\("([^"]+)"\)\s+then\s+return\s+false\s+end')
+_RE_REQ_ATTR_MUST_BE_TRUE = re.compile(r'if\s+not\s+self:attr\("([^"]+)"\)\s+then\s+return\s+false\s+end')
+_RE_REQ_ALLOW_BUILD = re.compile(r"profile\.mod\.allow_build\.([A-Za-z0-9_]+)")
+_RE_REQ_TALENT_KIND = re.compile(r"self\.talent_kind_log\.(\w+)\s*>=\s*(\d+)")
+_RE_REQ_KNOW_TALENT = re.compile(r"self:knowTalent\(self\.(T_[A-Z0-9_]+)\)")
+_RE_REQ_TALENT_RAW = re.compile(r"self:getTalentLevelRaw\(self\.(T_[A-Z0-9_]+)\)\s*>=\s*(\d+)")
+_RE_REQ_LUCK = re.compile(r"self:getLck\(\)\s*>=\s*(\d+)")
+_RE_REQ_SIZE = re.compile(r"self\.size_category\s*and\s*self\.size_category\s*>=\s*(\d+)")
+_RE_REQ_SELF_FIELD = re.compile(r"self\.([A-Za-z_][A-Za-z0-9_]*)\s*and\s*self\.\1\s*>=\s*(\d+)")
+_RE_REQ_COMBAT_DEF = re.compile(r"self:combatDefense\(\)\s*>=\s*(\d+)")
+_RE_REQ_QUEST_ID = re.compile(r'self:(?:hasQuest|isQuestStatus)\("([^"]+)"')
+_RE_REQ_QUEST_STATUS = re.compile(
+    r"(not\s+)?(?:self:isQuestStatus\(\"[^\"]+\"|"
+    r"self:hasQuest\(\"[^\"]+\"\):isStatus)\("
+    r"engine\.Quest\.(DONE|COMPLETED|FAILED)(?:,\s*\"([^\"]+)\")?\)"
+)
+_RE_REQ_QUEST_COMPLETED = re.compile(r'(not\s+)?[A-Za-z_][A-Za-z0-9_]*:isCompleted\("([^"]+)"\)')
+_RE_REQ_INSCRIPTION = re.compile(r"inscription_(restrictions|forbids)\['([^']+)'\]")
+
+_ENTITY_ROOT_FIELDS = {
+    "attachement_spots",
+    "combat_armor",
+    "combat_def",
+    "combat_mentalresist",
+    "combat_physresist",
+    "combat_spellresist",
+    "faction",
+    "global_speed",
+    "image",
+    "level",
+    "life",
+    "max_life",
+    "name",
+    "rank",
+    "size_category",
+    "subtype",
+    "type",
+    "unique",
+    "x",
+    "y",
+}
+
+_ENTITY_COMBAT_FIELDS = {
+    "apr",
+    "atk",
+    "crit",
+    "crit_power",
+    "dam",
+    "physspeed",
+}
+
+_ENTITY_RESIST_FIELDS = {
+    "all",
+    "ARCANE",
+    "BLIGHT",
+    "COLD",
+    "DARKNESS",
+    "FIRE",
+    "LIGHT",
+    "LIGHTNING",
+    "NATURE",
+    "PHYSICAL",
+    "TEMPORAL",
+}
 
 
 # ── Low-level memory access ──────────────────────────────────────────────────
@@ -229,6 +329,29 @@ def _tab_array_get_table(h: int, tab_ptr: int, idx: int) -> int | None:
     return v if (v and _is_heap(v)) else None
 
 
+def _tab_array_get_number(h: int, tab_ptr: int, idx: int) -> float | None:
+    """Return the numeric value for array element ``[idx]`` (1-based)."""
+    if idx < 1:
+        return None
+    asize = _ru32(h, tab_ptr + 24)
+    if asize is None or idx > asize:
+        return None
+    array_ptr = _ru32(h, tab_ptr + 8)
+    if not array_ptr or not _is_heap(array_ptr):
+        return None
+    offset = (idx - 1) * 8
+    itype = _ru32(h, array_ptr + offset + 4)
+    if itype is None or itype >= _LJ_TNUMX:
+        return None
+    raw = _rpm(h, array_ptr + offset, 8)
+    if not raw:
+        return None
+    try:
+        return struct.unpack("<d", raw)[0]
+    except struct.error:
+        return None
+
+
 def _tab_get_bool(h: int, tab_ptr: int, key: str) -> bool | None:
     """Look up a string key and return True/False, or None if missing."""
     node = _tab_find_strkey(h, tab_ptr, key)
@@ -266,30 +389,24 @@ def _tab_iter_table_values(h: int, tab_ptr: int) -> list[int]:
     return results
 
 
-def _tab_string_keys_with_true(h: int, tab_ptr: int, *, max_key_len: int = 256) -> set[str]:
-    """Return string keys whose value is the Lua literal ``true``.
-
-    ToME uses this "set of names" pattern all over ``game.state`` and
-    ``game.visited_zones``: keys are strings, values are just ``true``.
-    ``max_key_len`` caps how long a key we'll accept (zone names are
-    short; NPC ids can run longer).
-    """
+def _tab_iter_string_entries(h: int, tab_ptr: int, *, max_key_len: int = 256) -> list[tuple[str, int, int]]:
+    """Return ``(key, value_itype, value_lo)`` for string-keyed hash entries."""
     node_ptr = _ru32(h, tab_ptr + 20)
     hmask = _ru32(h, tab_ptr + 28)
     if not node_ptr or hmask is None or not _is_heap(node_ptr):
-        return set()
+        return []
     total = (hmask + 1) * _NODE_SIZE
     if total > 16 * 1024 * 1024:
-        return set()
+        return []
     bulk = _rpm(h, node_ptr, total)
     if not bulk:
-        return set()
-    result: set[str] = set()
+        return []
+
+    entries: list[tuple[str, int, int]] = []
     for i in range(hmask + 1):
         off = i * _NODE_SIZE
         key_it = struct.unpack_from("<I", bulk, off + 12)[0]
-        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
-        if key_it != _LJ_TSTR or val_it != _LJ_TTRUE:
+        if key_it != _LJ_TSTR:
             continue
         key_gcs = struct.unpack_from("<I", bulk, off + 8)[0]
         if not _is_heap(key_gcs):
@@ -304,10 +421,28 @@ def _tab_string_keys_with_true(h: int, tab_ptr: int, *, max_key_len: int = 256) 
         if not raw:
             continue
         try:
-            result.add(raw.decode("utf-8"))
+            key = raw.decode("utf-8")
         except UnicodeDecodeError:
-            pass
-    return result
+            continue
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
+        val_lo = struct.unpack_from("<I", bulk, off)[0]
+        entries.append((key, val_it, val_lo))
+    return entries
+
+
+def _tab_string_keys_with_true(h: int, tab_ptr: int, *, max_key_len: int = 256) -> set[str]:
+    """Return string keys whose value is the Lua literal ``true``.
+
+    ToME uses this "set of names" pattern all over ``game.state`` and
+    ``game.visited_zones``: keys are strings, values are just ``true``.
+    ``max_key_len`` caps how long a key we'll accept (zone names are
+    short; NPC ids can run longer).
+    """
+    return {
+        key
+        for key, val_it, _ in _tab_iter_string_entries(h, tab_ptr, max_key_len=max_key_len)
+        if val_it == _LJ_TTRUE
+    }
 
 
 def _tab_get_ordered_tables(h: int, tab_ptr: int) -> list[int]:
@@ -381,6 +516,8 @@ def _tab_dump_flat(
     h: int,
     tab_ptr: int,
     prefix: str = "",
+    *,
+    allowed_keys: set[str] | None = None,
 ) -> dict[str, str | float | bool]:
     """
     Scan the hash part of one GCtab level and return every entry whose key is
@@ -418,9 +555,12 @@ def _tab_dump_flat(
         if not key_raw:
             continue
         try:
-            key = prefix + key_raw.decode("utf-8")
+            base_key = key_raw.decode("utf-8")
         except UnicodeDecodeError:
             continue
+        if allowed_keys is not None and base_key not in allowed_keys:
+            continue
+        key = prefix + base_key
 
         val_it = struct.unpack_from("<I", bulk, off + 4)[0]
         val_lo = struct.unpack_from("<I", bulk, off)[0]
@@ -458,7 +598,7 @@ def _tab_dump_flat(
 # Sub-tables worth recursing into for a complete entity snapshot.
 _ENTITY_SUBTABLES = (
     "stats",  # str/dex/mag/wil/cun/con base stats
-    "resists",  # damage type resistances  (keyed by DamageType int)
+    "resists",  # damage type resistances
     "combat",  # dam/atk/apr/damspeed/dammod
     "inc_damage",  # % damage bonuses by type
     "resists_pen",  # penetration values
@@ -481,6 +621,151 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
             out.update(_tab_dump_flat(h, sub_ptr, prefix=f"{sub}."))
 
     return out
+
+
+def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float | bool]:
+    """Return only the entity fields used by the enemy panel and threat math."""
+    out = _tab_dump_flat(h, actor_ptr, allowed_keys=_ENTITY_ROOT_FIELDS)
+
+    combat_tab = _tab_get_table(h, actor_ptr, "combat")
+    if combat_tab:
+        out.update(_tab_dump_flat(h, combat_tab, prefix="combat.", allowed_keys=_ENTITY_COMBAT_FIELDS))
+
+    resists_tab = _tab_get_table(h, actor_ptr, "resists")
+    if resists_tab:
+        out.update(_tab_dump_flat(h, resists_tab, prefix="resists.", allowed_keys=_ENTITY_RESIST_FIELDS))
+
+    inc_damage_tab = _tab_get_table(h, actor_ptr, "inc_damage")
+    if inc_damage_tab:
+        out.update(_tab_dump_flat(h, inc_damage_tab, prefix="inc_damage."))
+
+    resists_pen_tab = _tab_get_table(h, actor_ptr, "resists_pen")
+    if resists_pen_tab:
+        out.update(_tab_dump_flat(h, resists_pen_tab, prefix="resists_pen."))
+
+    return out
+
+
+def _tab_get_number_by_index(h: int, tab_ptr: int, idx: int) -> float | None:
+    """Return the numeric value stored at integer key ``idx``."""
+    value = _tab_array_get_number(h, tab_ptr, idx)
+    if value is not None:
+        return value
+
+    node_ptr = _ru32(h, tab_ptr + 20)
+    hmask = _ru32(h, tab_ptr + 28)
+    if not node_ptr or hmask is None or not _is_heap(node_ptr):
+        return None
+    total = (hmask + 1) * _NODE_SIZE
+    if total > 4 * 1024 * 1024:
+        return None
+    bulk = _rpm(h, node_ptr, total)
+    if not bulk:
+        return None
+
+    for i in range(hmask + 1):
+        off = i * _NODE_SIZE
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
+        if val_it >= _LJ_TNUMX:
+            continue
+        key_hi = struct.unpack_from("<I", bulk, off + 12)[0]
+        if key_hi >= _LJ_TNUMX:
+            continue
+        try:
+            key_f = struct.unpack_from("<d", bulk, off + 8)[0]
+            if key_f != idx:
+                continue
+            return struct.unpack_from("<d", bulk, off)[0]
+        except struct.error:
+            continue
+    return None
+
+
+def _tab_get_scalar(h: int, tab_ptr: int, key: str) -> str | float | bool | None:
+    value = _tab_get_number(h, tab_ptr, key)
+    if value is not None:
+        return value
+    value_bool = _tab_get_bool(h, tab_ptr, key)
+    if value_bool is not None:
+        return value_bool
+    value_str = _tab_get_string(h, tab_ptr, key)
+    if value_str is not None:
+        return value_str
+    return None
+
+
+def _table_number_by_damage_type(h: int, tab_ptr: int, damage_type: str) -> float | None:
+    value = _tab_get_number(h, tab_ptr, damage_type)
+    if value is not None:
+        return value
+    idx = _BASE_DAMAGE_TYPE_IDS.get(damage_type.upper())
+    if idx is None:
+        return None
+    return _tab_get_number_by_index(h, tab_ptr, idx)
+
+
+def _format_requirement_text(requirements: list[str]) -> str | list[str]:
+    if not requirements:
+        return "Ready to learn"
+    if len(requirements) == 1:
+        return requirements[0]
+    return requirements
+
+
+def _tome_exp_chart(level: int, exp_mod: float = 1.0) -> float:
+    """Mirror ToME's module-specific ``ActorLevel.exp_chart``."""
+    exp = 10.0
+    mult = 8.5
+    min_mult = 3.0
+    for _ in range(2, level + 1):
+        exp += level * mult
+        if level < 30:
+            mult = max(min_mult, min(mult, mult - 0.2))
+        else:
+            mult = max(min_mult, min(mult, mult - 0.1))
+    return float(int(exp * exp_mod + 0.999999))
+
+
+def _stack_resists(all_resist: float, specific_resist: float) -> float:
+    """Match ToME's combined all-resist + per-type resist formula."""
+    a = max(-100.0, min(100.0, all_resist)) / 100.0
+    b = max(-100.0, min(100.0, specific_resist)) / 100.0
+    return 100.0 * (1.0 - (1.0 - a) * (1.0 - b))
+
+
+def _effective_player_resists(
+    raw_resists: dict[str, float],
+    raw_caps: dict[str, float],
+) -> dict[str, float]:
+    """Return combat-effective player resist values (pre-penetration)."""
+    if not raw_resists:
+        return {}
+
+    all_resist = raw_resists.get("all", 0.0)
+    all_cap = raw_caps.get("all", _DEFAULT_RESIST_CAP)
+
+    effective: dict[str, float] = {}
+    if "all" in raw_resists:
+        effective["all"] = max(-100.0, min(all_resist, all_cap))
+
+    for dtype, resist in raw_resists.items():
+        if dtype == "all":
+            continue
+        cap = all_cap + raw_caps.get(dtype, 0.0)
+        effective[dtype] = max(-100.0, min(_stack_resists(all_resist, resist), cap))
+    return effective
+
+
+def _format_live_number(value: float) -> str:
+    numeric = float(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:.2f}".rstrip("0").rstrip(".")
+
+
+def _display_engine_id(raw_id: str, prefix: str) -> str:
+    label = raw_id.removeprefix(prefix).replace("_", " ").strip()
+    return label.title() if label else raw_id
 
 
 # ── Process / region helpers ─────────────────────────────────────────────────
@@ -666,6 +951,7 @@ class PlayerStats:
     ignore_direct_crits: float = 0.0
     resists: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
+    resists_cap: dict[str, float] = field(default_factory=dict)
 
 
 _INVENTORY_BUCKET_SLOT_LABELS: dict[str, str] = {
@@ -723,7 +1009,7 @@ class EntityInfo:
     subtype: str  # e.g. "ant"
     size_category: float  # 1=tiny … 5=huge
     unique: bool  # True if a named/random unique
-    # Full flat field dump (strings, numbers, bools) — for debug / tooltip
+    # Compact flat field snapshot used by the enemy panel / threat math
     all_fields: dict[str, str | float | bool]
 
 
@@ -809,37 +1095,102 @@ class MemoryReader:
             return False
         return _get_pid("t-engine.exe") == self._pid
 
-    def read_player_hp(self) -> tuple[float, float] | None:
-        """Return (life, max_life) or None if unavailable."""
+    def _ensure_player_table(self) -> int | None:
+        """Return the cached ``game.player`` table, refreshing it when needed."""
         if not self.attached:
             return None
 
         h = self._handle
-        gt = self._global_table
+        if self._player_table and _tab_get_number(h, self._player_table, "level") is not None:
+            return self._player_table
 
-        # Resolve player table (may change on save load)
-        game_tab = _tab_get_table(h, gt, "game")
+        game_tab = _tab_get_table(h, self._global_table, "game")
         if game_tab is None:
+            self._player_table = 0
             return None
 
         player_tab = _tab_get_table(h, game_tab, "player")
         if player_tab is None:
             self._player_table = 0
             return None
-        self._player_table = player_tab
 
+        self._player_table = player_tab
+        return player_tab
+
+    def _read_player_stat_identifier(self, h: int, player_tab: int) -> str | None:
+        """Return ToME's profile bucket id for the current character."""
+        descriptor_tab = _tab_get_table(h, player_tab, "descriptor")
+        if descriptor_tab is None:
+            return None
+
+        parts: list[str] = []
+        for key in ("world", "subrace", "subclass", "difficulty", "permadeath"):
+            value = _tab_get_string(h, descriptor_tab, key)
+            if not value:
+                return None
+            parts.append(value)
+        return ",".join(parts)
+
+    def _read_player_base_stats(self, h: int, player_tab: int) -> dict[str, float]:
+        """Return base stats from ``game.player.stats``.
+
+        The live table has a leading nil array slot before the actual stat
+        entries, so indexed reads are offset by one here on purpose. String-key
+        lookups are kept as a fallback for older or unmigrated saves.
+        """
+        stats_tab = _tab_get_table(h, player_tab, "stats")
+        if stats_tab is None:
+            return {}
+
+        values: dict[str, float] = {}
+        for stat_index, short_name in enumerate(_PLAYER_BASE_STAT_ORDER, start=1):
+            value = _tab_get_number(h, stats_tab, short_name)
+            if value is None:
+                value = _tab_get_number_by_index(h, stats_tab, stat_index + 1)
+            values[short_name] = float(value) if isinstance(value, (int, float)) else 0.0
+        return values
+
+    def _read_player_total_stats(self, h: int, player_tab: int) -> dict[str, float]:
+        """Return effective stats as ToME checks them for talent requirements."""
+        totals = self._read_player_base_stats(h, player_tab)
+        inc_stats_tab = _tab_get_table(h, player_tab, "inc_stats")
+        if inc_stats_tab is None:
+            return totals
+
+        for stat_index, short_name in enumerate(_PLAYER_BASE_STAT_ORDER, start=1):
+            bonus = _tab_get_number(h, inc_stats_tab, short_name)
+            if bonus is None:
+                bonus = _tab_get_number_by_index(h, inc_stats_tab, stat_index + 1)
+            if isinstance(bonus, (int, float)):
+                totals[short_name] = totals.get(short_name, 0.0) + float(bonus)
+        return totals
+
+    def read_player_hp(self) -> tuple[float, float] | None:
+        """Return (life, max_life) or None if unavailable."""
+        player_tab = self._ensure_player_table()
+        if player_tab is None:
+            return None
+
+        h = self._handle
         life = _tab_get_number(h, player_tab, "life")
         max_life = _tab_get_number(h, player_tab, "max_life")
+        if life is None or max_life is None:
+            self._player_table = 0
+            player_tab = self._ensure_player_table()
+            if player_tab is None:
+                return None
+            life = _tab_get_number(h, player_tab, "life")
+            max_life = _tab_get_number(h, player_tab, "max_life")
         if life is None or max_life is None:
             return None
         return life, max_life
 
     def read_player_mana(self) -> tuple[float, float] | None:
         """Return (mana, max_mana) or None if character has no mana."""
-        if not self._player_table or not self.attached:
+        pt = self._ensure_player_table()
+        if pt is None:
             return None
         h = self._handle
-        pt = self._player_table
         mana = _tab_get_number(h, pt, "mana")
         max_mana = _tab_get_number(h, pt, "max_mana")
         if mana is None or max_mana is None or max_mana <= 0:
@@ -863,13 +1214,11 @@ class MemoryReader:
 
     def read_player_stats(self) -> PlayerStats | None:
         """Read the player's combat-relevant stats for danger comparison."""
-        if not self._player_table or not self.attached:
-            self.read_player_hp()
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return None
 
         h = self._handle
-        pt = self._player_table
 
         level = _tab_get_number(h, pt, "level")
         if level is None:
@@ -881,6 +1230,9 @@ class MemoryReader:
                 return {}
             raw = _tab_dump_flat(h, sub_ptr)
             return {k: float(v) for k, v in raw.items() if isinstance(v, (int, float))}
+
+        raw_resists = _dump_numeric_subtable("resists")
+        raw_caps = _dump_numeric_subtable("resists_cap")
 
         return PlayerStats(
             level=level,
@@ -894,21 +1246,18 @@ class MemoryReader:
             armor_hardiness=_tab_get_number(h, pt, "combat_armor_hardiness") or 0.0,
             evasion=_tab_get_number(h, pt, "evasion") or 0.0,
             ignore_direct_crits=_tab_get_number(h, pt, "ignore_direct_crits") or 0.0,
-            resists=_dump_numeric_subtable("resists"),
+            resists=_effective_player_resists(raw_resists, raw_caps),
             resists_pen=_dump_numeric_subtable("resists_pen"),
+            resists_cap=raw_caps,
         )
 
     def read_player_sprite(self) -> tuple[str, list[str]] | None:
         """Return (image, sprite_layers) for the live player actor, or None."""
-        if not self.attached:
-            return None
-        if not self._player_table:
-            self.read_player_hp()
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return None
 
         h = self._handle
-        pt = self._player_table
         all_fields = _tab_dump_all(h, pt)
         image, sprite_layers = self._extract_actor_sprite(h, pt, all_fields)
         if not image and not sprite_layers:
@@ -1040,11 +1389,8 @@ class MemoryReader:
 
     def read_player_talents(self) -> dict[str, dict[str, Any]]:
         """Return live talent sections compatible with CharacterSheetView."""
-        if not self.attached:
-            return {}
-        if not self._player_table:
-            self.read_player_hp()
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return {}
 
         h = self._handle
@@ -1052,9 +1398,9 @@ class MemoryReader:
         engine_tab = _tab_get_table(h, gt, "engine")
         interface_tab = _tab_get_table(h, engine_tab, "interface") if engine_tab else None
         actor_talents_tab = _tab_get_table(h, interface_tab, "ActorTalents") if interface_tab else None
-        talents_tab = _tab_get_table(h, self._player_table, "talents")
-        talent_types_tab = _tab_get_table(h, self._player_table, "talents_types")
-        mastery_tab = _tab_get_table(h, self._player_table, "talents_types_mastery")
+        talents_tab = _tab_get_table(h, pt, "talents")
+        talent_types_tab = _tab_get_table(h, pt, "talents_types")
+        mastery_tab = _tab_get_table(h, pt, "talents_types_mastery")
         type_defs_tab = _tab_get_table(h, actor_talents_tab, "talents_types_def") if actor_talents_tab else None
         if None in (talents_tab, talent_types_tab, mastery_tab, type_defs_tab):
             return {}
@@ -1135,17 +1481,121 @@ class MemoryReader:
                 sections[section_name] = section
         return sections
 
+    def read_sustain_talents(self) -> dict[str, dict[str, Any]]:
+        """Return the player's currently active sustained talents."""
+        pt = self._ensure_player_table()
+        if pt is None:
+            return {}
+
+        h = self._handle
+        sustains_tab = _tab_get_table(h, pt, "sustain_talents")
+        if sustains_tab is None:
+            return {}
+        talents_tab = _tab_get_table(h, pt, "talents")
+
+        entries: list[tuple[str, dict[str, Any]]] = []
+        for talent_id, value_it, value_lo in _tab_iter_string_entries(h, sustains_tab):
+            if not talent_id.startswith("T_") or value_it not in (_LJ_TTRUE, _LJ_TTAB):
+                continue
+
+            record = lookup_talent_by_id(talent_id)
+            name = _display_engine_id(talent_id, "T_")
+            level = _tab_get_number(h, talents_tab, talent_id) if talents_tab else None
+            entry: dict[str, Any] = {
+                "Level": _format_live_number(level) if level is not None else "On",
+                "Mode": record.mode.title() if record and record.mode else "Sustained",
+                "Status": "Active",
+            }
+            if record and record.talent_type:
+                entry["Type"] = record.talent_type
+            if record and record.description:
+                entry["Description"] = record.description
+            if record and record.icon:
+                entry["Icon"] = record.icon
+
+            if value_it == _LJ_TTAB and _is_heap(value_lo):
+                sustain_state = _tab_dump_flat(h, value_lo)
+                for key, label in (("power", "Power"), ("charges", "Charges"), ("stacks", "Stacks")):
+                    raw = sustain_state.get(key)
+                    if isinstance(raw, (int, float)):
+                        entry[label] = _format_live_number(float(raw))
+
+            entries.append((name, entry))
+
+        entries.sort(key=lambda item: item[0].lower())
+        return {name: entry for name, entry in entries}
+
+    def read_player_effects(self) -> dict[str, dict[str, Any]]:
+        """Return the player's active timed effects from ``player.tmp``."""
+        pt = self._ensure_player_table()
+        if pt is None:
+            return {}
+
+        h = self._handle
+        tmp_tab = _tab_get_table(h, pt, "tmp")
+        if tmp_tab is None:
+            return {}
+
+        entries: list[tuple[int, str, str, dict[str, Any]]] = []
+        for effect_id, value_it, value_lo in _tab_iter_string_entries(h, tmp_tab):
+            if not effect_id.startswith("EFF_") or value_it != _LJ_TTAB or not _is_heap(value_lo):
+                continue
+
+            effect_state = _tab_dump_flat(h, value_lo)
+            record = lookup_effect_by_id(effect_id)
+            name = record.name if record and record.name else _display_engine_id(effect_id, "EFF_")
+            entry: dict[str, Any] = {
+                "Level": "On",
+            }
+            if record and record.status:
+                entry["Status"] = record.status.title()
+            if record and record.effect_type:
+                entry["Type"] = record.effect_type.title()
+            if record and record.icon:
+                entry["Icon"] = record.icon
+
+            duration = effect_state.get("dur")
+            if isinstance(duration, (int, float)) and (record is None or record.decrease > 0):
+                turns_left = float(duration) + 1.0
+                turns_text = _format_live_number(turns_left)
+                entry["Level"] = f"{turns_text}t"
+                entry["Turn Duration"] = turns_text
+
+            for key, label in (("charges", "Charges"), ("power", "Power"), ("stacks", "Stacks")):
+                raw = effect_state.get(key)
+                if isinstance(raw, (int, float)):
+                    entry[label] = _format_live_number(float(raw))
+
+            source_name = effect_state.get("srcname")
+            if not isinstance(source_name, str) or not source_name:
+                src_tab = self._tab_get_named_child_table(h, value_lo, "src")
+                if src_tab is not None:
+                    source_name = _tab_get_string(h, src_tab, "name")
+            if isinstance(source_name, str) and source_name:
+                entry["Source"] = source_name
+
+            description = ""
+            if record:
+                description = record.summary or record.description
+            elif isinstance(effect_state.get("desc"), str):
+                description = str(effect_state["desc"])
+            if description:
+                entry["Description"] = description
+
+            status_sort = 0 if str(entry.get("Status", "")).lower() == "beneficial" else 1
+            entries.append((status_sort, name.lower(), name, entry))
+
+        entries.sort(key=lambda item: (item[0], item[1]))
+        return {name: entry for _, _, name, entry in entries}
+
     def read_player_inventory(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """Return (equipped_items, current_inventory_items, transmog_items) from game.player.inven."""
-        if not self.attached:
-            return [], [], []
-        if not self._player_table:
-            self.read_player_hp()
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return [], [], []
 
         h = self._handle
-        inven_tab = _tab_get_table(h, self._player_table, "inven")
+        inven_tab = _tab_get_table(h, pt, "inven")
         if inven_tab is None:
             return [], [], []
 
@@ -1261,8 +1711,8 @@ class MemoryReader:
             if rank is not None and rank <= min_rank:
                 continue
 
-            # Dump all flat fields first — single pass over the hash table
-            all_fields = _tab_dump_all(h, ptr)
+            # Keep the hot path lean: only snapshot the fields the panel uses.
+            all_fields = _tab_dump_entity_snapshot(h, ptr)
 
             name = (all_fields.get("name") or "?") if isinstance(all_fields.get("name"), str) else "?"
             life = float(all_fields.get("life") or 0.0)
@@ -1317,15 +1767,11 @@ class MemoryReader:
 
     def read_player_resources(self) -> dict[str, float]:
         """Read common player resources. Returns {name: value} dict."""
-        if not self._player_table or not self.attached:
-            # Trigger a player table resolve
-            self.read_player_hp()
-
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return {}
 
         h = self._handle
-        pt = self._player_table
 
         keys = [
             "life",
@@ -1356,28 +1802,25 @@ class MemoryReader:
         return result
 
     def read_player_exp(self) -> tuple[float, float] | None:
-        """Return (exp_this_level, exp_needed) or None if unavailable."""
-        if not self._player_table or not self.attached:
-            self.read_player_hp()
-        if not self._player_table:
+        """Return ``(current_total_exp, next_level_total_exp)`` or None."""
+        pt = self._ensure_player_table()
+        if pt is None:
             return None
         h = self._handle
-        pt = self._player_table
         exp = _tab_get_number(h, pt, "exp")
         level = _tab_get_number(h, pt, "level")
         if exp is None or level is None:
             return None
-        next_level = int(level) + 1
-        needed = 90 * (2 * next_level - 1)
-        return exp, float(needed)
+        exp_mod = _tab_get_number(h, pt, "exp_mod") or 1.0
+        needed = _tome_exp_chart(int(level) + 1, exp_mod)
+        return exp, needed
 
     def read_has_transmo(self) -> bool:
         """Return True if the player has the transmogrification chest unlocked."""
-        if not self._player_table or not self.attached:
-            self.read_player_hp()
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return True  # default to True when memory unavailable
-        val = _tab_get_number(self._handle, self._player_table, "has_transmo")
+        val = _tab_get_number(self._handle, pt, "has_transmo")
         return val is not None and val > 0
 
     def read_visited_zones(self) -> set[str]:
@@ -1413,6 +1856,33 @@ class MemoryReader:
             return set()
         return _tab_string_keys_with_true(h, deaths_tab, max_key_len=256)
 
+    def read_unique_encounters(self) -> set[str]:
+        """Return names tracked in ``game.uniques`` (seen or killed uniques)."""
+        pt = self._ensure_player_table()
+        if pt is None:
+            return set()
+        h = self._handle
+        game_tab = _tab_get_table(h, self._global_table, "game")
+        if game_tab is None:
+            return set()
+        uniques_tab = _tab_get_table(h, game_tab, "uniques")
+        if uniques_tab is None:
+            return set()
+
+        cid = self._read_player_stat_identifier(h, pt)
+        if not cid:
+            return set()
+        bucket_tab = _tab_get_table(h, uniques_tab, cid)
+        if bucket_tab is None:
+            return set()
+
+        flat = _tab_dump_flat(h, bucket_tab)
+        return {
+            key
+            for key, value in flat.items()
+            if value is True or (isinstance(value, (int, float)) and float(value) > 0.0)
+        }
+
     def read_current_zone(self) -> tuple[str, int, int] | None:
         """Return (short_name, current_floor, max_floors) or None."""
         if not self.attached:
@@ -1437,67 +1907,324 @@ class MemoryReader:
             return None
         return (short_name, int(floor), int(max_level))
 
-    def read_prodigies(self) -> list[str]:
-        """Return display names of prodigies available to learn (stat req met, not yet taken).
+    def _quest_matches_status(
+        self,
+        h: int,
+        pt: int,
+        quest_id: str,
+        status_name: str,
+        sub_key: str | None,
+    ) -> bool | None:
+        quests_tab = _tab_get_table(h, pt, "quests")
+        if quests_tab is None:
+            return None
+        quest_tab = _tab_get_table(h, quests_tab, quest_id)
+        if quest_tab is None:
+            return False
 
-        Returns an empty list when the character is below level 25, not attached,
-        or when no prodigy slots can be inferred from memory.
+        status_value = {
+            "COMPLETED": _QUEST_COMPLETED,
+            "DONE": _QUEST_DONE,
+            "FAILED": _QUEST_FAILED,
+        }.get(status_name)
+        if status_value is None:
+            return None
 
-        Availability is determined by cross-referencing the prodigy DB against
-        ``game.player.talents`` (already-learned) and ``game.player.stats``
-        (base stats vs the 50-point threshold).  Only non-hidden prodigies are
-        included.
+        if sub_key:
+            objectives_tab = _tab_get_table(h, quest_tab, "objectives")
+            if objectives_tab is None:
+                return False
+            objective = _tab_get_number(h, objectives_tab, sub_key)
+            return bool(isinstance(objective, (int, float)) and int(objective) == status_value)
+
+        status = _tab_get_number(h, quest_tab, "status")
+        return bool(isinstance(status, (int, float)) and int(status) == status_value)
+
+    def _read_allow_build_flags(self, h: int) -> dict[str, bool]:
+        profile_tab = _tab_get_table(h, self._global_table, "profile")
+        if profile_tab is None:
+            return {}
+        mod_tab = _tab_get_table(h, profile_tab, "mod")
+        if mod_tab is None:
+            return {}
+        allow_build_tab = _tab_get_table(h, mod_tab, "allow_build")
+        if allow_build_tab is None:
+            return {}
+        raw = _tab_dump_all(h, allow_build_tab)
+        return {str(key): bool(value) for key, value in raw.items() if isinstance(key, str)}
+
+    def _evaluate_prodigy_logic(
+        self,
+        h: int,
+        pt: int,
+        talents_tab: int | None,
+        record: Any,
+    ) -> tuple[bool, list[str]]:
+        unmet: list[str] = []
+        for description, block in zip(record.remaining_requirements, record.special_logic, strict=False):
+            if description and not self._special_requirement_met(h, pt, talents_tab, block):
+                unmet.append(description)
+        return (not unmet, unmet)
+
+    def _special_requirement_met(self, h: int, pt: int, talents_tab: int | None, block: str) -> bool:
+        text = " ".join(block.split())
+
+        if any(
+            marker in text
+            for marker in (
+                "findInAllInventoriesBy(",
+                "knownLore(",
+                "is_necromancy",
+                "supports_fallen_transform",
+                "supports_lich_transform",
+                "lichform_quest_checker",
+            )
+        ):
+            return False
+
+        if "self.damage_log" in text or "self.damage_intake_log" in text:
+            log_name = "damage_intake_log" if "self.damage_intake_log" in text else "damage_log"
+            log_tab = _tab_get_table(h, pt, log_name)
+            if log_tab is None:
+                return False
+
+            threshold_match = _RE_REQ_GE.search(text)
+            threshold = int(threshold_match.group(1)) if threshold_match else 0
+
+            if "self.damage_log.weapon." in text:
+                weapon_tab = _tab_get_table(h, log_tab, "weapon")
+                if weapon_tab is None:
+                    return False
+                matched_keys = [
+                    weapon_key
+                    for weapon_key in ("archery", "dualwield", "twohanded", "unarmed", "shield", "other")
+                    if f"self.damage_log.weapon.{weapon_key}" in text
+                ]
+                if matched_keys:
+                    return any(
+                        isinstance(_tab_get_number(h, weapon_tab, weapon_key), (int, float))
+                        and float(_tab_get_number(h, weapon_tab, weapon_key) or 0.0) >= threshold
+                        for weapon_key in matched_keys
+                    )
+                return False
+
+            damage_types = [dtype.upper() for dtype in _RE_REQ_DAMAGE_TYPE.findall(text)]
+            if damage_types:
+                for damage_type in damage_types:
+                    value = _table_number_by_damage_type(h, log_tab, damage_type)
+                    if isinstance(value, (int, float)) and float(value) >= threshold:
+                        return True
+                return False
+
+        if "self.talent_kind_log" in text:
+            talent_kind_tab = _tab_get_table(h, pt, "talent_kind_log")
+            if talent_kind_tab is None:
+                return False
+            checks = _RE_REQ_TALENT_KIND.findall(text)
+            if checks and not all(
+                isinstance(_tab_get_number(h, talent_kind_tab, kind), (int, float))
+                and float(_tab_get_number(h, talent_kind_tab, kind) or 0.0) >= int(required)
+                for kind, required in checks
+            ):
+                return False
+
+        attr_checks = _RE_REQ_ATTR.findall(text)
+        if attr_checks:
+            for attr_name, raw_threshold in attr_checks:
+                value = _tab_get_scalar(h, pt, attr_name)
+                if raw_threshold:
+                    if not (isinstance(value, (int, float)) and float(value) >= float(raw_threshold)):
+                        return False
+                elif not value:
+                    return False
+
+        for attr_name in _RE_REQ_ATTR_MUST_BE_FALSE.findall(text):
+            if _tab_get_scalar(h, pt, attr_name):
+                return False
+
+        for attr_name in _RE_REQ_ATTR_MUST_BE_TRUE.findall(text):
+            if not _tab_get_scalar(h, pt, attr_name):
+                return False
+
+        allow_build_checks = _RE_REQ_ALLOW_BUILD.findall(text)
+        if allow_build_checks:
+            allow_build = self._read_allow_build_flags(h)
+            if " or " in text:
+                if not any(allow_build.get(key) is True for key in allow_build_checks):
+                    return False
+            elif not all(allow_build.get(key) is True for key in allow_build_checks):
+                return False
+
+        if match := _RE_REQ_SIZE.search(text):
+            size_value = _tab_get_number(h, pt, "size_category")
+            if not (isinstance(size_value, (int, float)) and float(size_value) >= float(match.group(1))):
+                return False
+
+        if match := _RE_REQ_COMBAT_DEF.search(text):
+            defense_value = _tab_get_number(h, pt, "combat_def")
+            if not (isinstance(defense_value, (int, float)) and float(defense_value) >= float(match.group(1))):
+                return False
+
+        if match := _RE_REQ_LUCK.search(text):
+            luck_value = _tab_get_number(h, pt, "lck")
+            if luck_value is None:
+                luck_value = self._read_player_total_stats(h, pt).get("lck")
+            if not (isinstance(luck_value, (int, float)) and float(luck_value) >= float(match.group(1))):
+                return False
+
+        field_checks = _RE_REQ_SELF_FIELD.findall(text)
+        for field_name, raw_required in field_checks:
+            value = _tab_get_number(h, pt, field_name)
+            if not (isinstance(value, (int, float)) and float(value) >= float(raw_required)):
+                return False
+
+        talent_checks = _RE_REQ_KNOW_TALENT.findall(text)
+        if talent_checks:
+            if talents_tab is None:
+                return False
+            levels = [
+                _tab_get_number(h, talents_tab, talent_id)
+                for talent_id in talent_checks
+            ]
+            if " or " in text:
+                if not any(isinstance(level, (int, float)) and float(level) >= 1.0 for level in levels):
+                    return False
+            else:
+                if not all(isinstance(level, (int, float)) and float(level) >= 1.0 for level in levels):
+                    return False
+
+        talent_level_checks = _RE_REQ_TALENT_RAW.findall(text)
+        if talent_level_checks:
+            if talents_tab is None:
+                return False
+            for talent_id, required in talent_level_checks:
+                level = _tab_get_number(h, talents_tab, talent_id)
+                if not (isinstance(level, (int, float)) and float(level) >= float(required)):
+                    return False
+
+        if "inscription_restrictions" in text or "inscription_forbids" in text:
+            for table_name, key in _RE_REQ_INSCRIPTION.findall(text):
+                tab = _tab_get_table(h, pt, f"inscription_{table_name}")
+                value = _tab_get_bool(h, tab, key) if tab else None
+                if table_name == "restrictions" and value is False:
+                    return False
+                if table_name == "forbids" and value is True:
+                    return False
+
+        if "hasQuest" in text or "isQuestStatus" in text:
+            quest_ids = _RE_REQ_QUEST_ID.findall(text)
+            if not quest_ids:
+                return False
+            quest_id = quest_ids[0]
+            for negated, status_name, sub_key in _RE_REQ_QUEST_STATUS.findall(text):
+                matched = self._quest_matches_status(h, pt, quest_id, status_name, sub_key or None)
+                if matched is None or bool(negated.strip()) == bool(matched):
+                    return False
+
+            for negated, sub_key in _RE_REQ_QUEST_COMPLETED.findall(text):
+                matched = self._quest_matches_status(h, pt, quest_id, "COMPLETED", sub_key)
+                if matched is None or bool(negated.strip()) == bool(matched):
+                    return False
+
+        recognized = any(
+            marker in text
+            for marker in (
+                "damage_log",
+                "damage_intake_log",
+                "talent_kind_log",
+                ':attr("',
+                "profile.mod.allow_build",
+                "size_category",
+                "getLck()",
+                "knowTalent(",
+                "getTalentLevelRaw(",
+                "inscription_restrictions",
+                "inscription_forbids",
+                "hasQuest(",
+                "isQuestStatus(",
+            )
+        )
+        return recognized
+
+    def read_prodigies(self) -> list[dict[str, Any]]:
+        """Return prodigies currently eligible to appear in the live UI.
+
+        A prodigy is shown only when the player is level 25+, satisfies every
+        stat gate, has not already learned it, and knows any required talent
+        categories. Remaining quest or talent-specific requirements are kept in
+        the returned detail payload for the sheet's right-side info panel.
         """
-        if not self._player_table or not self.attached:
-            self.read_player_hp()
-        if not self._player_table:
+        pt = self._ensure_player_table()
+        if pt is None:
             return []
 
         h = self._handle
-        pt = self._player_table
 
         # Level gate: prodigies unlock at 25
         level = _tab_get_number(h, pt, "level")
         if level is None or level < 25:
             return []
 
-        # Read base stats from game.player.stats sub-table
-        stats_tab = _tab_get_table(h, pt, "stats")
-        if stats_tab is None:
+        player_stats = self._read_player_total_stats(h, pt)
+        if not player_stats:
             return []
-        player_stats: dict[str, float] = {}
-        for stat in ("str", "dex", "con", "mag", "wil", "cun"):
-            v = _tab_get_number(h, stats_tab, stat)
-            player_stats[stat] = v if v is not None else 0.0
 
         # Read learned talents from game.player.talents
         talents_tab = _tab_get_table(h, pt, "talents")
         learned_ids: set[str] = set()
         if talents_tab is not None:
-            for tid in _get_prodigy_db():
-                node = _tab_find_strkey(h, talents_tab, tid)
-                if node is None:
-                    continue
-                it = _ru32(h, node + 4)
-                if it is None or it >= _LJ_TNUMX:
-                    continue
-                raw = _rpm(h, node, 8)
-                if raw:
-                    try:
-                        if struct.unpack("<d", raw)[0] >= 1:
-                            learned_ids.add(tid)
-                    except struct.error:
-                        pass
+            talents_flat = _tab_dump_flat(h, talents_tab)
+            learned_ids = {
+                tid
+                for tid in _get_prodigy_db()
+                if isinstance(talents_flat.get(tid), (int, float)) and float(talents_flat[tid]) >= 1.0
+            }
 
-        # Available = stat req met (≥50 base) AND not yet learned
-        available: list[str] = []
-        for tid, (name, stat_key) in _get_prodigy_db().items():
+        talent_types_tab = _tab_get_table(h, pt, "talents_types")
+        enabled_types = _tab_dump_all(h, talent_types_tab) if talent_types_tab is not None else {}
+        descriptor_tab = _tab_get_table(h, pt, "descriptor")
+        descriptor_values = _tab_dump_flat(h, descriptor_tab) if descriptor_tab is not None else {}
+
+        available: list[dict[str, Any]] = []
+        for tid, record in _get_prodigy_db().items():
             if tid in learned_ids:
                 continue
-            if player_stats.get(stat_key, 0.0) >= 50.0:
-                available.append(name)
+            if any(
+                player_stats.get(stat_key, 0.0) < float(required)
+                for stat_key, required in record.stat_requirements
+            ):
+                continue
+            if any(str(descriptor_values.get(key) or "") != expected for key, expected in record.birth_descriptors):
+                continue
+            if record.class_evolution_for and record.class_evolution_for not in {
+                str(descriptor_values.get("class") or ""),
+                str(descriptor_values.get("subclass") or ""),
+            }:
+                continue
+            if record.race_evolution_logic and not self._special_requirement_met(h, pt, talents_tab, record.race_evolution_logic):
+                continue
+            if any(enabled_types.get(type_key) is not True for type_key, _desc in record.category_requirements):
+                continue
+            special_ok, unmet_requirements = self._evaluate_prodigy_logic(h, pt, talents_tab, record)
+            if record.special_logic and not special_ok:
+                continue
 
-        return sorted(available)
+            entry: dict[str, Any] = {
+                "Name": record.name,
+                "Level": "0/1",
+                "Effective Talent Level": "1.00",
+                "Mode": record.mode.title() if record.mode else "Activated",
+            }
+            if record.talent_type:
+                entry["Type"] = record.talent_type
+            if record.icon:
+                entry["Icon"] = record.icon
+            entry["Remaining Requirements"] = _format_requirement_text(unmet_requirements)
+            if record.description:
+                entry["Description"] = record.description
+            available.append(entry)
+
+        return sorted(available, key=lambda item: str(item.get("Name") or "").lower())
 
 
 # ── Background pre-attach ─────────────────────────────────────────────────────

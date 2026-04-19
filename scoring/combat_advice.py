@@ -51,7 +51,11 @@ def _expected_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     after_armor = cm.armor_absorb(
         enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr
     )
-    _, worst_mult = cm.worst_damage_multiplier(player.resists, player.resists_pen)
+    _, worst_mult = cm.worst_damage_multiplier(
+        player.resists,
+        enemy.resists_pen,
+        player.resists_cap,
+    )
     _, best_inc = cm.best_damage_increase(enemy.inc_damage)
     daminc_mult = 1.0 + best_inc / 100.0
 
@@ -98,20 +102,41 @@ def survive_one_hit_advice(
     wrapper = crit_mult * daminc_mult * tal_mult
 
     # ── Lever 1: resistance on the worst damage type ──────────────────────
-    worst_type, _ = cm.worst_damage_multiplier(player.resists, player.resists_pen)
+    worst_type, _ = cm.worst_damage_multiplier(
+        player.resists,
+        enemy.resists_pen,
+        player.resists_cap,
+    )
     current_resist = player.resists.get(worst_type, player.resists.get("all", 0.0))
-    pen = player.resists_pen.get(worst_type, player.resists_pen.get("all", 0.0))
+    pen = enemy.resists_pen.get(worst_type, enemy.resists_pen.get("all", 0.0))
+    cap = cm.resist_cap_for_type(player.resists_cap, worst_type)
     # expected = after_armor * wrapper * (1 - effective/100) <= target_dam
     # effective >= (1 - target_dam / (after_armor * wrapper)) * 100
     denom = after_armor * wrapper
     if denom > 0:
         needed_effective = (1.0 - target_dam / denom) * 100.0
-        # Undo penetration to get the raw resist we need on paper
-        # effective = raw * (1 - pen/100) → raw = effective / (1 - pen/100)
         pen_factor = 1.0 - min(100.0, max(0.0, pen)) / 100.0
-        if pen_factor > 0:
-            needed_raw_resist = needed_effective / pen_factor
-            feasible = needed_raw_resist <= cm.RESIST_CAP + 1e-6
+        if needed_effective > 0.0 and pen_factor <= 0.0:
+            delta = max(0.0, cap - current_resist)
+            if delta > 0:
+                advice.append(
+                    AdviceItem(
+                        lever=f"{worst_type} resist",
+                        description=(
+                            f"Raise {worst_type} resistance as far as possible "
+                            f"(cap {cap:.0f}%, +{delta:.0f} from {current_resist:.0f}%)"
+                            " -- not feasible alone because the enemy fully penetrates it"
+                        ),
+                        delta=round(delta, 1),
+                        target_value=round(cap, 1),
+                        feasible=False,
+                    )
+                )
+        else:
+            needed_raw_resist = needed_effective
+            if needed_effective > 0.0:
+                needed_raw_resist = needed_effective / pen_factor
+            feasible = needed_raw_resist <= cap + 1e-6
             delta = max(0.0, needed_raw_resist - current_resist)
             if delta > 0:
                 advice.append(
@@ -120,7 +145,7 @@ def survive_one_hit_advice(
                         description=(
                             f"Raise {worst_type} resistance to "
                             f"{needed_raw_resist:.0f}% (+{delta:.0f} from {current_resist:.0f}%)"
-                            + ("" if feasible else f" -- exceeds {cm.RESIST_CAP:.0f}% cap, not feasible alone")
+                            + ("" if feasible else f" -- exceeds {cap:.0f}% cap, not feasible alone")
                         ),
                         delta=round(delta, 1),
                         target_value=round(needed_raw_resist, 1),
@@ -131,7 +156,11 @@ def survive_one_hit_advice(
     # ── Lever 2: armor (only meaningful for the hardened portion) ─────────
     hard_pct = max(0.0, min(100.0, player.armor_hardiness_pct)) / 100.0
     if hard_pct > 0:
-        _, worst_mult = cm.worst_damage_multiplier(player.resists, player.resists_pen)
+        _, worst_mult = cm.worst_damage_multiplier(
+            player.resists,
+            enemy.resists_pen,
+            player.resists_cap,
+        )
         # Fixed portion (soft damage) can't be armored away.
         soft_dam = enemy.dam * (1.0 - hard_pct)
         soft_after_resist = soft_dam * worst_mult * wrapper

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from game_data.npc_db import get_npc_db
 from game_data.talent_db import get_talent_db
-from gui.enemy_panel import EnemyPanel
+from gui.enemy_panel import EnemyPanel, player_stats_to_defenses
 from gui.memory_reader import MemoryReader, is_process_running, take_preattached_reader
 from gui.sheet_view import CharacterSheetView
 from gui.theme import BORDER, SURFACE0
@@ -37,7 +37,7 @@ class DashboardTab(QWidget):
     game_connected = Signal()  # emitted after a successful game attach
     _attach_succeeded = Signal()
     _enemies_ready = Signal(list)  # list[EntityInfo] — bg thread → main thread
-    _live_inventory_ready = Signal(object, object, object, object)
+    _live_inventory_ready = Signal(object, object, object, object, object, object, object)
 
     def __init__(
         self,
@@ -359,6 +359,8 @@ class DashboardTab(QWidget):
         self.refresh_current()
         self._poll_progression()
         self._poll_talents()
+        self._poll_inventory()
+        self._poll_prodigies()
         self.game_connected.emit()
 
     def _poll_hp(self) -> None:
@@ -432,7 +434,14 @@ class DashboardTab(QWidget):
         self._enemies_ready.emit(entities)
 
     def _handle_enemies_ready(self, entities: list) -> None:
-        self._enemy_panel.update_enemies(entities)
+        defenses = None
+        if self._reader.attached:
+            try:
+                stats = self._reader.read_player_stats()
+            except Exception:
+                stats = None
+            defenses = player_stats_to_defenses(stats)
+        self._enemy_panel.update_enemies(entities, defenses)
 
     def _poll_progression(self) -> None:
         if self._shutting_down:
@@ -442,11 +451,12 @@ class DashboardTab(QWidget):
         try:
             visited = self._reader.read_visited_zones()
             deaths = self._reader.read_unique_deaths()
+            uniques = self._reader.read_unique_encounters()
             current = self._reader.read_current_zone()
         except KeyboardInterrupt:
             self._handle_forced_interrupt()
             return
-        self._sheet_visual.update_progression(visited, deaths, current)
+        self._sheet_visual.update_progression(visited, deaths, uniques, current)
 
     def _poll_inventory(self) -> None:
         if self._shutting_down:
@@ -477,16 +487,22 @@ class DashboardTab(QWidget):
         try:
             equipment, current, transmog = self._reader.read_player_inventory()
             talents = self._reader.read_player_talents()
+            sustains = self._reader.read_sustain_talents()
+            effects = self._reader.read_player_effects()
+            prodigies = self._reader.read_prodigies()
         except Exception:  # noqa: BLE001
-            equipment, current, transmog, talents = [], [], [], None
-        self._live_inventory_ready.emit(equipment, current, transmog, talents)
+            equipment, current, transmog, talents, sustains, effects, prodigies = [], [], [], None, None, None, None
+        self._live_inventory_ready.emit(equipment, current, transmog, talents, sustains, effects, prodigies)
 
-    def _handle_live_inventory_ready(self, equipment, current, transmog, talents) -> None:
+    def _handle_live_inventory_ready(self, equipment, current, transmog, talents, sustains, effects, prodigies) -> None:
         self._inventory_poll_pending = False
         if not self._reader.attached:
             return
         self._sheet_visual.set_live_inventory(equipment, current, transmog)
         self._sheet_visual.set_live_talents(talents)
+        self._sheet_visual.set_live_sustains(sustains)
+        self._sheet_visual.set_live_effects(effects)
+        self._sheet_visual.set_live_prodigies(prodigies if prodigies else None)
 
     def _poll_prodigies(self) -> None:
         if self._shutting_down:

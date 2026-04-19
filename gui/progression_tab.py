@@ -27,6 +27,27 @@ _DOT_CLEARED = GREEN
 _DOT_CURRENT = YELLOW
 
 
+class _SummaryCard(QFrame):
+    def __init__(self, title: str, accent: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setStyleSheet(f"QFrame {{ background: {SURFACE0}; border: 1px solid {BORDER}; border-radius: 6px; }}")
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(2)
+
+        title_lbl = QLabel(title.upper())
+        title_lbl.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {SUBTEXT1}; letter-spacing: 1px;")
+        lay.addWidget(title_lbl)
+
+        self._value_lbl = QLabel("0")
+        self._value_lbl.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {accent};")
+        lay.addWidget(self._value_lbl)
+
+    def set_value(self, value: str) -> None:
+        self._value_lbl.setText(value)
+
+
 class _ZoneRow(QFrame):
     def __init__(self, zone: ZoneEntry, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -123,7 +144,23 @@ class ProgressionTab(QWidget):
         body = QWidget()
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(12, 12, 12, 24)
-        body_lay.setSpacing(4)
+        body_lay.setSpacing(8)
+
+        summary_row = QHBoxLayout()
+        summary_row.setContentsMargins(0, 0, 0, 6)
+        summary_row.setSpacing(8)
+        self._visited_card = _SummaryCard("Zones Visited", YELLOW)
+        self._cleared_card = _SummaryCard("Zones Cleared", GREEN)
+        self._uniques_seen_card = _SummaryCard("Uniques Seen", TEXT)
+        self._uniques_killed_card = _SummaryCard("Uniques Killed", GREEN)
+        for card in (
+            self._visited_card,
+            self._cleared_card,
+            self._uniques_seen_card,
+            self._uniques_killed_card,
+        ):
+            summary_row.addWidget(card, 1)
+        body_lay.addLayout(summary_row)
 
         self._zone_rows: dict[str, _ZoneRow] = {}
 
@@ -153,15 +190,19 @@ class ProgressionTab(QWidget):
         self,
         visited: set[str],
         deaths: set[str],
+        uniques: set[str],
         current_zone: tuple[str, int, int] | None,
     ) -> None:
         current_short = current_zone[0] if current_zone else None
         current_floor = current_zone[1] if current_zone else 0
         current_max = current_zone[2] if current_zone else 0
+        cleared_count = 0
 
         for short_name, row in self._zone_rows.items():
             boss = row._zone.boss
             cleared = boss is not None and boss in deaths
+            if cleared:
+                cleared_count += 1
             is_current = short_name == current_short
             is_visited = short_name in visited
 
@@ -179,3 +220,8 @@ class ProgressionTab(QWidget):
                 floor=floor,
                 max_floor=max_floor,
             )
+
+        self._visited_card.set_value(str(len(visited)))
+        self._cleared_card.set_value(str(cleared_count))
+        self._uniques_seen_card.set_value(str(len(uniques)))
+        self._uniques_killed_card.set_value(str(len(deaths)))

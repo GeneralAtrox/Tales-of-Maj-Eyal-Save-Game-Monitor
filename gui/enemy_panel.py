@@ -28,6 +28,7 @@ from gui.memory_reader import (
     DANGER_MODERATE,
     DANGER_TRIVIAL,
     EntityInfo,
+    PlayerStats,
 )
 from gui.sprite_composer import compose_layers
 from gui.theme import (
@@ -43,6 +44,8 @@ from gui.theme import (
     TEXT,
     YELLOW,
 )
+from scoring.combat_advice import survive_one_hit_advice
+from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, weapon_threat
 
 # ── NPC sprite lookup ────────────────────────────────────────────────────────
 
@@ -98,6 +101,36 @@ _DANGER_COLORS: dict[str, str] = {
     DANGER_DANGEROUS: "#fab387",  # Catppuccin peach / orange
     DANGER_DEADLY: RED,
 }
+
+# New threat-tier colours (damage-based, % of effective HP)
+_THREAT_TIER_COLORS: dict[str, str] = {
+    "Low": OVERLAY,
+    "Mediocre": SUBTEXT0,
+    "High": "#fab387",
+    "Deadly": RED,
+}
+
+
+def player_stats_to_defenses(stats: PlayerStats | None) -> PlayerDefenses | None:
+    """Adapter — `PlayerStats` (memory_reader) → `PlayerDefenses` (scoring).
+
+    Returns None when we have no usable data, so the panel can fall
+    back to rank-based rating.
+    """
+    if stats is None or stats.max_life <= 0:
+        return None
+    return PlayerDefenses(
+        max_life=stats.max_life,
+        die_at=stats.die_at,
+        armor=stats.armor,
+        armor_hardiness_pct=stats.armor_hardiness,
+        defense=stats.defense,
+        evasion_pct=stats.evasion,
+        resists=dict(stats.resists),
+        resists_pen=dict(stats.resists_pen),
+        resists_cap=dict(stats.resists_cap),
+        ignore_direct_crits_pct=stats.ignore_direct_crits,
+    )
 
 _RESIST_LABELS: dict[str, str] = {
     "resists.ARCANE": "Arc",
@@ -206,7 +239,13 @@ class _HoverPreviewLabel(QLabel):
 class _EnemyCard(QFrame):
     """Single enemy row — sprite + name, HP bar, rank badge, key stats, lore."""
 
-    def __init__(self, entity: EntityInfo, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        entity: EntityInfo,
+        parent: QWidget | None = None,
+        *,
+        player: PlayerDefenses | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("EnemyCard")
         self.setStyleSheet(
@@ -277,13 +316,48 @@ class _EnemyCard(QFrame):
 
         rank_color = _RANK_COLORS.get(entity.rank_label, SUBTEXT0)
 
-        danger_color = _DANGER_COLORS.get(entity.danger, OVERLAY)
-        danger_badge = QLabel(f" {entity.danger} ")
-        danger_badge.setStyleSheet(
-            f"background: {danger_color}; color: {SURFACE0}; font-size: 10px;"
-            f" font-weight: 700; border-radius: 3px; padding: 1px 6px;"
-        )
-        top.addWidget(danger_badge)
+        # Compute threat report if we have player defenses; else fall back to
+        # the rank-based danger label.
+        report: ThreatReport | None = None
+        if player is not None:
+            enemy_offense = EnemyOffense.from_all_fields(entity.all_fields, entity.name)
+            report = weapon_threat(enemy_offense, player)
+
+        if report is not None:
+            tier = report.tier_label
+            tier_color = _THREAT_TIER_COLORS.get(tier, OVERLAY)
+            badge_text = f" {tier} {report.weapon_threat_pct:.0f}% "
+            tooltip = (
+                f"Threat: {report.weapon_threat_pct:.0f}% of effective HP per hit\n"
+                f"Expected damage: {report.expected_damage:.0f}\n"
+                f"Hit rate: {report.hit_rate_pct:.0f}%\n"
+                f"Worst resist type: {report.worst_resist_type} "
+                f"(x{report.worst_resist_multiplier:.2f})"
+            )
+            danger_badge = QLabel(badge_text)
+            danger_badge.setToolTip(tooltip)
+            danger_badge.setStyleSheet(
+                f"background: {tier_color}; color: {SURFACE0}; font-size: 10px;"
+                f" font-weight: 700; border-radius: 3px; padding: 1px 6px;"
+            )
+            top.addWidget(danger_badge)
+
+            if report.can_one_shot:
+                oneshot = QLabel(" 1-SHOT ")
+                oneshot.setToolTip("This enemy can remove all your HP in a single hit.")
+                oneshot.setStyleSheet(
+                    f"background: {RED}; color: {SURFACE0}; font-size: 10px;"
+                    f" font-weight: 800; border-radius: 3px; padding: 1px 6px;"
+                )
+                top.addWidget(oneshot)
+        else:
+            danger_color = _DANGER_COLORS.get(entity.danger, OVERLAY)
+            danger_badge = QLabel(f" {entity.danger} ")
+            danger_badge.setStyleSheet(
+                f"background: {danger_color}; color: {SURFACE0}; font-size: 10px;"
+                f" font-weight: 700; border-radius: 3px; padding: 1px 6px;"
+            )
+            top.addWidget(danger_badge)
 
         rank_badge = QLabel(f" {entity.rank_label} ")
         rank_badge.setStyleSheet(
@@ -356,6 +430,24 @@ class _EnemyCard(QFrame):
             stats_lbl.setTextFormat(Qt.TextFormat.RichText)
             stats_lbl.setStyleSheet("font-size: 11px;")
             info.addWidget(stats_lbl)
+
+        # ── Row 3b: combat advice (only when threat is high enough) ──
+        if report is not None and player is not None and (
+            report.can_one_shot or report.weapon_threat_pct >= 70
+        ):
+            advice_items = survive_one_hit_advice(enemy_offense, player)
+            if advice_items:
+                feasible = [a for a in advice_items if a.feasible]
+                chosen = feasible[0] if feasible else advice_items[0]
+                prefix = "⚠ " if report.can_one_shot else "● "
+                text = f"{prefix}{chosen.description}"
+                if not chosen.feasible and not feasible:
+                    text += "  (no single lever saves you — stack defenses)"
+                advice_lbl = QLabel(text)
+                advice_lbl.setWordWrap(True)
+                color = RED if report.can_one_shot else YELLOW
+                advice_lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 600;")
+                info.addWidget(advice_lbl)
 
         # ── Row 4: lore description (truncated) ──
         if npc and npc.desc:
@@ -460,8 +552,16 @@ class EnemyPanel(QWidget):
         self._loading_label.setText(f"Scanning{dots}")
         self._throbber_frame += 1
 
-    def update_enemies(self, enemies: list[EntityInfo]) -> None:
-        """Replace the card list with fresh data."""
+    def update_enemies(
+        self,
+        enemies: list[EntityInfo],
+        player: PlayerDefenses | None = None,
+    ) -> None:
+        """Replace the card list with fresh data.
+
+        `player` enables per-enemy damage threat math. When omitted, the
+        panel falls back to the rank-based danger label.
+        """
         self.set_loading(False)
         # Clear old cards
         while self._card_layout.count() > 1:  # keep the stretch
@@ -479,6 +579,6 @@ class EnemyPanel(QWidget):
         self._count_label.setText(f"{len(enemies)} enemies")
 
         for ent in enemies:
-            card = _EnemyCard(ent)
+            card = _EnemyCard(ent, player=player)
             # Insert before the trailing stretch
             self._card_layout.insertWidget(self._card_layout.count() - 1, card)
