@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from game_data.talent_db import lookup_talent_description, lookup_talent_icon
+from game_data.talent_icons import TALENT_ICONS, normalize_icon_name, resolve_talent_icon_path, to_display_snake
 from gui.sprite_composer import compose_layers, get_sprite, normalize_sprite_layers
 from gui.theme import (
     BG,
@@ -43,7 +44,6 @@ from gui.theme import (
 
 # ── Asset paths ───────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).parent.parent
-TALENT_ICONS = _ROOT / "Icons" / "talents"
 STAT_ICONS = _ROOT / "Icons" / "stats"
 CLASS_ICONS = _ROOT / "Icons" / "class-icons"
 
@@ -67,54 +67,29 @@ _STAT_ICONS: dict[str, str] = {
 }
 _STAT_ORDER = list(_STAT_ICONS)
 
-# ── Icon overrides ────────────────────────────────────────────────────────────
-# Talent names whose icon filename doesn't match their snake_case name.
-# Value is the stem (no .png) of the file in Icons/talents/.
-_ICON_OVERRIDES: dict[str, str] = {
-    "Pulverising Auger": "dig",
-    "Pulverizing Auger": "dig",
-    "Mirror Image": "mirror_images",
-    "Temporal Shield": "time_shield",
-    "Arcane Reconstruction": "heal",
-    "Ogric Wrath": "ogre_wrath",
-    "Heavy Armour Training": "armour_training",
-    "Combat Accuracy": "weapon_combat",
-    "Dagger Mastery": "knife_mastery",
-}
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
 def _to_snake(name: str) -> str:
-    """'Stunning Blow' → 'stunning_blow', "Hunter's Sight" → 'hunters_sight'."""
-    s = name.lower().replace("'", "")
-    return re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-
-
-def _normalize_talent_icon_name(icon_value: str) -> str:
-    icon_value = icon_value.strip()
-    if not icon_value:
-        return ""
-    return PurePosixPath(icon_value).name
+    return to_display_snake(name)
 
 
 def _resolve_talent_icon_path(name: str, data: Any) -> Path:
+    data_icon = ""
+    talent_id = ""
     if isinstance(data, dict):
         icon_value = data.get("Icon")
         if isinstance(icon_value, str):
-            icon_name = _normalize_talent_icon_name(icon_value)
-            if icon_name:
-                candidate = TALENT_ICONS / icon_name
-                if candidate.exists():
-                    return candidate
-
-    fallback_icon = lookup_talent_icon(name)
-    if fallback_icon:
-        candidate = TALENT_ICONS / fallback_icon
-        if candidate.exists():
-            return candidate
-
-    return TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png"
+            data_icon = normalize_icon_name(icon_value)
+        raw_tid = data.get("talent_id") or data.get("Talent Id") or data.get("TalentID")
+        if isinstance(raw_tid, str):
+            talent_id = raw_tid
+    return resolve_talent_icon_path(
+        name=name,
+        data_icon=data_icon,
+        lookup_icon=lookup_talent_icon(name),
+        talent_id=talent_id,
+    )
 
 
 def _load_pixmap(path: Path, size: int) -> QPixmap:
@@ -1908,7 +1883,7 @@ class CharacterSheetView(QWidget):
         scroll.setWidget(self._left)
         splitter.addWidget(scroll)
         self._talents_feature_host = QWidget()
-        self._talents_feature_host.setStyleSheet(f"background: {BG}; border-left: 1px solid {BORDER};")
+        self._talents_feature_host.setStyleSheet(f"background: {BG};")
         feature_lay = QVBoxLayout(self._talents_feature_host)
         feature_lay.setContentsMargins(12, 12, 12, 12)
         feature_lay.setSpacing(0)
