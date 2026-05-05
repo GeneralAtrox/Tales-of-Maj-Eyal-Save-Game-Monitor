@@ -24,6 +24,7 @@ from game_data.talent_db import get_talent_db
 from gui.enemy_panel import EnemyPanel, player_stats_to_defenses
 from gui.memory_reader import MemoryReader, is_process_running, take_preattached_reader
 from gui.sheet_view import CharacterSheetView
+from gui.startup_trace import mark_startup_phase, write_startup_trace
 from gui.theme import BORDER, SURFACE0
 
 _MONO_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
@@ -44,6 +45,7 @@ class DashboardTab(QWidget):
         log_panel: QWidget,
         parent: QWidget | None = None,
     ) -> None:
+        mark_startup_phase("dashboard_init_start")
         super().__init__(parent)
         self._sheets_root: Path | None = None
         self._current_folder: str | None = None
@@ -65,12 +67,13 @@ class DashboardTab(QWidget):
         self._hp_fail_count = 0
         self._last_level_id: str | None = None
         self._game_session_ready = False
+        self._sheet_loaded_for_session = False
         self._inventory_poll_pending = False
         self._cache_warm_started = False
         self._shutting_down = False
 
         self._preattach_poll = QTimer(self)
-        self._preattach_poll.setInterval(100)
+        self._preattach_poll.setInterval(25)
         self._preattach_poll.timeout.connect(self._check_preattached_reader)
         self._preattach_poll.start()
 
@@ -137,6 +140,7 @@ class DashboardTab(QWidget):
         QTimer.singleShot(0, self._start_background_warmup)
         QTimer.singleShot(0, self._check_preattached_reader)
         QTimer.singleShot(0, self._check_game_process)
+        mark_startup_phase("dashboard_init_done")
 
     # ── Sub-tab builders ───────────────────────────────────────────────────
 
@@ -229,6 +233,7 @@ class DashboardTab(QWidget):
         self._attach_pending = False
         self._awaiting_preattach = False
         self._inventory_poll_pending = False
+        self._sheet_loaded_for_session = False
         self._reader.detach()
 
     def set_analysis_result(self, text: str) -> None:
@@ -251,24 +256,32 @@ class DashboardTab(QWidget):
     def _load_sheet(self, folder_name: str) -> None:
         if not self._sheets_root:
             return
+        mark_startup_phase("sheet_load_start", folder_name=folder_name, game_ready=self._game_session_ready)
         char_name = self._chars.get(folder_name, "")
         if not self._game_session_ready:
+            self._sheet_loaded_for_session = False
             self._sheet_view.setPlainText("Connecting to game...\n\nCharacter data will load after a live attach.")
             self._sheet_visual.set_game_connected(False)
             self._sheet_visual.load({}, char_name)
+            mark_startup_phase("sheet_load_waiting_for_game", folder_name=folder_name)
             return
         sheet_path = self._sheets_root / f"data_{folder_name}.json"
         if sheet_path.exists():
             try:
                 data = json.loads(sheet_path.read_text(encoding="utf-8"))
+                mark_startup_phase("sheet_json_read_done", folder_name=folder_name)
                 self._sheet_view.setPlainText(json.dumps(data, indent=2))
                 self._sheet_visual.set_game_connected(True)
                 self._sheet_visual.load(data, char_name, defer_reload=self._inventory_poll_pending)
+                self._sheet_loaded_for_session = True
+                mark_startup_phase("sheet_visual_load_done", folder_name=folder_name)
                 return
             except (OSError, json.JSONDecodeError) as exc:
                 self._sheet_view.setPlainText(f"Error reading sheet:\n{exc}")
                 self._sheet_visual.set_game_connected(True)
                 self._sheet_visual.load({}, char_name)
+                self._sheet_loaded_for_session = True
+                mark_startup_phase("sheet_load_failed", folder_name=folder_name, error=exc)
                 return
         placeholder = (
             "No character sheet available yet.\n\nSave in-game to trigger a sync, or use Actions \u2192 Force Sync."
@@ -276,6 +289,8 @@ class DashboardTab(QWidget):
         self._sheet_view.setPlainText(placeholder)
         self._sheet_visual.set_game_connected(True)
         self._sheet_visual.load({}, char_name)
+        self._sheet_loaded_for_session = True
+        mark_startup_phase("sheet_load_placeholder", folder_name=folder_name)
 
     # ── Memory reader polling ──────────────────────────────────────────────
 
@@ -283,6 +298,7 @@ class DashboardTab(QWidget):
         if self._cache_warm_started:
             return
         self._cache_warm_started = True
+        mark_startup_phase("static_cache_warmup_started")
         threading.Thread(target=get_npc_db, daemon=True).start()
         threading.Thread(target=get_talent_db, daemon=True).start()
 
@@ -302,12 +318,14 @@ class DashboardTab(QWidget):
                 return
             self._awaiting_preattach = False
             self._preattach_poll.stop()
+            mark_startup_phase("preattach_timeout")
             self._check_game_process()
             return
 
         self._awaiting_preattach = False
         self._preattach_poll.stop()
         self._reader = reader
+        mark_startup_phase("preattach_reader_adopted", attached=self._reader.attached)
         if self._reader.attached:
             self.game_status_changed.emit(True)
             self._attach_succeeded.emit()
@@ -329,10 +347,12 @@ class DashboardTab(QWidget):
 
         if active and not self._reader.attached and not self._attach_pending:
             self._attach_pending = True
+            mark_startup_phase("attach_thread_start")
             threading.Thread(target=self._attach_reader, daemon=True).start()
         elif not active and self._reader.attached:
             self._reader.detach()
             self._game_session_ready = False
+            self._sheet_loaded_for_session = False
             self._enemy_panel.set_loading(False)
             self._sheet_visual.clear_hp()
             self._sheet_visual.clear_sprite()
@@ -342,10 +362,13 @@ class DashboardTab(QWidget):
                 self._load_sheet(self._current_folder)
 
     def _attach_reader(self) -> None:
+        mark_startup_phase("reader_attach_start")
+        ok = False
         try:
             ok = self._reader.attach()
         finally:
             self._attach_pending = False
+        mark_startup_phase("reader_attach_done", ok=ok)
         if ok and not self._shutting_down:
             self._attach_succeeded.emit()
 
@@ -355,18 +378,23 @@ class DashboardTab(QWidget):
         if self._shutting_down:
             return
         self._game_session_ready = True
+        self._sheet_loaded_for_session = False
         self._sheet_visual.set_game_connected(True)
+        mark_startup_phase("attach_succeeded")
         self.game_connected.emit()
         QTimer.singleShot(0, self._refresh_after_attach)
 
     def _refresh_after_attach(self) -> None:
         if self._shutting_down or not self._reader.attached:
             return
-        self.refresh_current()
+        mark_startup_phase("refresh_after_attach_start")
+        if self._current_folder and not self._sheet_loaded_for_session:
+            self.refresh_current()
         self._poll_hp()
         self._poll_level_id()
         self._poll_progression()
         self._poll_inventory()
+        mark_startup_phase("refresh_after_attach_dispatched")
 
     def _poll_hp(self) -> None:
         if self._shutting_down:
@@ -406,6 +434,7 @@ class DashboardTab(QWidget):
             if self._hp_fail_count >= 5 and not self._attach_pending:
                 self._reader.detach()
                 self._game_session_ready = False
+                self._sheet_loaded_for_session = False
                 self._enemy_panel.set_loading(False)
                 self._sheet_visual.clear_hp()  # also clears mana via clear_hp
                 self._sheet_visual.clear_exp()
@@ -435,7 +464,9 @@ class DashboardTab(QWidget):
             threading.Thread(target=self._scan_entities, daemon=True).start()
 
     def _scan_entities(self) -> None:
+        mark_startup_phase("entities_scan_start")
         entities = self._reader.read_entities(min_rank=1.5)
+        mark_startup_phase("entities_scan_done", count=len(entities))
         self._enemies_ready.emit(entities)
 
     def _handle_enemies_ready(self, entities: list) -> None:
@@ -447,6 +478,7 @@ class DashboardTab(QWidget):
                 stats = None
             defenses = player_stats_to_defenses(stats)
         self._enemy_panel.update_enemies(entities, defenses)
+        write_startup_trace("entities_ready_applied", count=len(entities))
 
     def _poll_progression(self) -> None:
         if self._shutting_down:
@@ -473,6 +505,7 @@ class DashboardTab(QWidget):
         if self._inventory_poll_pending:
             return
         self._inventory_poll_pending = True
+        mark_startup_phase("live_inventory_thread_start")
         threading.Thread(target=self._read_live_inventory_bundle, daemon=True).start()
 
     def _poll_talents(self) -> None:
@@ -489,6 +522,7 @@ class DashboardTab(QWidget):
         self._sheet_visual.set_live_talents(talents)
 
     def _read_live_inventory_bundle(self) -> None:
+        mark_startup_phase("live_inventory_read_start")
         try:
             equipment, current, transmog = self._reader.read_player_inventory()
             talents = self._reader.read_player_talents()
@@ -496,10 +530,31 @@ class DashboardTab(QWidget):
             effects = self._reader.read_player_effects()
             prodigies = self._reader.read_prodigies()
         except Exception:  # noqa: BLE001
-            equipment, current, transmog, talents, sustains, effects, prodigies = [], [], [], None, None, None, None
+            equipment = []
+            current = []
+            transmog = []
+            talents = None
+            sustains = None
+            effects = None
+            prodigies = None
+        mark_startup_phase(
+            "live_inventory_read_done",
+            equipment=len(equipment),
+            current=len(current),
+            transmog=len(transmog),
+            talents=0 if talents is None else len(talents),
+        )
         if self._shutting_down:
             return
-        self._live_inventory_ready.emit(equipment, current, transmog, talents, sustains, effects, prodigies)
+        self._live_inventory_ready.emit(
+            equipment,
+            current,
+            transmog,
+            talents,
+            sustains,
+            effects,
+            prodigies,
+        )
 
     def _handle_live_inventory_ready(self, equipment, current, transmog, talents, sustains, effects, prodigies) -> None:
         self._inventory_poll_pending = False
@@ -513,6 +568,13 @@ class DashboardTab(QWidget):
             sustains,
             effects,
             prodigies if prodigies else None,
+        )
+        write_startup_trace(
+            "live_inventory_applied",
+            equipment=len(equipment),
+            current=len(current),
+            transmog=len(transmog),
+            talents=0 if talents is None else len(talents),
         )
 
     def _poll_prodigies(self) -> None:

@@ -28,6 +28,7 @@ from game_data.effect_db import lookup_effect_by_id
 from game_data.prodigy_db import get_prodigy_db as _get_prodigy_db
 from game_data.talent_db import lookup_talent_by_id
 from gui.sprite_resolve import is_usable_sprite, pick_actor_image
+from gui.startup_trace import mark_startup_phase
 from runtime_output import console_print
 
 # Re-exported so ``from gui.memory_reader import DANGER_*`` keeps working
@@ -1156,12 +1157,15 @@ class MemoryReader:
 
     def attach(self, *, verbose: bool = True) -> bool:
         """Find t-engine.exe and locate _G. Returns True on success."""
+        mark_startup_phase("memory_attach_start")
         self.detach()
 
         pid = _get_pid("t-engine.exe")
         if pid is None:
+            mark_startup_phase("memory_attach_no_process")
             return False
 
+        mark_startup_phase("memory_attach_pid_found", pid=pid)
         _k32.SetLastError(0)
         h = _k32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
         if not h:
@@ -1180,10 +1184,12 @@ class MemoryReader:
                     f"[memory] OpenProcess failed for t-engine.exe (pid={pid}, error={err}).",
                     file=sys.stderr,
                 )
+            mark_startup_phase("memory_attach_open_failed", pid=pid, error=err)
             return False
 
         self._handle = h
         self._pid = pid
+        mark_startup_phase("memory_attach_opened", pid=pid)
 
         creation_key = _get_process_creation_key(h)
         if creation_key is not None:
@@ -1196,17 +1202,23 @@ class MemoryReader:
                     self._game_table = _tab_get_table(h, cached_gt, "game") or 0
                     self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL
                     self._player_table = 0
+                    mark_startup_phase("memory_attach_cache_reused", global_table=hex(cached_gt))
                     return True
                 if _looks_like_lua_global_table(h, cache["global_table"]):
                     # The Lua VM is alive, but no ToME game singleton is
                     # loaded yet. Keep the cache for the next attach attempt
                     # after a save is loaded, and avoid a full rescan loop.
                     self.detach()
+                    mark_startup_phase("memory_attach_cache_waiting_for_save")
                     return False
 
+        mark_startup_phase("memory_global_scan_start")
         gt = _find_global_table(h)
+        mark_startup_phase("memory_global_scan_done", found=gt is not None)
         if gt is None:
+            mark_startup_phase("memory_global_warm_scan_start")
             warm_gt = _find_global_table(h, allow_global_only=True)
+            mark_startup_phase("memory_global_warm_scan_done", found=warm_gt is not None)
             if warm_gt is not None and creation_key is not None:
                 _save_attach_cache(pid, creation_key, warm_gt)
                 if verbose:
@@ -1215,6 +1227,7 @@ class MemoryReader:
                 return False
             print("[memory] OpenProcess succeeded, but no loaded Lua game state was found.", file=sys.stderr)
             self.detach()
+            mark_startup_phase("memory_attach_no_lua_game")
             return False
 
         self._global_table = gt
@@ -1223,6 +1236,7 @@ class MemoryReader:
         self._player_table = 0  # will be resolved on first read
         if creation_key is not None:
             _save_attach_cache(pid, creation_key, gt)
+        mark_startup_phase("memory_attach_scan_found", global_table=hex(gt))
         return True
 
     def detach(self) -> None:
@@ -2426,11 +2440,13 @@ def start_background_preattach() -> None:
         _preattached_reader = reader
 
     def _go() -> None:
+        mark_startup_phase("preattach_worker_start")
         try:
             reader.attach()  # silent failure if game not running
         except Exception:  # noqa: BLE001
             pass
         finally:
+            mark_startup_phase("preattach_worker_done", attached=reader.attached)
             _preattach_event.set()
 
     _threading.Thread(target=_go, daemon=True, name="MemoryReader.preattach").start()

@@ -8,5 +8,6 @@ CharacterSheets/
 .claude/worktrees/
 
 .startup_timing.txt
+.startup_trace.json
 gui/_attach_cache.json
 game_data/_talent_cache.json

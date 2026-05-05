@@ -12,6 +12,9 @@ import win32con
 import win32gui
 import win32process
 
+from gui.startup_trace import configure_startup_trace, mark_startup_phase, write_startup_trace
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _k32 = ctypes.windll.kernel32
 
 
@@ -109,42 +112,67 @@ def _relaunch_elevated() -> bool:
 
 
 def main(*, startup_started_at: float | None = None) -> None:
+    configure_startup_trace(startup_started_at, PROJECT_ROOT / ".startup_trace.json")
+    mark_startup_phase("app_main_enter", pid=os.getpid(), debug_mode=_debug_mode_active())
+
     # ── Request Administrator if not already elevated ──
-    if not pyuac.isUserAdmin():
+    mark_startup_phase("admin_check_start")
+    is_admin = pyuac.isUserAdmin()
+    mark_startup_phase("admin_check_done", is_admin=is_admin)
+    if not is_admin:
         if _debug_mode_active():
             print("[!] Debug session detected — UAC relaunch will replace the debug process.")
+        mark_startup_phase("uac_relaunch_start")
         if _relaunch_elevated():
+            write_startup_trace("uac_relaunch_started")
             sys.exit(0)
+        mark_startup_phase("uac_relaunch_failed")
         print("[!] Running without Administrator — live HP reading disabled.")
 
     # ── Kick off the t-engine.exe attach in a background thread NOW, so it
     #    runs in parallel with QApplication setup, existing-instance shutdown,
     #    and MainWindow construction.  By the time the dashboard needs the
     #    reader, the Lua _G scan is typically already complete.
+    mark_startup_phase("memory_reader_import_start")
     from gui.memory_reader import start_background_preattach
 
+    mark_startup_phase("memory_reader_import_done")
     start_background_preattach()
+    mark_startup_phase("background_preattach_started")
 
+    mark_startup_phase("qt_import_start")
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QFont, QIcon
     from PySide6.QtWidgets import QApplication
 
+    mark_startup_phase("qt_import_done")
+    mark_startup_phase("mainwindow_import_start")
     from gui.main_window import MainWindow
     from gui.theme import STYLESHEET
 
+    mark_startup_phase("mainwindow_import_done")
     # High-DPI scaling (Qt 6 default) — kept explicit for clarity
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
 
+    mark_startup_phase("qapplication_create_start")
     app = QApplication(sys.argv)
+    mark_startup_phase("qapplication_create_done")
     app.setApplicationName("ToME - Scrying Mirror")
     app.setFont(QFont("Segoe UI", 10))
-    app.setWindowIcon(QIcon(str(Path(__file__).parent.parent / "Icons" / "app" / "scrying_mirror.png")))
+    app.setWindowIcon(QIcon(str(PROJECT_ROOT / "Icons" / "app" / "scrying_mirror.png")))
     app.setStyleSheet(STYLESHEET)
-    _request_existing_shutdown("ToME - Scrying Mirror")
+    mark_startup_phase("qapplication_configured")
 
-    config_path = Path("config.json")
+    mark_startup_phase("existing_shutdown_start")
+    _request_existing_shutdown("ToME - Scrying Mirror")
+    mark_startup_phase("existing_shutdown_done")
+
+    config_path = PROJECT_ROOT / "config.json"
+    mark_startup_phase("mainwindow_create_start")
     window = MainWindow(config_path, startup_started_at=startup_started_at)
+    mark_startup_phase("mainwindow_create_done")
     window.show()
+    write_startup_trace("mainwindow_shown")
     original_excepthook = sys.excepthook
 
     def _gui_excepthook(exc_type, exc_value, exc_traceback) -> None:

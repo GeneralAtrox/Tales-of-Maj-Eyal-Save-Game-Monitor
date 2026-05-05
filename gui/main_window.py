@@ -24,12 +24,14 @@ from gui.dashboard_tab import DashboardTab
 from gui.log_panel import LogPanel
 from gui.preview_capture import capture_current_preview
 from gui.settings_tab import SettingsTab
+from gui.startup_trace import mark_startup_phase, write_startup_trace
 from gui.theme import TEXT
 from runtime_output import console_print
 
 
 class MainWindow(QMainWindow):
     def __init__(self, config_path: Path, *, startup_started_at: float | None = None) -> None:
+        mark_startup_phase("mainwindow_init_start")
         super().__init__()
         self.setWindowTitle("ToME - Scrying Mirror")
         self.resize(1280, 760)
@@ -41,6 +43,7 @@ class MainWindow(QMainWindow):
         # ── Log bridge: redirect stdout/stderr before anything prints ──
         self._log_bridge = LogBridge(self)
         self._log_bridge.install()
+        mark_startup_phase("log_bridge_ready")
 
         # ── Input bridge ──
         self._input_bridge = InputBridge(self)
@@ -79,6 +82,7 @@ class MainWindow(QMainWindow):
         self._dashboard = DashboardTab(log_panel=self._log_panel)
         central_lay.addWidget(self._dashboard, 1)
         self.setCentralWidget(central)
+        mark_startup_phase("dashboard_ready")
 
         self._char_menu = QMenu(self)
         self._actions_menu = QMenu(self)
@@ -100,15 +104,19 @@ class MainWindow(QMainWindow):
 
         # ── Start monitor thread ──
         self._monitor = MonitorThread(config_path, self._input_bridge)
+        mark_startup_phase("monitor_thread_start")
         self._monitor.start()
+        mark_startup_phase("monitor_thread_started")
 
         # ── Poll until initialize_system finishes ──
         self._init_poll = QTimer(self)
-        self._init_poll.setInterval(400)
+        self._init_poll.setInterval(50)
         self._init_poll.timeout.connect(self._check_init)
         self._init_poll.start()
+        QTimer.singleShot(0, self._check_init)
 
         self._watcher: QFileSystemWatcher | None = None
+        mark_startup_phase("mainwindow_init_done")
 
     # ── Init polling ───────────────────────────────────────────────────────
 
@@ -117,6 +125,7 @@ class MainWindow(QMainWindow):
         if config is None:
             return
 
+        mark_startup_phase("monitor_config_ready", characters=len(config.characters))
         self._init_poll.stop()
         self._set_monitor_status(active=True)
         self._dashboard.set_roots(config.character_sheets_root, config.backup_root)
@@ -150,6 +159,7 @@ class MainWindow(QMainWindow):
         self._watcher = QFileSystemWatcher(self)
         self._watcher.addPath(str(config.character_sheets_root))
         self._watcher.directoryChanged.connect(self._on_sheets_changed)
+        mark_startup_phase("monitor_init_applied")
 
     # ── Status helpers ─────────────────────────────────────────────────────
 
@@ -197,7 +207,9 @@ class MainWindow(QMainWindow):
 
     def _select_character(self, folder_name: str) -> None:
         if folder_name:
+            mark_startup_phase("character_select_start", folder_name=folder_name)
             self._dashboard.select_character(folder_name)
+            mark_startup_phase("character_select_done", folder_name=folder_name)
 
     def _on_sheets_changed(self, _path: str) -> None:
         config = self._monitor.config
@@ -328,6 +340,7 @@ class MainWindow(QMainWindow):
             self._startup_metrics_path.write_text(f"{elapsed:.6f}\n", encoding="utf-8")
         except OSError:
             pass
+        write_startup_trace("game_connected_reported", elapsed_s=round(elapsed, 6))
         self.statusBar().showMessage(f"Connected to game in {elapsed:.2f}s", 5000)
         self._startup_timer_reported = True
 

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from gui.startup_trace import mark_startup_phase
+
 if TYPE_CHECKING:
     from models import AppConfig
 
@@ -123,7 +125,13 @@ class MonitorThread(threading.Thread):
         try:
             from monitor import initialize_system, monitor_saves
 
+            mark_startup_phase("monitor_initialize_start")
             self._config = initialize_system(self.config_path)
+            mark_startup_phase(
+                "monitor_initialize_done",
+                characters=0 if self._config is None else len(self._config.characters),
+            )
+            mark_startup_phase("monitor_saves_start")
             monitor_saves(self._config)
         finally:
             builtins.input = original_input
