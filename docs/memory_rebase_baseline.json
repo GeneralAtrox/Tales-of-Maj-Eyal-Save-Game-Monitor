@@ -1,0 +1,71 @@
+{
+  "executable": {
+    "machine": 332,
+    "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\TalesMajEyal\\t-engine.exe",
+    "pe_image_base": 4194304,
+    "pe_image_size": 5099520,
+    "sha256": "d6da7808503366ebb2a412f56c647b36e9f8aee85687ee672818851a0f67964d",
+    "size": 4962816,
+    "time_date_stamp": 1620860483
+  },
+  "live_process": {
+    "module_base": null,
+    "module_size": null,
+    "path": null,
+    "pid": null
+  },
+  "lua_heap_policy": {
+    "formula": "_G -> game -> player/level/zone/state",
+    "note": "Lua GC object addresses are current-session only; rediscover and validate table chains.",
+    "rebasable": false,
+    "root": "_G"
+  },
+  "schema": 1,
+  "signatures": {
+    "ce_tvalue_nil_branch_context": {
+      "expected_unique": true,
+      "match_count": 1,
+      "matches": [
+        {
+          "file_offset": 595040,
+          "rva": 598112,
+          "section": ".text"
+        }
+      ],
+      "pattern": "83 79 04 FF 74 36 0F B6 46 FD 8B 29 8B 49 04 89",
+      "purpose": "Cheat Engine TValue/key-walk hook context. Not used by the Python GUI.",
+      "reusable_as": "AOB -> RVA -> Module.Base + RVA",
+      "status": "OK"
+    },
+    "ce_tvalue_nil_branch_short": {
+      "expected_unique": true,
+      "match_count": 1,
+      "matches": [
+        {
+          "file_offset": 595040,
+          "rva": 598112,
+          "section": ".text"
+        }
+      ],
+      "pattern": "83 79 04 FF 74 36",
+      "purpose": "Exact AOB used by Tales of Maj'Eyal_v3.CT.",
+      "reusable_as": "AOB -> RVA -> Module.Base + RVA",
+      "status": "OK"
+    },
+    "luajit_version_string": {
+      "expected_unique": true,
+      "match_count": 1,
+      "matches": [
+        {
+          "file_offset": 3620243,
+          "rva": 3626899,
+          "section": ".rdata"
+        }
+      ],
+      "pattern": "4C 75 61 4A 49 54 20 32 2E 30 2E 32",
+      "purpose": "LuaJIT version fingerprint, useful for rejecting changed runtime layouts.",
+      "reusable_as": "AOB/data RVA fingerprint only",
+      "status": "OK"
+    }
+  }
+}

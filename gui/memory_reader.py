@@ -220,6 +220,25 @@ def _is_heap(v: int) -> bool:
     return 0x00400000 <= v < 0xFFFF0000
 
 
+def _is_gctab(h: int, tab_ptr: int) -> bool:
+    """Return True when ``tab_ptr`` still looks like a LuaJIT GCtab."""
+    if not tab_ptr or not _is_heap(tab_ptr):
+        return False
+    raw = _rpm(h, tab_ptr, 32)
+    if not raw or raw[5] != _GCT_TAB:
+        return False
+    array_ptr = struct.unpack_from("<I", raw, 8)[0]
+    node_ptr = struct.unpack_from("<I", raw, 20)[0]
+    hmask = struct.unpack_from("<I", raw, 28)[0]
+    if hmask > 0xFFFF:
+        return False
+    if array_ptr and not _is_heap(array_ptr):
+        return False
+    if node_ptr and not _is_heap(node_ptr):
+        return False
+    return True
+
+
 # ── Table traversal ──────────────────────────────────────────────────────────
 
 
@@ -921,12 +940,22 @@ def _find_global_table(h: int) -> int | None:
 
 def _validate_global_table(h: int, addr: int) -> int | None:
     """Return *addr* when it still looks like the Lua global table."""
-    if addr <= 0:
+    if not _is_gctab(h, addr):
         return None
     game_tab = _tab_get_table(h, addr, "game")
-    if game_tab is None:
+    if game_tab is None or not _validate_game_table(h, game_tab):
         return None
     return addr
+
+
+def _validate_game_table(h: int, addr: int) -> bool:
+    """Return True when ``addr`` is a plausible live ToME ``game`` singleton."""
+    if not _is_gctab(h, addr):
+        return False
+    return any(
+        _tab_find_strkey(h, addr, key) is not None
+        for key in ("player", "level", "zone", "state", "visited_zones", "party", "turn")
+    )
 
 
 # ── Entity data ───────────────────────────────────────────────────────────────
@@ -1023,6 +1052,7 @@ class MemoryReader:
         self._handle: int = 0
         self._pid: int = 0
         self._global_table: int = 0  # _G GCtab address
+        self._game_table: int = 0  # _G.game GCtab address (cached singleton)
         self._player_table: int = 0  # game.player GCtab address (cached)
 
     @property
@@ -1067,6 +1097,7 @@ class MemoryReader:
                 if cached_gt := _validate_global_table(h, cache["global_table"]):
                     console_print("[memory] Reused cached Lua global table address.")
                     self._global_table = cached_gt
+                    self._game_table = _tab_get_table(h, cached_gt, "game") or 0
                     self._player_table = 0
                     return True
 
@@ -1077,6 +1108,7 @@ class MemoryReader:
             return False
 
         self._global_table = gt
+        self._game_table = _tab_get_table(h, gt, "game") or 0
         self._player_table = 0  # will be resolved on first read
         if creation_key is not None:
             _save_attach_cache(pid, creation_key, gt)
@@ -1088,6 +1120,7 @@ class MemoryReader:
         self._handle = 0
         self._pid = 0
         self._global_table = 0
+        self._game_table = 0
         self._player_table = 0
 
     def is_process_alive(self) -> bool:
@@ -1104,7 +1137,7 @@ class MemoryReader:
         if self._player_table and _tab_get_number(h, self._player_table, "level") is not None:
             return self._player_table
 
-        game_tab = _tab_get_table(h, self._global_table, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             self._player_table = 0
             return None
@@ -1116,6 +1149,24 @@ class MemoryReader:
 
         self._player_table = player_tab
         return player_tab
+
+    def _ensure_game_table(self) -> int | None:
+        """Return the cached ToME ``game`` singleton, refreshing it when stale."""
+        if not self.attached:
+            return None
+
+        if self._game_table:
+            return self._game_table
+
+        h = self._handle
+        game_tab = _tab_get_table(h, self._global_table, "game")
+        if game_tab is None or not _validate_game_table(h, game_tab):
+            self._game_table = 0
+            self._player_table = 0
+            return None
+
+        self._game_table = game_tab
+        return game_tab
 
     def _read_player_stat_identifier(self, h: int, player_tab: int) -> str | None:
         """Return ToME's profile bucket id for the current character."""
@@ -1202,9 +1253,8 @@ class MemoryReader:
         if not self.attached:
             return None
         h = self._handle
-        gt = self._global_table
 
-        game_tab = _tab_get_table(h, gt, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             return None
         level_tab = _tab_get_table(h, game_tab, "level")
@@ -1678,9 +1728,8 @@ class MemoryReader:
         if not self.attached:
             return []
         h = self._handle
-        gt = self._global_table
 
-        game_tab = _tab_get_table(h, gt, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             return []
         level_tab = _tab_get_table(h, game_tab, "level")
@@ -1828,7 +1877,7 @@ class MemoryReader:
         if not self.attached:
             return set()
         h = self._handle
-        game_tab = _tab_get_table(h, self._global_table, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             return set()
         visited_tab = _tab_get_table(h, game_tab, "visited_zones")
@@ -1845,7 +1894,7 @@ class MemoryReader:
         if not self.attached:
             return set()
         h = self._handle
-        game_tab = _tab_get_table(h, self._global_table, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             return set()
         state_tab = _tab_get_table(h, game_tab, "state")
@@ -1862,7 +1911,7 @@ class MemoryReader:
         if pt is None:
             return set()
         h = self._handle
-        game_tab = _tab_get_table(h, self._global_table, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             return set()
         uniques_tab = _tab_get_table(h, game_tab, "uniques")
@@ -1888,8 +1937,7 @@ class MemoryReader:
         if not self.attached:
             return None
         h = self._handle
-        gt = self._global_table
-        game_tab = _tab_get_table(h, gt, "game")
+        game_tab = self._ensure_game_table()
         if game_tab is None:
             return None
         zone_tab = _tab_get_table(h, game_tab, "zone")

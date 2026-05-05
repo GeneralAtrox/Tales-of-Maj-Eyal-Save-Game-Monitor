@@ -34,6 +34,12 @@ The `itype` lives at bytes 4–7 (upper 32 bits) of an 8-byte NaN-boxed TValue.
 
 ## Struct Layouts (32-bit, verified)
 
+These are not process addresses. They are LuaJIT 2.0.2 32-bit struct
+offsets, and they stay reusable only while the embedded LuaJIT build remains
+32-bit/no-GC64 with the same object layout. The source reference is
+`tools\t-engine4-master\src\luajit2\src\lj_obj.h`; `lj_arch.h` confirms
+`LJ_32=1`, `LJ_64=0` for the 32-bit target.
+
 ### TValue — 8 bytes (NaN-boxed)
 
 ```
@@ -112,6 +118,119 @@ The `_G` address changes when:
 The GUI auto-detects stale addresses: if `read_player_hp()` returns `None`
 for 5 consecutive 1-second polls, the reader detaches and re-attaches on the
 next game-poll cycle (~3 seconds). Total recovery: ~10 seconds.
+
+---
+
+## Runtime Singleton Anchor
+
+**Best anchor for the GUI:** discover `_G`, then cache `_G.game` as the
+runtime singleton.
+
+`_G` is the safest discovery root because it is recognizable from table
+shape plus well-known global keys. `game` is the fastest recurring root
+because almost every live read hangs from it:
+
+```
+_G -> game
+game -> player
+game -> level
+game -> zone
+game -> state
+game -> visited_zones
+```
+
+Do not persist the numeric `game` address across process launches. It is a
+Lua heap table, not a module symbol. Reuse it only inside the same process
+after validating that it still looks like a `GCtab` and still exposes expected
+ToME singleton fields such as `player`, `level`, `zone`, `state`,
+`visited_zones`, `party`, or `turn`.
+
+### Address Classification
+
+The following live values were validated on 2026-05-05 against
+`C:\Program Files (x86)\Steam\steamapps\common\TalesMajEyal\t-engine.exe`,
+PID `10340`. These are examples only; they are **current-session only**.
+
+| Address | Meaning | Region | Reusable? | Rebase rule |
+|---|---|---|---|---|
+| `0x0CDD1328` | `_G` GCtab | `MEM_PRIVATE`, read/write | Same PID + creation time only, after validation | Rediscover by GCtab scan; do not rebase |
+| `0x369B94E0` | `game` GCtab | `MEM_PRIVATE`, read/write | Same Lua VM only, after validation | Resolve from `_G.game`; do not rebase |
+| `0x369B8250` | `game.player` GCtab | `MEM_PRIVATE`, read/write | Same loaded character only, after validation | Resolve from `game.player`; do not rebase |
+| `0x3730DBB0` | `game.level` GCtab | `MEM_PRIVATE`, read/write | Current level only, after validation | Resolve from `game.level`; do not rebase |
+| `0x3730DDC8` | `game.level.entities` GCtab | `MEM_PRIVATE`, read/write | Current level only, after validation | Resolve from `game.level.entities`; do not rebase |
+
+The executable image was loaded at `0x00400000` with image size `0x4DD000`
+in that session. Module addresses are the only values that can be expressed
+as `Module.Base + RVA`. Lua heap objects must always be rediscovered by
+walking the validated table chain.
+
+### Cheat Engine Table Note
+
+`Tales of Maj'Eyal_v3.CT` uses:
+
+```
+aobscanmodule(tome_23,t-engine.exe,83 79 04 FF 74 36)
+```
+
+That byte pattern was unique in the current `t-engine.exe` file and maps to
+RVA `0x92060` (`Module.Base + 0x92060` -> `0x00492060` in the observed
+process). It is rebasable as an AOB/RVA hook point, but it patches executable
+code and is therefore not used by the Python GUI. Treat the CT symbols
+(`tome_13`, `tome_17`, etc.) as Cheat Engine runtime scratch addresses, not
+portable app offsets.
+
+### Rebase Validator
+
+Use the read-only validator after ToME updates:
+
+```text
+C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py
+```
+
+For a pass/fail update gate against the checked-in baseline:
+
+```text
+C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py --strict
+```
+
+The baseline lives at `docs\memory_rebase_baseline.json`. Refresh it only
+after manually confirming a new ToME executable still has valid anchors:
+
+```text
+C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py --write-baseline
+```
+
+Current executable fingerprint from the local Steam install:
+
+| Field | Value |
+|---|---|
+| Path | `C:\Program Files (x86)\Steam\steamapps\common\TalesMajEyal\t-engine.exe` |
+| Size | `0x4BBA00` (`4962816` bytes) |
+| SHA-256 | `d6da7808503366ebb2a412f56c647b36e9f8aee85687ee672818851a0f67964d` |
+| PE image base | `0x00400000` |
+| PE image size | `0x4DD000` |
+
+Current static anchors:
+
+| Anchor | Result | Rebase value | Policy |
+|---|---|---|---|
+| `83 79 04 FF 74 36 0F B6 46 FD 8B 29 8B 49 04 89` | unique | `.text` RVA `0x92060` | CT hook context only |
+| `83 79 04 FF 74 36` | unique | `.text` RVA `0x92060` | exact CT AOB |
+| `LuaJIT 2.0.2` bytes | unique | `.rdata` RVA `0x375793` | runtime-layout fingerprint |
+
+After an update:
+
+1. Re-run `tools\validate_memory_rebase.py`.
+2. If the LuaJIT version string changes or disappears, do not trust the
+   `GCtab`, `GCstr`, `Node`, or `TValue` offsets until they are re-verified.
+3. If an AOB has zero matches, the hook moved or changed; rediscover it before
+   using the CT table.
+4. If an AOB has multiple matches, treat it as ambiguous; widen the signature
+   with more surrounding bytes before using it.
+5. If an AOB remains unique but its RVA changes, the anchor is still
+   rebasable. Use the new `Module.Base + RVA`.
+6. Never rebase Lua heap roots. Rediscover `_G`, then resolve `game`,
+   `game.player`, `game.level`, and child tables through Lua table lookups.
 
 ---
 
