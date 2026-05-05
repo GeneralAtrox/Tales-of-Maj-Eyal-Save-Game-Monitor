@@ -218,6 +218,11 @@ Current static anchors:
 | `83 79 04 FF 74 36` | unique | `.text` RVA `0x92060` | exact CT AOB |
 | `LuaJIT 2.0.2` bytes | unique | `.rdata` RVA `0x375793` | runtime-layout fingerprint |
 
+The baseline also records the reader's LuaJIT layout assumptions: `TValue`
+size `8`, `Node` size `24`, `GCtab` size `32`, key field offsets, and the
+`LJ_T*` NaN-box tags. If those assumptions change in code or in the embedded
+runtime, `--strict` reports `luajit_layout` drift.
+
 After an update:
 
 1. Re-run `tools\validate_memory_rebase.py`.

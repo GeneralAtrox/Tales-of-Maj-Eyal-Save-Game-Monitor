@@ -39,6 +39,40 @@ PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 PROCESS_VM_READ = 0x0010
 
+LUAJIT_LAYOUT: dict[str, object] = {
+    "runtime": "LuaJIT 2.0.2",
+    "target": "x86",
+    "gc64": False,
+    "tvalue_size": 8,
+    "node_size": 24,
+    "gctab_size": 32,
+    "gc_offsets": {
+        "gct": 5,
+    },
+    "gcstr_offsets": {
+        "len": 12,
+        "data": 16,
+    },
+    "gctab_offsets": {
+        "array": 8,
+        "node": 20,
+        "asize": 24,
+        "hmask": 28,
+    },
+    "node_offsets": {
+        "val": 0,
+        "key": 8,
+    },
+    "tvalue_tags": {
+        "LJ_TSTR": 0xFFFFFFFB,
+        "LJ_TTAB": 0xFFFFFFF4,
+        "LJ_TNUMX": 0xFFFFFFF2,
+        "LJ_TTRUE": 0xFFFFFFFD,
+        "LJ_TFALSE": 0xFFFFFFFE,
+        "LJ_TNIL": 0xFFFFFFFF,
+    },
+}
+
 
 @dataclass(frozen=True, slots=True)
 class Section:
@@ -348,6 +382,7 @@ def _build_report(
             "module_size": live_module[1] if live_module else None,
         },
         "signatures": _signature_results(data, pe, live_module, running),
+        "luajit_layout": LUAJIT_LAYOUT,
         "lua_heap_policy": {
             "rebasable": False,
             "root": "_G",
@@ -404,6 +439,9 @@ def _compare_with_baseline(report: dict[str, object], baseline: dict[str, object
     for name in baseline_sigs:
         if name not in current_sigs:
             diffs.append(f"{name}: present in baseline but missing from current report")
+
+    if report.get("luajit_layout") != baseline.get("luajit_layout"):
+        diffs.append("luajit_layout: baseline does not match current reader assumptions")
     return diffs
 
 

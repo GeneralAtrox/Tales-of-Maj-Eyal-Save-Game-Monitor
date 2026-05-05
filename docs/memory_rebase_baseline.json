@@ -20,6 +20,39 @@
     "rebasable": false,
     "root": "_G"
   },
+  "luajit_layout": {
+    "gc64": false,
+    "gc_offsets": {
+      "gct": 5
+    },
+    "gcstr_offsets": {
+      "data": 16,
+      "len": 12
+    },
+    "gctab_offsets": {
+      "array": 8,
+      "asize": 24,
+      "hmask": 28,
+      "node": 20
+    },
+    "gctab_size": 32,
+    "node_offsets": {
+      "key": 8,
+      "val": 0
+    },
+    "node_size": 24,
+    "runtime": "LuaJIT 2.0.2",
+    "target": "x86",
+    "tvalue_size": 8,
+    "tvalue_tags": {
+      "LJ_TFALSE": 4294967294,
+      "LJ_TNIL": 4294967295,
+      "LJ_TNUMX": 4294967282,
+      "LJ_TSTR": 4294967291,
+      "LJ_TTAB": 4294967284,
+      "LJ_TTRUE": 4294967293
+    }
+  },
   "schema": 1,
   "signatures": {
     "ce_tvalue_nil_branch_context": {

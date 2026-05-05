@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from gui import memory_reader
+
+
+class MemoryReaderValidationTests(unittest.TestCase):
+    def test_is_gctab_rejects_unreadable_or_wrong_type_memory(self) -> None:
+        with patch.object(memory_reader, "_rpm", return_value=None):
+            self.assertFalse(memory_reader._is_gctab(1, 0x10000000))
+
+        wrong_type = bytearray(32)
+        wrong_type[5] = 0x04  # GCstr, not GCtab
+        with patch.object(memory_reader, "_rpm", return_value=bytes(wrong_type)):
+            self.assertFalse(memory_reader._is_gctab(1, 0x10000000))
+
+    def test_is_gctab_accepts_valid_table_header(self) -> None:
+        raw = bytearray(32)
+        raw[5] = memory_reader._GCT_TAB
+        raw[8:12] = (0x20000000).to_bytes(4, "little")
+        raw[20:24] = (0x21000000).to_bytes(4, "little")
+        raw[28:32] = (0x7F).to_bytes(4, "little")
+
+        with patch.object(memory_reader, "_rpm", return_value=bytes(raw)):
+            self.assertTrue(memory_reader._is_gctab(1, 0x10000000))
+
+    def test_validate_game_table_requires_plausible_singleton_key(self) -> None:
+        with (
+            patch.object(memory_reader, "_is_gctab", return_value=True),
+            patch.object(memory_reader, "_tab_find_strkey", return_value=None),
+        ):
+            self.assertFalse(memory_reader._validate_game_table(1, 0x10000000))
+
+        def fake_find(_handle: int, _table: int, key: str) -> int | None:
+            return 0x22000000 if key == "level" else None
+
+        with (
+            patch.object(memory_reader, "_is_gctab", return_value=True),
+            patch.object(memory_reader, "_tab_find_strkey", side_effect=fake_find),
+        ):
+            self.assertTrue(memory_reader._validate_game_table(1, 0x10000000))
+
+    def test_validate_global_table_requires_valid_game_chain(self) -> None:
+        with (
+            patch.object(memory_reader, "_is_gctab", return_value=True),
+            patch.object(memory_reader, "_tab_get_table", return_value=0x20000000),
+            patch.object(memory_reader, "_validate_game_table", return_value=True),
+        ):
+            self.assertEqual(memory_reader._validate_global_table(1, 0x10000000), 0x10000000)
+
+        with (
+            patch.object(memory_reader, "_is_gctab", return_value=True),
+            patch.object(memory_reader, "_tab_get_table", return_value=0x20000000),
+            patch.object(memory_reader, "_validate_game_table", return_value=False),
+        ):
+            self.assertIsNone(memory_reader._validate_global_table(1, 0x10000000))
+
+
+if __name__ == "__main__":
+    unittest.main()
