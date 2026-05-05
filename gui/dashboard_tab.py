@@ -263,7 +263,7 @@ class DashboardTab(QWidget):
                 data = json.loads(sheet_path.read_text(encoding="utf-8"))
                 self._sheet_view.setPlainText(json.dumps(data, indent=2))
                 self._sheet_visual.set_game_connected(True)
-                self._sheet_visual.load(data, char_name)
+                self._sheet_visual.load(data, char_name, defer_reload=self._inventory_poll_pending)
                 return
             except (OSError, json.JSONDecodeError) as exc:
                 self._sheet_view.setPlainText(f"Error reading sheet:\n{exc}")
@@ -363,10 +363,10 @@ class DashboardTab(QWidget):
         if self._shutting_down or not self._reader.attached:
             return
         self.refresh_current()
+        self._poll_hp()
+        self._poll_level_id()
         self._poll_progression()
-        self._poll_talents()
         self._poll_inventory()
-        self._poll_prodigies()
 
     def _poll_hp(self) -> None:
         if self._shutting_down:
@@ -497,17 +497,23 @@ class DashboardTab(QWidget):
             prodigies = self._reader.read_prodigies()
         except Exception:  # noqa: BLE001
             equipment, current, transmog, talents, sustains, effects, prodigies = [], [], [], None, None, None, None
+        if self._shutting_down:
+            return
         self._live_inventory_ready.emit(equipment, current, transmog, talents, sustains, effects, prodigies)
 
     def _handle_live_inventory_ready(self, equipment, current, transmog, talents, sustains, effects, prodigies) -> None:
         self._inventory_poll_pending = False
         if not self._reader.attached:
             return
-        self._sheet_visual.set_live_inventory(equipment, current, transmog)
-        self._sheet_visual.set_live_talents(talents)
-        self._sheet_visual.set_live_sustains(sustains)
-        self._sheet_visual.set_live_effects(effects)
-        self._sheet_visual.set_live_prodigies(prodigies if prodigies else None)
+        self._sheet_visual.set_live_bundle(
+            equipment,
+            current,
+            transmog,
+            talents,
+            sustains,
+            effects,
+            prodigies if prodigies else None,
+        )
 
     def _poll_prodigies(self) -> None:
         if self._shutting_down:

@@ -56,6 +56,10 @@ _ICON_SPRITE = 192  # live player sprite beside primary stats
 _ICON_ITEM_CARD = 30
 _ICON_ITEM_DETAIL = 72
 
+_PIXMAP_CACHE: dict[tuple[str, int], QPixmap] = {}
+_STAT_PIXMAP_CACHE: dict[tuple[str, int], QPixmap] = {}
+_PLACEHOLDER_CACHE: dict[tuple[int, str], QPixmap] = {}
+
 # ── Stat icon filename mapping ────────────────────────────────────────────────
 _STAT_ICONS: dict[str, str] = {
     "Strength": "strength",
@@ -118,26 +122,40 @@ def _resolve_talent_icon_path(name: str, data: Any) -> Path:
 
 
 def _load_pixmap(path: Path, size: int) -> QPixmap:
+    cache_key = (str(path), size)
+    if cache_key in _PIXMAP_CACHE:
+        return _PIXMAP_CACHE[cache_key]
     if path.exists():
         px = QPixmap(str(path))
         if not px.isNull():
-            return px.scaled(
+            scaled = px.scaled(
                 size,
                 size,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-    return _placeholder(size)
+            _PIXMAP_CACHE[cache_key] = scaled
+            return scaled
+    placeholder = _placeholder(size)
+    _PIXMAP_CACHE[cache_key] = placeholder
+    return placeholder
 
 
 def _load_stat_pixmap(path: Path, size: int) -> QPixmap:
     """Load stat icons with black matte pixels converted to transparency."""
+    cache_key = (str(path), size)
+    if cache_key in _STAT_PIXMAP_CACHE:
+        return _STAT_PIXMAP_CACHE[cache_key]
     if not path.exists():
-        return _placeholder(size)
+        placeholder = _placeholder(size)
+        _STAT_PIXMAP_CACHE[cache_key] = placeholder
+        return placeholder
 
     image = QImage(str(path)).convertToFormat(QImage.Format.Format_ARGB32)
     if image.isNull():
-        return _placeholder(size)
+        placeholder = _placeholder(size)
+        _STAT_PIXMAP_CACHE[cache_key] = placeholder
+        return placeholder
 
     for y in range(image.height()):
         for x in range(image.width()):
@@ -220,15 +238,20 @@ def _load_stat_pixmap(path: Path, size: int) -> QPixmap:
                         image.setPixelColor(x, y, color)
 
     pixmap = _trim_transparent_bounds(QPixmap.fromImage(image))
-    return pixmap.scaled(
+    scaled = pixmap.scaled(
         size,
         size,
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+    _STAT_PIXMAP_CACHE[cache_key] = scaled
+    return scaled
 
 
 def _placeholder(size: int, letter: str = "?") -> QPixmap:
+    cache_key = (size, letter[:1].upper())
+    if cache_key in _PLACEHOLDER_CACHE:
+        return _PLACEHOLDER_CACHE[cache_key]
     px = QPixmap(size, size)
     px.fill(Qt.GlobalColor.transparent)
     p = QPainter(px)
@@ -241,6 +264,7 @@ def _placeholder(size: int, letter: str = "?") -> QPixmap:
     p.setFont(f)
     p.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, letter[:1].upper())
     p.end()
+    _PLACEHOLDER_CACHE[cache_key] = px
     return px
 
 
@@ -1863,6 +1887,8 @@ class CharacterSheetView(QWidget):
         self._live_prodigies: list[dict[str, Any]] | None = None
         self._selected_inventory_source = ""
         self._selected_inventory_key: tuple[Any, ...] | None = None
+        self._inventory_tab_index = -1
+        self._inventory_dirty = True
         self._progression_tab: Any | None = None
         self._progression_tab_index = -1
         self._progression_state: tuple[set[str], set[str], set[str], tuple[str, int, int] | None] | None = None
@@ -1962,7 +1988,7 @@ class CharacterSheetView(QWidget):
         self._equipped_panel.item_selected.connect(self._on_inventory_item_selected)
         self._inventory_panel.item_selected.connect(self._on_inventory_item_selected)
         self._transmog_panel.item_selected.connect(self._on_inventory_item_selected)
-        self._content_tabs.addTab(inventory_tab, "Inventory")
+        self._inventory_tab_index = self._content_tabs.addTab(inventory_tab, "Inventory")
 
         self._progression_host = QWidget()
         self._progression_host_lay = QVBoxLayout(self._progression_host)
@@ -2040,11 +2066,15 @@ class CharacterSheetView(QWidget):
         self._current_sprite_key = None
         self._reload_current()
 
-    def load(self, data: dict, char_name: str = "") -> None:
+    def load(self, data: dict, char_name: str = "", *, defer_reload: bool = False) -> None:
         if data == self._current_data and char_name == self._current_char_name:
             return
         self._current_data = data
         self._current_char_name = char_name
+        self._inventory_dirty = True
+        if defer_reload:
+            self._header.update_from(data.get("Character", {}), char_name)
+            return
         self._reload_current()
 
     def set_game_connected(self, connected: bool) -> None:
@@ -2064,6 +2094,7 @@ class CharacterSheetView(QWidget):
         self._live_equipment = equipment
         self._live_inventory = current
         self._live_transmog = transmog
+        self._inventory_dirty = True
         self._reload_current()
 
     def set_live_talents(self, sections: dict[str, dict[str, Any]] | None) -> None:
@@ -2090,6 +2121,36 @@ class CharacterSheetView(QWidget):
         self._live_prodigies = prodigies
         self._reload_current()
 
+    def set_live_bundle(
+        self,
+        equipment: list[dict[str, Any]] | None,
+        current: list[dict[str, Any]] | None,
+        transmog: list[dict[str, Any]] | None,
+        talents: dict[str, dict[str, Any]] | None,
+        sustains: dict[str, dict[str, Any]] | None,
+        effects: dict[str, dict[str, Any]] | None,
+        prodigies: list[dict[str, Any]] | None,
+    ) -> None:
+        if (
+            equipment == self._live_equipment
+            and current == self._live_inventory
+            and transmog == self._live_transmog
+            and talents == self._live_talents
+            and sustains == self._live_sustains
+            and effects == self._live_effects
+            and prodigies == self._live_prodigies
+        ):
+            return
+        self._live_equipment = equipment
+        self._live_inventory = current
+        self._live_transmog = transmog
+        self._live_talents = talents
+        self._live_sustains = sustains
+        self._live_effects = effects
+        self._live_prodigies = prodigies
+        self._inventory_dirty = True
+        self._reload_current()
+
     def clear_live_inventory(self) -> None:
         if (
             self._live_equipment is None
@@ -2108,6 +2169,7 @@ class CharacterSheetView(QWidget):
         self._live_sustains = None
         self._live_effects = None
         self._live_prodigies = None
+        self._inventory_dirty = True
         self._reload_current()
 
     @staticmethod
@@ -2246,43 +2308,8 @@ class CharacterSheetView(QWidget):
         if talent_sections:
             self._insert(self._left_lay, self._build_talent_columns(talent_sections))
 
-        file_equipment = self._current_data.get("Equipment", [])
-        inventory = self._current_data.get("Inventory", [])
-        file_equipment_items = file_equipment if isinstance(file_equipment, list) else []
-        if isinstance(inventory, dict):
-            file_current = inventory.get("Current", [])
-            transmog_items = inventory.get("Transmog Chest", [])
-        elif isinstance(inventory, list):
-            file_current = inventory
-            transmog_items = []
-        else:
-            file_current = []
-            transmog_items = []
-        equipment_items = _merge_item_sources(self._live_equipment, file_equipment_items)
-        current_items = _merge_item_sources(
-            self._live_inventory,
-            file_current if isinstance(file_current, list) else [],
-        )
-        transmog_live = _merge_item_sources(
-            self._live_transmog,
-            transmog_items if isinstance(transmog_items, list) else [],
-        )
-        equipped_records = self._equipped_panel.set_items(equipment_items, show_slot=True)
-        current_records = self._inventory_panel.set_items(
-            current_items,
-            show_slot=False,
-        )
-        transmog_records = self._transmog_panel.set_items(
-            transmog_live,
-            show_slot=False,
-        )
-        self._restore_inventory_selection(
-            (
-                (self._equipped_panel.title, equipped_records),
-                (self._inventory_panel.title, current_records),
-                (self._transmog_panel.title, transmog_records),
-            )
-        )
+        if self._content_tabs.currentIndex() == self._inventory_tab_index:
+            self._reload_inventory_panels()
         self._left.adjustSize()
         QTimer.singleShot(
             0,
@@ -2348,8 +2375,53 @@ class CharacterSheetView(QWidget):
             self._progression_tab.update(visited, deaths, uniques, current_zone)
 
     def _on_content_tab_changed(self, index: int) -> None:
+        if index == self._inventory_tab_index:
+            self._reload_inventory_panels()
         if index == self._progression_tab_index:
             self._ensure_progression_tab()
+
+    def _reload_inventory_panels(self) -> None:
+        if not self._inventory_dirty:
+            return
+
+        file_equipment = self._current_data.get("Equipment", [])
+        inventory = self._current_data.get("Inventory", [])
+        file_equipment_items = file_equipment if isinstance(file_equipment, list) else []
+        if isinstance(inventory, dict):
+            file_current = inventory.get("Current", [])
+            transmog_items = inventory.get("Transmog Chest", [])
+        elif isinstance(inventory, list):
+            file_current = inventory
+            transmog_items = []
+        else:
+            file_current = []
+            transmog_items = []
+        equipment_items = _merge_item_sources(self._live_equipment, file_equipment_items)
+        current_items = _merge_item_sources(
+            self._live_inventory,
+            file_current if isinstance(file_current, list) else [],
+        )
+        transmog_live = _merge_item_sources(
+            self._live_transmog,
+            transmog_items if isinstance(transmog_items, list) else [],
+        )
+        equipped_records = self._equipped_panel.set_items(equipment_items, show_slot=True)
+        current_records = self._inventory_panel.set_items(
+            current_items,
+            show_slot=False,
+        )
+        transmog_records = self._transmog_panel.set_items(
+            transmog_live,
+            show_slot=False,
+        )
+        self._restore_inventory_selection(
+            (
+                (self._equipped_panel.title, equipped_records),
+                (self._inventory_panel.title, current_records),
+                (self._transmog_panel.title, transmog_records),
+            )
+        )
+        self._inventory_dirty = False
 
     def _ensure_progression_tab(self) -> Any:
         if self._progression_tab is not None:
