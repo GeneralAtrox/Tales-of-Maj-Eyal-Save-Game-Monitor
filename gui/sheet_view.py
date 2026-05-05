@@ -1863,6 +1863,9 @@ class CharacterSheetView(QWidget):
         self._live_prodigies: list[dict[str, Any]] | None = None
         self._selected_inventory_source = ""
         self._selected_inventory_key: tuple[Any, ...] | None = None
+        self._progression_tab: Any | None = None
+        self._progression_tab_index = -1
+        self._progression_state: tuple[set[str], set[str], set[str], tuple[str, int, int] | None] | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1961,16 +1964,18 @@ class CharacterSheetView(QWidget):
         self._transmog_panel.item_selected.connect(self._on_inventory_item_selected)
         self._content_tabs.addTab(inventory_tab, "Inventory")
 
-        from gui.progression_tab import ProgressionTab
-
-        self._progression_tab = ProgressionTab()
-        self._content_tabs.addTab(self._progression_tab, "Progression")
+        self._progression_host = QWidget()
+        self._progression_host_lay = QVBoxLayout(self._progression_host)
+        self._progression_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._progression_host_lay.setSpacing(0)
+        self._progression_tab_index = self._content_tabs.addTab(self._progression_host, "Progression")
 
         self._enemy_host = QWidget()
         self._enemy_host_lay = QVBoxLayout(self._enemy_host)
         self._enemy_host_lay.setContentsMargins(0, 0, 0, 0)
         self._enemy_host_lay.setSpacing(0)
         self._content_tabs.addTab(self._enemy_host, "Enemies")
+        self._content_tabs.currentChanged.connect(self._on_content_tab_changed)
 
         self._connecting_overlay = QWidget(self)
         self._connecting_overlay.setStyleSheet(f"background: {BG};")
@@ -2338,7 +2343,26 @@ class CharacterSheetView(QWidget):
         uniques: set[str],
         current_zone: tuple[str, int, int] | None,
     ) -> None:
-        self._progression_tab.update(visited, deaths, uniques, current_zone)
+        self._progression_state = (visited, deaths, uniques, current_zone)
+        if self._progression_tab is not None:
+            self._progression_tab.update(visited, deaths, uniques, current_zone)
+
+    def _on_content_tab_changed(self, index: int) -> None:
+        if index == self._progression_tab_index:
+            self._ensure_progression_tab()
+
+    def _ensure_progression_tab(self) -> Any:
+        if self._progression_tab is not None:
+            return self._progression_tab
+
+        from gui.progression_tab import ProgressionTab
+
+        panel = ProgressionTab()
+        self._progression_tab = panel
+        self._progression_host_lay.addWidget(panel)
+        if self._progression_state is not None:
+            panel.update(*self._progression_state)
+        return panel
 
     # ── Builders ─────────────────────────────────────────────────────────
 
