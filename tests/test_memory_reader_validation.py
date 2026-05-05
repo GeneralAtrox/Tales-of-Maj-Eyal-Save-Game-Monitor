@@ -75,6 +75,43 @@ class MemoryReaderValidationTests(unittest.TestCase):
         ):
             self.assertIsNone(memory_reader._validate_global_table(1, 0x10000000))
 
+    def test_looks_like_lua_global_table_requires_standard_global_keys(self) -> None:
+        found = {"_G", "_VERSION", "package", "string"}
+
+        def fake_find(_handle: int, _table: int, key: str) -> int | None:
+            return 0x22000000 if key in found else None
+
+        with (
+            patch.object(memory_reader, "_is_gctab", return_value=True),
+            patch.object(memory_reader, "_tab_find_strkey", side_effect=fake_find),
+        ):
+            self.assertTrue(memory_reader._looks_like_lua_global_table(1, 0x10000000))
+
+        found.remove("string")
+        with (
+            patch.object(memory_reader, "_is_gctab", return_value=True),
+            patch.object(memory_reader, "_tab_find_strkey", side_effect=fake_find),
+        ):
+            self.assertFalse(memory_reader._looks_like_lua_global_table(1, 0x10000000))
+
+    def test_find_global_table_can_return_global_only_warmup_candidate(self) -> None:
+        raw = bytearray(64)
+        raw[5] = memory_reader._GCT_TAB
+        raw[20:24] = (0x20000000).to_bytes(4, "little")
+        raw[28:32] = (0x7F).to_bytes(4, "little")
+
+        with (
+            patch.object(memory_reader, "_iter_regions", return_value=[(0x10000000, bytes(raw))]),
+            patch.object(memory_reader, "_tab_get_table", return_value=None),
+            patch.object(memory_reader, "_tab_find_strkey", return_value=None),
+            patch.object(memory_reader, "_looks_like_lua_global_table", return_value=True),
+        ):
+            self.assertIsNone(memory_reader._find_global_table(1))
+            self.assertEqual(
+                memory_reader._find_global_table(1, allow_global_only=True),
+                0x10000000,
+            )
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1

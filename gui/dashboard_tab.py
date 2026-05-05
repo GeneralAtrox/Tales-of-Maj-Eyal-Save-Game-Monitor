@@ -61,7 +61,7 @@ class DashboardTab(QWidget):
         self._reader = MemoryReader()
         self._attach_pending = False
         self._awaiting_preattach = True
-        self._preattach_deadline = time.monotonic() + 5.0
+        self._preattach_deadline = time.monotonic() + 12.0
         self._hp_fail_count = 0
         self._last_level_id: str | None = None
         self._game_session_ready = False

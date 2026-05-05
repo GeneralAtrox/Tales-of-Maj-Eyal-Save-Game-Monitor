@@ -112,6 +112,23 @@ _LJ_TTRUE = 0xFFFFFFFD
 _LJ_TFALSE = 0xFFFFFFFE
 _LJ_TNIL = 0xFFFFFFFF
 _NODE_SIZE = 24
+_GLOBAL_TABLE_KEYS: frozenset[str] = frozenset(
+    {
+        "_G",
+        "_VERSION",
+        "assert",
+        "coroutine",
+        "debug",
+        "io",
+        "math",
+        "os",
+        "package",
+        "string",
+        "table",
+        "tonumber",
+        "tostring",
+    }
+)
 
 _PLAYER_BASE_STAT_ORDER: tuple[str, ...] = (
     "str",
@@ -945,8 +962,13 @@ def _iter_regions(h: int):
             break
 
 
-def _find_global_table(h: int) -> int | None:
-    """Scan for a large GCtab (gct=0x0B) containing game.player."""
+def _find_global_table(h: int, *, allow_global_only: bool = False) -> int | None:
+    """Scan for Lua ``_G``.
+
+    With a loaded save, prefer the full ``_G -> game -> player`` chain.  While
+    the player is still on the main menu, allow a standard Lua global table as
+    a cache warmup target when ``allow_global_only`` is true.
+    """
     candidates: list[int] = []
     for base, data in _iter_regions(h):
         dlen = len(data)
@@ -976,6 +998,10 @@ def _find_global_table(h: int) -> int | None:
     for addr in candidates:
         if _tab_find_strkey(h, addr, "game") is not None:
             return addr
+    if allow_global_only:
+        for addr in candidates:
+            if _looks_like_lua_global_table(h, addr):
+                return addr
     return None
 
 
@@ -987,6 +1013,19 @@ def _validate_global_table(h: int, addr: int) -> int | None:
     if game_tab is None or not _validate_game_table(h, game_tab):
         return None
     return addr
+
+
+def _looks_like_lua_global_table(h: int, addr: int) -> bool:
+    """Return True for a Lua global table even before ToME loads ``game``."""
+    if not _is_gctab(h, addr):
+        return False
+    hits = 0
+    for key in _GLOBAL_TABLE_KEYS:
+        if _tab_find_strkey(h, addr, key) is not None:
+            hits += 1
+            if hits >= 4:
+                return True
+    return False
 
 
 def _validate_game_table(h: int, addr: int) -> bool:
@@ -1144,10 +1183,23 @@ class MemoryReader:
                     self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL
                     self._player_table = 0
                     return True
+                if _looks_like_lua_global_table(h, cache["global_table"]):
+                    # The Lua VM is alive, but no ToME game singleton is
+                    # loaded yet. Keep the cache for the next attach attempt
+                    # after a save is loaded, and avoid a full rescan loop.
+                    self.detach()
+                    return False
 
         gt = _find_global_table(h)
         if gt is None:
-            print("[memory] OpenProcess succeeded, but the Lua global table scan found no match.", file=sys.stderr)
+            warm_gt = _find_global_table(h, allow_global_only=True)
+            if warm_gt is not None and creation_key is not None:
+                _save_attach_cache(pid, creation_key, warm_gt)
+                if verbose:
+                    console_print("[memory] Cached Lua global table; waiting for a loaded save.")
+                self.detach()
+                return False
+            print("[memory] OpenProcess succeeded, but no loaded Lua game state was found.", file=sys.stderr)
             self.detach()
             return False
 
