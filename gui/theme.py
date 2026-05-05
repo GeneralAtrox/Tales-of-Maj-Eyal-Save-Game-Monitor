@@ -21,7 +21,7 @@ STYLESHEET = f"""
 /* ── Global ── */
 * {{
     font-family: "Segoe UI", "Inter", sans-serif;
-    font-size: 13px;
+    font-size: 10pt;
     color: {TEXT};
     selection-background-color: {BLUE};
     selection-color: {SURFACE0};
