@@ -148,6 +148,8 @@ ToME singleton fields such as `player`, `level`, `zone`, `state`,
 `MemoryReader` validates `game` when attaching or rediscovering it, then uses
 a fast cached pointer for hot polling. It revalidates periodically and forces
 rediscovery immediately if a dependent chain such as `game.player` disappears.
+`GCtab` validation also checks that each table header address is inside a
+committed, readable `VirtualQueryEx` region before reading it.
 
 ### Address Classification
 
@@ -190,6 +192,12 @@ Use the read-only validator after ToME updates:
 ```text
 C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py
 ```
+
+When ToME is running, the validator also prints live Lua roots with their
+`VirtualQueryEx` region classification. `_G`, `game`, `game.player`,
+`game.level`, and `game.level.entities` should report `OK` in committed,
+readable memory. They are still **not** rebasable; the classification only
+proves the current-session pointer is safe to read.
 
 For a pass/fail update gate against the checked-in baseline:
 

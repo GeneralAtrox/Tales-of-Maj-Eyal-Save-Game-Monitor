@@ -64,12 +64,26 @@ PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 MEM_COMMIT = 0x1000
 PAGE_NOACCESS = 0x01
+PAGE_READONLY = 0x02
+PAGE_READWRITE = 0x04
+PAGE_WRITECOPY = 0x08
+PAGE_EXECUTE_READ = 0x20
+PAGE_EXECUTE_READWRITE = 0x40
+PAGE_EXECUTE_WRITECOPY = 0x80
 PAGE_GUARD = 0x100
 
 _k32 = ctypes.windll.kernel32
 _psapi = ctypes.WinDLL("Psapi.dll")
 _ATTACH_CACHE_FILE = Path(__file__).with_name("_attach_cache.json")
 _GAME_TABLE_REVALIDATE_INTERVAL = 60
+_READABLE_PAGE_PROTECTIONS = (
+    PAGE_READONLY
+    | PAGE_READWRITE
+    | PAGE_WRITECOPY
+    | PAGE_EXECUTE_READ
+    | PAGE_EXECUTE_READWRITE
+    | PAGE_EXECUTE_WRITECOPY
+)
 
 
 class _MBI(ctypes.Structure):
@@ -221,9 +235,35 @@ def _is_heap(v: int) -> bool:
     return 0x00400000 <= v < 0xFFFF0000
 
 
+def _is_committed_readable_address(h: int, addr: int, size: int = 1) -> bool:
+    if size <= 0 or not _is_heap(addr):
+        return False
+    end = addr + size
+    if end < addr or end > 0xFFFFFFFF:
+        return False
+
+    mbi = _MBI()
+    ret = _k32.VirtualQueryEx(h, ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi))
+    if not ret:
+        return False
+
+    base = int(mbi.BaseAddress or 0)
+    region_end = base + int(mbi.RegionSize)
+    protect = int(mbi.Protect)
+    access = protect & 0xFF
+    return (
+        int(mbi.State) == MEM_COMMIT
+        and not (protect & PAGE_GUARD)
+        and access != PAGE_NOACCESS
+        and bool(access & _READABLE_PAGE_PROTECTIONS)
+        and base <= addr
+        and end <= region_end
+    )
+
+
 def _is_gctab(h: int, tab_ptr: int) -> bool:
     """Return True when ``tab_ptr`` still looks like a LuaJIT GCtab."""
-    if not tab_ptr or not _is_heap(tab_ptr):
+    if not tab_ptr or not _is_committed_readable_address(h, tab_ptr, 32):
         return False
     raw = _rpm(h, tab_ptr, 32)
     if not raw or raw[5] != _GCT_TAB:
@@ -233,9 +273,9 @@ def _is_gctab(h: int, tab_ptr: int) -> bool:
     hmask = struct.unpack_from("<I", raw, 28)[0]
     if hmask > 0xFFFF:
         return False
-    if array_ptr and not _is_heap(array_ptr):
+    if array_ptr and not _is_committed_readable_address(h, array_ptr, 8):
         return False
-    if node_ptr and not _is_heap(node_ptr):
+    if node_ptr and not _is_committed_readable_address(h, node_ptr, _NODE_SIZE):
         return False
     return True
 

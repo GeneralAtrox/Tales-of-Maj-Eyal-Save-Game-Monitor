@@ -51,6 +51,60 @@ class MemoryRebaseValidatorTests(unittest.TestCase):
         self.assertEqual(rebase._file_offset_to_rva(pe, 0x210), (0x1010, ".text"))
         self.assertIsNone(rebase._file_offset_to_rva(pe, 0x50))
 
+    def test_classify_address_reports_safe_private_readwrite_region(self) -> None:
+        row = rebase._classify_address(
+            0x20000020,
+            rebase.MemoryRegion(
+                base=0x20000000,
+                size=0x1000,
+                state=rebase.MEM_COMMIT,
+                protect=rebase.PAGE_READWRITE,
+                type=rebase.MEM_PRIVATE,
+            ),
+            size=32,
+            reusable_as="resolve from _G.game",
+            rebasable=False,
+        )
+
+        self.assertTrue(row["safe_to_read"])
+        self.assertTrue(row["readable"])
+        self.assertTrue(row["writable"])
+        self.assertFalse(row["executable"])
+        self.assertFalse(row["rebasable"])
+        self.assertEqual(row["type_label"], "MEM_PRIVATE")
+        self.assertEqual(row["protect_label"], "PAGE_READWRITE")
+
+    def test_classify_address_rejects_guarded_or_out_of_range_region(self) -> None:
+        guarded = rebase._classify_address(
+            0x20000020,
+            rebase.MemoryRegion(
+                base=0x20000000,
+                size=0x1000,
+                state=rebase.MEM_COMMIT,
+                protect=rebase.PAGE_READWRITE | rebase.PAGE_GUARD,
+                type=rebase.MEM_PRIVATE,
+            ),
+            size=32,
+            reusable_as="current process only",
+            rebasable=False,
+        )
+        out_of_range = rebase._classify_address(
+            0x20000FF0,
+            rebase.MemoryRegion(
+                base=0x20000000,
+                size=0x1000,
+                state=rebase.MEM_COMMIT,
+                protect=rebase.PAGE_READWRITE,
+                type=rebase.MEM_PRIVATE,
+            ),
+            size=32,
+            reusable_as="current process only",
+            rebasable=False,
+        )
+
+        self.assertFalse(guarded["safe_to_read"])
+        self.assertFalse(out_of_range["safe_to_read"])
+
     def test_compare_baseline_reports_executable_and_rva_changes(self) -> None:
         baseline = {
             "executable": {

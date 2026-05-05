@@ -38,6 +38,39 @@ DEFAULT_EXE_PATHS: tuple[Path, ...] = (
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 PROCESS_VM_READ = 0x0010
+MEM_COMMIT = 0x1000
+MEM_IMAGE = 0x1000000
+MEM_MAPPED = 0x40000
+MEM_PRIVATE = 0x20000
+PAGE_NOACCESS = 0x01
+PAGE_READONLY = 0x02
+PAGE_READWRITE = 0x04
+PAGE_WRITECOPY = 0x08
+PAGE_EXECUTE = 0x10
+PAGE_EXECUTE_READ = 0x20
+PAGE_EXECUTE_READWRITE = 0x40
+PAGE_EXECUTE_WRITECOPY = 0x80
+PAGE_GUARD = 0x100
+_READABLE_PAGE_PROTECTIONS = {
+    PAGE_READONLY,
+    PAGE_READWRITE,
+    PAGE_WRITECOPY,
+    PAGE_EXECUTE_READ,
+    PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY,
+}
+_WRITABLE_PAGE_PROTECTIONS = {
+    PAGE_READWRITE,
+    PAGE_WRITECOPY,
+    PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY,
+}
+_EXECUTABLE_PAGE_PROTECTIONS = {
+    PAGE_EXECUTE,
+    PAGE_EXECUTE_READ,
+    PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY,
+}
 
 LUAJIT_LAYOUT: dict[str, object] = {
     "runtime": "LuaJIT 2.0.2",
@@ -90,6 +123,15 @@ class PeImage:
     image_base: int
     size_of_image: int
     sections: tuple[Section, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryRegion:
+    base: int
+    size: int
+    state: int
+    protect: int
+    type: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,6 +344,112 @@ def _module_base(pid: int, image_path: Path) -> tuple[int, int] | None:
     return None
 
 
+class _MBI(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.wintypes.DWORD),
+        ("Protect", ctypes.wintypes.DWORD),
+        ("Type", ctypes.wintypes.DWORD),
+    ]
+
+
+def _state_label(state: int) -> str:
+    return "MEM_COMMIT" if state == MEM_COMMIT else f"0x{state:X}"
+
+
+def _type_label(memory_type: int) -> str:
+    labels = {
+        MEM_IMAGE: "MEM_IMAGE",
+        MEM_MAPPED: "MEM_MAPPED",
+        MEM_PRIVATE: "MEM_PRIVATE",
+    }
+    return labels.get(memory_type, f"0x{memory_type:X}")
+
+
+def _protect_label(protect: int) -> str:
+    access = protect & 0xFF
+    labels = {
+        PAGE_NOACCESS: "PAGE_NOACCESS",
+        PAGE_READONLY: "PAGE_READONLY",
+        PAGE_READWRITE: "PAGE_READWRITE",
+        PAGE_WRITECOPY: "PAGE_WRITECOPY",
+        PAGE_EXECUTE: "PAGE_EXECUTE",
+        PAGE_EXECUTE_READ: "PAGE_EXECUTE_READ",
+        PAGE_EXECUTE_READWRITE: "PAGE_EXECUTE_READWRITE",
+        PAGE_EXECUTE_WRITECOPY: "PAGE_EXECUTE_WRITECOPY",
+    }
+    parts = [labels.get(access, f"0x{access:X}")]
+    if protect & PAGE_GUARD:
+        parts.append("PAGE_GUARD")
+    return "|".join(parts)
+
+
+def _query_memory_region(process: int, addr: int) -> MemoryRegion | None:
+    mbi = _MBI()
+    ret = ctypes.windll.kernel32.VirtualQueryEx(
+        process,
+        ctypes.c_void_p(addr),
+        ctypes.byref(mbi),
+        ctypes.sizeof(mbi),
+    )
+    if not ret:
+        return None
+    return MemoryRegion(
+        base=int(mbi.BaseAddress or 0),
+        size=int(mbi.RegionSize),
+        state=int(mbi.State),
+        protect=int(mbi.Protect),
+        type=int(mbi.Type),
+    )
+
+
+def _classify_address(
+    addr: int,
+    region: MemoryRegion | None,
+    *,
+    size: int = 1,
+    reusable_as: str,
+    rebasable: bool,
+) -> dict[str, object]:
+    if not addr or region is None:
+        return {
+            "address": addr,
+            "safe_to_read": False,
+            "reusable_as": reusable_as,
+            "rebasable": rebasable,
+        }
+
+    access = region.protect & 0xFF
+    readable = (
+        region.state == MEM_COMMIT
+        and not (region.protect & PAGE_GUARD)
+        and access in _READABLE_PAGE_PROTECTIONS
+    )
+    writable = readable and access in _WRITABLE_PAGE_PROTECTIONS
+    executable = access in _EXECUTABLE_PAGE_PROTECTIONS
+    safe_to_read = readable and region.base <= addr and addr + size <= region.base + region.size
+    return {
+        "address": addr,
+        "region_base": region.base,
+        "region_size": region.size,
+        "state": region.state,
+        "state_label": _state_label(region.state),
+        "protect": region.protect,
+        "protect_label": _protect_label(region.protect),
+        "type": region.type,
+        "type_label": _type_label(region.type),
+        "readable": readable,
+        "writable": writable,
+        "executable": executable,
+        "safe_to_read": safe_to_read,
+        "reusable_as": reusable_as,
+        "rebasable": rebasable,
+    }
+
+
 def _read_process_bytes(pid: int, addr: int, size: int) -> bytes | None:
     k32 = ctypes.windll.kernel32
     process = k32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
@@ -478,12 +626,31 @@ def _print_live_lua_roots() -> None:
         level_id = _tab_get_string(h, level_tab, "id") if level_tab else None
 
         print("\nLive Lua roots (current-session only, not rebasable):")
-        print(f"  _G                 0x{reader._global_table:08X}  rediscover by GCtab scan")
-        print(f"  game               0x{game_tab:08X}  resolve from _G.game")
-        print(f"  game.player        0x{player_tab:08X}  resolve from game.player")
-        print(f"  game.level         0x{(level_tab or 0):08X}  resolve from game.level")
+        roots = (
+            ("_G", reader._global_table, "rediscover by GCtab scan"),
+            ("game", game_tab, "resolve from _G.game"),
+            ("game.player", player_tab, "resolve from game.player"),
+            ("game.level", level_tab or 0, "resolve from game.level"),
+            ("game.level.entities", entities_tab or 0, "resolve from game.level.entities"),
+        )
+        for name, addr, reusable_as in roots:
+            row = _classify_address(
+                addr,
+                _query_memory_region(h, addr) if addr else None,
+                size=32,
+                reusable_as=reusable_as,
+                rebasable=False,
+            )
+            status = "OK" if row["safe_to_read"] else "CHECK"
+            if row.get("region_base") is None:
+                print(f"  {name:<19} 0x{addr:08X}  {status:<5} no readable region  {reusable_as}")
+                continue
+            print(
+                f"  {name:<19} 0x{addr:08X}  {status:<5} "
+                f"{row['type_label']}/{row['protect_label']} "
+                f"base=0x{int(row['region_base']):08X}  {reusable_as}"
+            )
         print(f"  game.level.id      {level_id!r}")
-        print(f"  game.level.entities 0x{(entities_tab or 0):08X}  resolve from game.level.entities")
     finally:
         reader.detach()
 

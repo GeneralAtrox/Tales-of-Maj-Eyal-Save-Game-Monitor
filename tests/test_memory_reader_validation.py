@@ -7,13 +7,28 @@ from gui import memory_reader
 
 
 class MemoryReaderValidationTests(unittest.TestCase):
+    def test_is_gctab_rejects_uncommitted_or_unreadable_region(self) -> None:
+        with (
+            patch.object(memory_reader, "_is_committed_readable_address", return_value=False),
+            patch.object(memory_reader, "_rpm") as rpm,
+        ):
+            self.assertFalse(memory_reader._is_gctab(1, 0x10000000))
+
+        rpm.assert_not_called()
+
     def test_is_gctab_rejects_unreadable_or_wrong_type_memory(self) -> None:
-        with patch.object(memory_reader, "_rpm", return_value=None):
+        with (
+            patch.object(memory_reader, "_is_committed_readable_address", return_value=True),
+            patch.object(memory_reader, "_rpm", return_value=None),
+        ):
             self.assertFalse(memory_reader._is_gctab(1, 0x10000000))
 
         wrong_type = bytearray(32)
         wrong_type[5] = 0x04  # GCstr, not GCtab
-        with patch.object(memory_reader, "_rpm", return_value=bytes(wrong_type)):
+        with (
+            patch.object(memory_reader, "_is_committed_readable_address", return_value=True),
+            patch.object(memory_reader, "_rpm", return_value=bytes(wrong_type)),
+        ):
             self.assertFalse(memory_reader._is_gctab(1, 0x10000000))
 
     def test_is_gctab_accepts_valid_table_header(self) -> None:
@@ -23,7 +38,10 @@ class MemoryReaderValidationTests(unittest.TestCase):
         raw[20:24] = (0x21000000).to_bytes(4, "little")
         raw[28:32] = (0x7F).to_bytes(4, "little")
 
-        with patch.object(memory_reader, "_rpm", return_value=bytes(raw)):
+        with (
+            patch.object(memory_reader, "_is_committed_readable_address", return_value=True),
+            patch.object(memory_reader, "_rpm", return_value=bytes(raw)),
+        ):
             self.assertTrue(memory_reader._is_gctab(1, 0x10000000))
 
     def test_validate_game_table_requires_plausible_singleton_key(self) -> None:
