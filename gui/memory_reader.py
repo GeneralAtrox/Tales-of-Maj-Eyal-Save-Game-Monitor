@@ -63,6 +63,7 @@ PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 MEM_COMMIT = 0x1000
+MEM_PRIVATE = 0x20000
 PAGE_NOACCESS = 0x01
 PAGE_READONLY = 0x02
 PAGE_READWRITE = 0x04
@@ -81,6 +82,12 @@ _READABLE_PAGE_PROTECTIONS = (
     | PAGE_READWRITE
     | PAGE_WRITECOPY
     | PAGE_EXECUTE_READ
+    | PAGE_EXECUTE_READWRITE
+    | PAGE_EXECUTE_WRITECOPY
+)
+_WRITABLE_PAGE_PROTECTIONS = (
+    PAGE_READWRITE
+    | PAGE_WRITECOPY
     | PAGE_EXECUTE_READWRITE
     | PAGE_EXECUTE_WRITECOPY
 )
@@ -105,6 +112,7 @@ class _MBI(ctypes.Structure):
 #                         number: itype < 0xFFFFFFF2
 
 _GCT_TAB = 0x0B
+_GCT_TAB_BYTE = bytes((_GCT_TAB,))
 _LJ_TSTR = 0xFFFFFFFB
 _LJ_TTAB = 0xFFFFFFF4
 _LJ_TNUMX = 0xFFFFFFF2
@@ -938,7 +946,7 @@ def _save_attach_cache(pid: int, creation_key: int, global_table: int) -> None:
         pass
 
 
-def _iter_regions(h: int):
+def _iter_regions(h: int, *, private_writable_only: bool = False):
     addr = 0
     mbi = _MBI()
     while True:
@@ -947,12 +955,16 @@ def _iter_regions(h: int):
             break
         base = mbi.BaseAddress or 0
         size = mbi.RegionSize
+        access = int(mbi.Protect) & 0xFF
         ok = (
             mbi.State == MEM_COMMIT
             and not (mbi.Protect & PAGE_NOACCESS)
             and not (mbi.Protect & PAGE_GUARD)
+            and access & _READABLE_PAGE_PROTECTIONS
             and size > 0
         )
+        if private_writable_only:
+            ok = ok and mbi.Type == MEM_PRIVATE and bool(access & _WRITABLE_PAGE_PROTECTIONS)
         if ok:
             data = _rpm(h, base, size)
             if data:
@@ -960,6 +972,20 @@ def _iter_regions(h: int):
         addr = base + size
         if addr >= 0xFFFFFFFF:
             break
+
+
+def _iter_gctab_candidate_addresses(base: int, data: bytes):
+    """Yield plausible GCtab addresses from a copied memory region."""
+    dlen = len(data)
+    pos = data.find(_GCT_TAB_BYTE, 5)
+    while 0 <= pos < dlen:
+        off = pos - 5
+        if off >= 0 and off % 4 == 0 and off + 32 <= dlen:
+            node_ptr = struct.unpack_from("<I", data, off + 20)[0]
+            hmask = struct.unpack_from("<I", data, off + 28)[0]
+            if 63 <= hmask <= 0xFFFF and _is_heap(node_ptr):
+                yield base + off
+        pos = data.find(_GCT_TAB_BYTE, pos + 1)
 
 
 def _find_global_table(h: int, *, allow_global_only: bool = False) -> int | None:
@@ -970,20 +996,8 @@ def _find_global_table(h: int, *, allow_global_only: bool = False) -> int | None
     a cache warmup target when ``allow_global_only`` is true.
     """
     candidates: list[int] = []
-    for base, data in _iter_regions(h):
-        dlen = len(data)
-        for off in range(0, dlen - 32, 4):
-            if data[off + 5] != _GCT_TAB:
-                continue
-            if off + 32 > dlen:
-                continue
-            node_ptr = struct.unpack_from("<I", data, off + 20)[0]
-            hmask = struct.unpack_from("<I", data, off + 28)[0]
-            if hmask < 63 or hmask > 0xFFFF:
-                continue
-            if not _is_heap(node_ptr):
-                continue
-            candidates.append(base + off)
+    for base, data in _iter_regions(h, private_writable_only=True):
+        candidates.extend(_iter_gctab_candidate_addresses(base, data))
 
     # Check candidates for the full game → player chain
     for addr in candidates:

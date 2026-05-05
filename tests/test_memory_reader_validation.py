@@ -112,6 +112,18 @@ class MemoryReaderValidationTests(unittest.TestCase):
                 0x10000000,
             )
 
+    def test_iter_gctab_candidate_addresses_requires_alignment_and_shape(self) -> None:
+        raw = bytearray(96)
+        raw[6] = memory_reader._GCT_TAB  # unaligned table header candidate at off=1
+        raw[37] = memory_reader._GCT_TAB  # aligned table header candidate at off=32
+        raw[52:56] = (0x20000000).to_bytes(4, "little")
+        raw[60:64] = (0x7F).to_bytes(4, "little")
+
+        self.assertEqual(
+            list(memory_reader._iter_gctab_candidate_addresses(0x10000000, bytes(raw))),
+            [0x10000020],
+        )
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1
