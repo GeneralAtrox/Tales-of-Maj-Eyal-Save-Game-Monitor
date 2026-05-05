@@ -11,12 +11,6 @@ import pyuac
 import win32con
 import win32gui
 import win32process
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
-
-from gui.main_window import MainWindow
-from gui.theme import STYLESHEET
 
 _k32 = ctypes.windll.kernel32
 
@@ -131,11 +125,19 @@ def main(*, startup_started_at: float | None = None) -> None:
 
     start_background_preattach()
 
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QFont, QIcon
+    from PySide6.QtWidgets import QApplication
+
+    from gui.main_window import MainWindow
+    from gui.theme import STYLESHEET
+
     # High-DPI scaling (Qt 6 default) — kept explicit for clarity
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
 
     app = QApplication(sys.argv)
     app.setApplicationName("ToME - Scrying Mirror")
+    app.setFont(QFont("Segoe UI", 10))
     app.setWindowIcon(QIcon(str(Path(__file__).parent.parent / "Icons" / "app" / "scrying_mirror.png")))
     app.setStyleSheet(STYLESHEET)
     _request_existing_shutdown("ToME - Scrying Mirror")

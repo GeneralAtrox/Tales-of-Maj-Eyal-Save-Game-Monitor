@@ -356,12 +356,17 @@ class DashboardTab(QWidget):
             return
         self._game_session_ready = True
         self._sheet_visual.set_game_connected(True)
+        self.game_connected.emit()
+        QTimer.singleShot(0, self._refresh_after_attach)
+
+    def _refresh_after_attach(self) -> None:
+        if self._shutting_down or not self._reader.attached:
+            return
         self.refresh_current()
         self._poll_progression()
         self._poll_talents()
         self._poll_inventory()
         self._poll_prodigies()
-        self.game_connected.emit()
 
     def _poll_hp(self) -> None:
         if self._shutting_down:
