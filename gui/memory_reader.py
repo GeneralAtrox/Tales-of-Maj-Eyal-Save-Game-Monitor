@@ -1101,7 +1101,7 @@ class MemoryReader:
     def attached(self) -> bool:
         return self._handle != 0 and self._global_table != 0
 
-    def attach(self) -> bool:
+    def attach(self, *, verbose: bool = True) -> bool:
         """Find t-engine.exe and locate _G. Returns True on success."""
         self.detach()
 
@@ -1137,7 +1137,8 @@ class MemoryReader:
             cache = _load_attach_cache()
             if cache and cache["pid"] == pid and cache["creation_key"] == creation_key:
                 if cached_gt := _validate_global_table(h, cache["global_table"]):
-                    console_print("[memory] Reused cached Lua global table address.")
+                    if verbose:
+                        console_print("[memory] Reused cached Lua global table address.")
                     self._global_table = cached_gt
                     self._game_table = _tab_get_table(h, cached_gt, "game") or 0
                     self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL

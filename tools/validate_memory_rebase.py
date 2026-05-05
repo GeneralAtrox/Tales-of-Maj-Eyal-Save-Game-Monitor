@@ -413,6 +413,7 @@ def _classify_address(
     size: int = 1,
     reusable_as: str,
     rebasable: bool,
+    gctab_ok: bool | None = None,
 ) -> dict[str, object]:
     if not addr or region is None:
         return {
@@ -420,6 +421,7 @@ def _classify_address(
             "safe_to_read": False,
             "reusable_as": reusable_as,
             "rebasable": rebasable,
+            "gctab_ok": gctab_ok,
         }
 
     access = region.protect & 0xFF
@@ -447,6 +449,7 @@ def _classify_address(
         "safe_to_read": safe_to_read,
         "reusable_as": reusable_as,
         "rebasable": rebasable,
+        "gctab_ok": gctab_ok,
     }
 
 
@@ -608,13 +611,13 @@ def _write_baseline(path: Path, report: dict[str, object]) -> None:
 
 def _print_live_lua_roots() -> None:
     try:
-        from gui.memory_reader import MemoryReader, _tab_get_table, _tab_get_string
+        from gui.memory_reader import MemoryReader, _is_gctab, _tab_get_table, _tab_get_string
     except Exception as exc:  # noqa: BLE001
         print(f"\nLive Lua roots: unavailable ({exc})")
         return
 
     reader = MemoryReader()
-    if not reader.attach():
+    if not reader.attach(verbose=False):
         print("\nLive Lua roots: t-engine.exe not attached or no loaded Lua game state.")
         return
     try:
@@ -640,14 +643,16 @@ def _print_live_lua_roots() -> None:
                 size=32,
                 reusable_as=reusable_as,
                 rebasable=False,
+                gctab_ok=_is_gctab(h, addr) if addr else False,
             )
-            status = "OK" if row["safe_to_read"] else "CHECK"
+            status = "OK" if row["safe_to_read"] and row["gctab_ok"] else "CHECK"
             if row.get("region_base") is None:
                 print(f"  {name:<19} 0x{addr:08X}  {status:<5} no readable region  {reusable_as}")
                 continue
+            table_status = "GCtab" if row["gctab_ok"] else "not-GCtab"
             print(
                 f"  {name:<19} 0x{addr:08X}  {status:<5} "
-                f"{row['type_label']}/{row['protect_label']} "
+                f"{table_status} {row['type_label']}/{row['protect_label']} "
                 f"base=0x{int(row['region_base']):08X}  {reusable_as}"
             )
         print(f"  game.level.id      {level_id!r}")

@@ -64,9 +64,11 @@ class MemoryRebaseValidatorTests(unittest.TestCase):
             size=32,
             reusable_as="resolve from _G.game",
             rebasable=False,
+            gctab_ok=True,
         )
 
         self.assertTrue(row["safe_to_read"])
+        self.assertTrue(row["gctab_ok"])
         self.assertTrue(row["readable"])
         self.assertTrue(row["writable"])
         self.assertFalse(row["executable"])
@@ -87,6 +89,7 @@ class MemoryRebaseValidatorTests(unittest.TestCase):
             size=32,
             reusable_as="current process only",
             rebasable=False,
+            gctab_ok=True,
         )
         out_of_range = rebase._classify_address(
             0x20000FF0,
@@ -100,10 +103,12 @@ class MemoryRebaseValidatorTests(unittest.TestCase):
             size=32,
             reusable_as="current process only",
             rebasable=False,
+            gctab_ok=False,
         )
 
         self.assertFalse(guarded["safe_to_read"])
         self.assertFalse(out_of_range["safe_to_read"])
+        self.assertFalse(out_of_range["gctab_ok"])
 
     def test_compare_baseline_reports_executable_and_rva_changes(self) -> None:
         baseline = {

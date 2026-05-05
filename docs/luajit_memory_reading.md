@@ -196,8 +196,9 @@ C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py
 When ToME is running, the validator also prints live Lua roots with their
 `VirtualQueryEx` region classification. `_G`, `game`, `game.player`,
 `game.level`, and `game.level.entities` should report `OK` in committed,
-readable memory. They are still **not** rebasable; the classification only
-proves the current-session pointer is safe to read.
+readable memory and should also be confirmed as `GCtab`. They are still
+**not** rebasable; the classification only proves the current-session pointer
+is safe to read.
 
 For a pass/fail update gate against the checked-in baseline:
 
