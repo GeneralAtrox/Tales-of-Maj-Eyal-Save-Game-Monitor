@@ -69,6 +69,7 @@ PAGE_GUARD = 0x100
 _k32 = ctypes.windll.kernel32
 _psapi = ctypes.WinDLL("Psapi.dll")
 _ATTACH_CACHE_FILE = Path(__file__).with_name("_attach_cache.json")
+_GAME_TABLE_REVALIDATE_INTERVAL = 60
 
 
 class _MBI(ctypes.Structure):
@@ -1053,6 +1054,7 @@ class MemoryReader:
         self._pid: int = 0
         self._global_table: int = 0  # _G GCtab address
         self._game_table: int = 0  # _G.game GCtab address (cached singleton)
+        self._game_table_reads_until_validate: int = 0
         self._player_table: int = 0  # game.player GCtab address (cached)
 
     @property
@@ -1098,6 +1100,7 @@ class MemoryReader:
                     console_print("[memory] Reused cached Lua global table address.")
                     self._global_table = cached_gt
                     self._game_table = _tab_get_table(h, cached_gt, "game") or 0
+                    self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL
                     self._player_table = 0
                     return True
 
@@ -1109,6 +1112,7 @@ class MemoryReader:
 
         self._global_table = gt
         self._game_table = _tab_get_table(h, gt, "game") or 0
+        self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL
         self._player_table = 0  # will be resolved on first read
         if creation_key is not None:
             _save_attach_cache(pid, creation_key, gt)
@@ -1121,6 +1125,7 @@ class MemoryReader:
         self._pid = 0
         self._global_table = 0
         self._game_table = 0
+        self._game_table_reads_until_validate = 0
         self._player_table = 0
 
     def is_process_alive(self) -> bool:
@@ -1144,28 +1149,41 @@ class MemoryReader:
 
         player_tab = _tab_get_table(h, game_tab, "player")
         if player_tab is None:
-            self._player_table = 0
-            return None
+            game_tab = self._ensure_game_table(force_validate=True)
+            player_tab = _tab_get_table(h, game_tab, "player") if game_tab is not None else None
+            if player_tab is None:
+                self._player_table = 0
+                return None
 
         self._player_table = player_tab
         return player_tab
 
-    def _ensure_game_table(self) -> int | None:
+    def _ensure_game_table(self, *, force_validate: bool = False) -> int | None:
         """Return the cached ToME ``game`` singleton, refreshing it when stale."""
         if not self.attached:
             return None
 
         if self._game_table:
-            return self._game_table
+            if not force_validate and self._game_table_reads_until_validate > 0:
+                self._game_table_reads_until_validate -= 1
+                return self._game_table
+            if _validate_game_table(self._handle, self._game_table):
+                self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL
+                return self._game_table
+            self._game_table = 0
+            self._game_table_reads_until_validate = 0
+            self._player_table = 0
 
         h = self._handle
         game_tab = _tab_get_table(h, self._global_table, "game")
         if game_tab is None or not _validate_game_table(h, game_tab):
             self._game_table = 0
+            self._game_table_reads_until_validate = 0
             self._player_table = 0
             return None
 
         self._game_table = game_tab
+        self._game_table_reads_until_validate = _GAME_TABLE_REVALIDATE_INTERVAL
         return game_tab
 
     def _read_player_stat_identifier(self, h: int, player_tab: int) -> str | None:

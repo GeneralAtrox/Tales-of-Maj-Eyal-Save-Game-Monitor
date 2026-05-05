@@ -145,6 +145,10 @@ after validating that it still looks like a `GCtab` and still exposes expected
 ToME singleton fields such as `player`, `level`, `zone`, `state`,
 `visited_zones`, `party`, or `turn`.
 
+`MemoryReader` validates `game` when attaching or rediscovering it, then uses
+a fast cached pointer for hot polling. It revalidates periodically and forces
+rediscovery immediately if a dependent chain such as `game.player` disappears.
+
 ### Address Classification
 
 The following live values were validated on 2026-05-05 against

@@ -57,6 +57,57 @@ class MemoryReaderValidationTests(unittest.TestCase):
         ):
             self.assertIsNone(memory_reader._validate_global_table(1, 0x10000000))
 
+    def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
+        reader = memory_reader.MemoryReader()
+        reader._handle = 1
+        reader._global_table = 0x10000000
+        reader._game_table = 0x20000000
+        reader._game_table_reads_until_validate = 2
+
+        with patch.object(memory_reader, "_validate_game_table") as validate:
+            self.assertEqual(reader._ensure_game_table(), 0x20000000)
+            self.assertEqual(reader._ensure_game_table(), 0x20000000)
+
+        validate.assert_not_called()
+        self.assertEqual(reader._game_table_reads_until_validate, 0)
+
+    def test_ensure_game_table_revalidates_when_interval_expires(self) -> None:
+        reader = memory_reader.MemoryReader()
+        reader._handle = 1
+        reader._global_table = 0x10000000
+        reader._game_table = 0x20000000
+        reader._game_table_reads_until_validate = 0
+
+        with patch.object(memory_reader, "_validate_game_table", return_value=True) as validate:
+            self.assertEqual(reader._ensure_game_table(), 0x20000000)
+
+        validate.assert_called_once_with(1, 0x20000000)
+        self.assertEqual(
+            reader._game_table_reads_until_validate,
+            memory_reader._GAME_TABLE_REVALIDATE_INTERVAL,
+        )
+
+    def test_ensure_game_table_rediscover_after_stale_cached_table(self) -> None:
+        reader = memory_reader.MemoryReader()
+        reader._handle = 1
+        reader._global_table = 0x10000000
+        reader._game_table = 0x20000000
+        reader._player_table = 0x30000000
+        reader._game_table_reads_until_validate = 0
+
+        with (
+            patch.object(memory_reader, "_validate_game_table", side_effect=[False, True]),
+            patch.object(memory_reader, "_tab_get_table", return_value=0x21000000),
+        ):
+            self.assertEqual(reader._ensure_game_table(), 0x21000000)
+
+        self.assertEqual(reader._game_table, 0x21000000)
+        self.assertEqual(reader._player_table, 0)
+        self.assertEqual(
+            reader._game_table_reads_until_validate,
+            memory_reader._GAME_TABLE_REVALIDATE_INTERVAL,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
