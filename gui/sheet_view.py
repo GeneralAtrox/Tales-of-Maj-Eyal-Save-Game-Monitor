@@ -5,13 +5,15 @@ from collections import deque
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import QSize, QSignalBlocker, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QScrollArea,
     QSizePolicy,
     QSplitter,
@@ -1313,6 +1315,25 @@ def _item_icon_pixmap(item: dict[str, Any], size: int) -> QPixmap:
     return _placeholder(size, fallback_letter)
 
 
+def _item_list_icon_pixmap(item: dict[str, Any], size: int) -> QPixmap:
+    icon_hint = _item_icon_hint(item)
+    if icon_hint:
+        local_path = _ROOT / "Icons" / icon_hint
+        if local_path.exists():
+            return _load_pixmap(local_path, size)
+
+    for candidate in _item_name_candidates(item):
+        override = _ITEM_ARTIFACT_ICON_OVERRIDES.get(_clean_item_name_text(candidate).lower())
+        if not override:
+            continue
+        local_path = _ROOT / "Icons" / override
+        if local_path.exists():
+            return _load_pixmap(local_path, size)
+
+    fallback_letter = _display_item_name(item)[:1] or str(item.get("Type") or "?")[:1] or "?"
+    return _placeholder(size, fallback_letter)
+
+
 def _item_preview_text(item: dict[str, Any]) -> str:
     summary = _item_summary_fields(item)
     if summary:
@@ -1597,7 +1618,7 @@ class _ItemListPanel(QWidget):
         super().__init__(parent)
         self._title = title
         self._items: list[dict[str, Any]] = []
-        self._cards: list[tuple[_ItemCard, tuple[Any, ...]]] = []
+        self._rows: list[tuple[dict[str, Any], tuple[Any, ...]]] = []
         self._last_items: list[Any] = []
         self._last_show_slot = False
 
@@ -1609,17 +1630,20 @@ class _ItemListPanel(QWidget):
         self._title_lbl.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {SUBTEXT0}; letter-spacing: 1px;")
         root.addWidget(self._title_lbl)
 
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}QWidget {{ background: {BG}; }}")
-        self._body = QWidget()
-        self._body_lay = QVBoxLayout(self._body)
-        self._body_lay.setContentsMargins(0, 0, 0, 8)
-        self._body_lay.setSpacing(6)
-        self._body_lay.addStretch()
-        self._scroll.setWidget(self._body)
-        root.addWidget(self._scroll, 1)
+        self._list = QListWidget()
+        self._list.setUniformItemSizes(True)
+        self._list.setIconSize(QSize(_ICON_ITEM_CARD, _ICON_ITEM_CARD))
+        self._list.setSpacing(4)
+        self._list.setWordWrap(True)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setStyleSheet(
+            f"QListWidget {{ background: {BG}; border: none; outline: none; }}"
+            f"QListWidget::item {{ background: {SURFACE0}; border: 1px solid {BORDER};"
+            f" border-radius: 4px; padding: 6px; color: {TEXT}; }}"
+            f"QListWidget::item:selected {{ background: {SURFACE1}; border-color: {TEAL}; }}"
+        )
+        self._list.currentItemChanged.connect(self._handle_current_item_changed)
+        root.addWidget(self._list, 1)
 
     @property
     def title(self) -> str:
@@ -1631,38 +1655,50 @@ class _ItemListPanel(QWidget):
             if normalized := _normalize_item_record(raw_item):
                 normalized_items.append(normalized)
 
-        if normalized_items == self._items and show_slot == self._last_show_slot:
+        sort_key = _slot_sort_key if show_slot else _inventory_sort_key
+        sorted_items = sorted(normalized_items, key=sort_key)
+        if sorted_items == self._items and show_slot == self._last_show_slot:
             return list(self._items)
 
         self._last_items = list(items)
         self._last_show_slot = show_slot
-        self._items = list(normalized_items)
+        self._items = sorted_items
         self._title_lbl.setText(f"{self._title}  ·  {len(self._items)}")
 
-        while self._body_lay.count() > 1:
-            item = self._body_lay.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self._cards = []
+        with QSignalBlocker(self._list):
+            self._list.clear()
+            self._rows = []
 
-        if not self._items:
-            empty = QLabel("No items")
-            empty.setStyleSheet(f"font-size: 12px; color: {SUBTEXT0}; padding: 8px 4px;")
-            self._body_lay.insertWidget(0, empty)
-            return []
+            if not self._items:
+                empty = QListWidgetItem("No items")
+                empty.setForeground(QColor(SUBTEXT0))
+                empty.setFlags(empty.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                self._list.addItem(empty)
+                return []
 
-        sort_key = _slot_sort_key if show_slot else _inventory_sort_key
-        for item_data in sorted(self._items, key=sort_key):
-            card = _ItemCard(item_data, show_slot=show_slot)
-            card.clicked.connect(self._handle_card_clicked)
-            key = _inventory_item_key(item_data)
-            self._cards.append((card, key))
-            self._body_lay.insertWidget(self._body_lay.count() - 1, card)
+            for item_data in self._items:
+                key = _inventory_item_key(item_data)
+                row_index = len(self._rows)
+                list_item = QListWidgetItem(
+                    QIcon(_item_list_icon_pixmap(item_data, _ICON_ITEM_CARD)),
+                    self._item_text(item_data, show_slot),
+                )
+                list_item.setForeground(QColor(_item_rank_color(item_data)))
+                list_item.setSizeHint(QSize(0, 64))
+                list_item.setData(Qt.ItemDataRole.UserRole, row_index)
+                self._rows.append((item_data, key))
+                self._list.addItem(list_item)
         return list(self._items)
 
     def set_selected_key(self, key: tuple[Any, ...] | None) -> None:
-        for card, card_key in self._cards:
-            card.set_selected(key is not None and card_key == key)
+        target_row = -1
+        if key is not None:
+            for row, (_item, item_key) in enumerate(self._rows):
+                if item_key == key:
+                    target_row = row
+                    break
+        with QSignalBlocker(self._list):
+            self._list.setCurrentRow(target_row)
 
     def find_item(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         for item in self._items:
@@ -1672,6 +1708,36 @@ class _ItemListPanel(QWidget):
 
     def first_item(self) -> dict[str, Any] | None:
         return self._items[0] if self._items else None
+
+    def _handle_current_item_changed(self, item: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
+        if item is None:
+            return
+        row = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(row, int) or row < 0 or row >= len(self._rows):
+            return
+        self.item_selected.emit(self._title, self._rows[row][0])
+
+    @staticmethod
+    def _item_text(item: dict[str, Any], show_slot: bool) -> str:
+        lines = [_display_item_name(item)]
+        meta_parts: list[str] = []
+        if show_slot and item.get("Slot"):
+            meta_parts.append(str(item["Slot"]))
+        elif not show_slot and item.get("Slot"):
+            meta_parts.append(str(item["Slot"]))
+        if isinstance(item.get("Tier"), int):
+            meta_parts.append(f"Tier {item['Tier']}")
+        if kind := _item_kind_label(item):
+            meta_parts.append(kind)
+        tags = item.get("Tags")
+        if isinstance(tags, list) and tags:
+            meta_parts.extend(f"[{tag}]" for tag in tags)
+        if meta_parts:
+            lines.append("  |  ".join(meta_parts))
+        preview = _item_preview_text(item)
+        if preview:
+            lines.append(preview)
+        return "\n".join(lines)
 
     def _handle_card_clicked(self, item: object) -> None:
         self.item_selected.emit(self._title, item)
