@@ -1,4 +1,85 @@
 {
+  "cheat_engine_table": {
+    "address_symbols": {
+      "tome_12": 1,
+      "tome_13": 1,
+      "tome_15": 1,
+      "tome_17": 7,
+      "tome_9": 1
+    },
+    "aobscanmodule_count": 1,
+    "aobscanmodules": [
+      {
+        "expected_unique": true,
+        "match_count": 1,
+        "matches": [
+          {
+            "file_offset": 595040,
+            "rva": 598112,
+            "section": ".text"
+          }
+        ],
+        "module": "t-engine.exe",
+        "pattern": "83 79 04 FF 74 36",
+        "reusable_as": "AOB -> RVA -> Module.Base + RVA",
+        "status": "OK",
+        "symbol": "tome_23"
+      }
+    ],
+    "path": "C:\\Users\\svjkr\\Projects\\Codex\\TOME_GUI\\Tales of Maj'Eyal_v3.CT",
+    "registered_symbols": [
+      {
+        "address_references": 1,
+        "name": "tome_12",
+        "rebasable": false,
+        "reusable_as": "Auto Assembler label inside injected allocation; runtime scratch only",
+        "source": "label"
+      },
+      {
+        "address_references": 1,
+        "name": "tome_13",
+        "rebasable": false,
+        "reusable_as": "Auto Assembler label inside injected allocation; runtime scratch only",
+        "source": "label"
+      },
+      {
+        "address_references": 1,
+        "name": "tome_15",
+        "rebasable": false,
+        "reusable_as": "Auto Assembler label inside injected allocation; runtime scratch only",
+        "source": "label"
+      },
+      {
+        "address_references": 7,
+        "name": "tome_17",
+        "rebasable": false,
+        "reusable_as": "Auto Assembler label inside injected allocation; runtime scratch only",
+        "source": "label"
+      },
+      {
+        "address_references": 0,
+        "name": "tome_23",
+        "rebasable": true,
+        "reusable_as": "AOB -> RVA -> Module.Base + RVA",
+        "source": "aobscanmodule"
+      },
+      {
+        "address_references": 0,
+        "name": "tome_7",
+        "rebasable": false,
+        "reusable_as": "Auto Assembler label inside injected allocation; runtime scratch only",
+        "source": "label"
+      },
+      {
+        "address_references": 1,
+        "name": "tome_9",
+        "rebasable": false,
+        "reusable_as": "Auto Assembler label inside injected allocation; runtime scratch only",
+        "source": "label"
+      }
+    ],
+    "sha256": "132cfc4b1b4e534c9ad76d43d1dd04d227bff978985a4296de46e0f871a097d2"
+  },
   "executable": {
     "machine": 332,
     "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\TalesMajEyal\\t-engine.exe",

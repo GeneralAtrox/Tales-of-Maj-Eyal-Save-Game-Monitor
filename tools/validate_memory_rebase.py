@@ -17,8 +17,10 @@ from __future__ import annotations
 import argparse
 import ctypes
 import ctypes.wintypes
+import copy
 import hashlib
 import json
+import re
 import struct
 import sys
 from dataclasses import dataclass
@@ -28,6 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 DEFAULT_BASELINE_PATH = PROJECT_ROOT / "docs" / "memory_rebase_baseline.json"
+DEFAULT_CT_PATH = PROJECT_ROOT / "Tales of Maj'Eyal_v3.CT"
 
 
 DEFAULT_EXE_PATHS: tuple[Path, ...] = (
@@ -71,6 +74,14 @@ _EXECUTABLE_PAGE_PROTECTIONS = {
     PAGE_EXECUTE_READWRITE,
     PAGE_EXECUTE_WRITECOPY,
 }
+_AOBSCANMODULE_RE = re.compile(
+    r"\baobscanmodule\s*\(\s*([^,\s]+)\s*,\s*([^,\s]+)\s*,\s*([^)]+?)\s*\)",
+    re.IGNORECASE,
+)
+_ALLOC_RE = re.compile(r"\balloc\s*\(\s*([^,\s)]+)", re.IGNORECASE)
+_LABEL_RE = re.compile(r"\blabel\s*\(\s*([^,\s)]+)", re.IGNORECASE)
+_REGISTER_SYMBOL_RE = re.compile(r"\bregistersymbol\s*\(\s*([^,\s)]+)", re.IGNORECASE)
+_ADDRESS_RE = re.compile(r"<Address>([^<]+)</Address>", re.IGNORECASE)
 
 LUAJIT_LAYOUT: dict[str, object] = {
     "runtime": "LuaJIT 2.0.2",
@@ -254,6 +265,32 @@ def _file_offset_to_rva(pe: PeImage, file_offset: int) -> tuple[int, str] | None
         if section.raw_pointer <= file_offset < section.raw_pointer + section.raw_size:
             return section.virtual_address + (file_offset - section.raw_pointer), section.name
     return None
+
+
+def _pattern_match_rows(
+    data: bytes,
+    pattern: tuple[int | None, ...],
+    pe: PeImage,
+    live_module: tuple[int, int] | None,
+    running: tuple[int, Path] | None,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for file_offset in _find_pattern(data, pattern):
+        mapped = _file_offset_to_rva(pe, file_offset)
+        row: dict[str, object] = {"file_offset": file_offset}
+        if mapped is not None:
+            rva, section = mapped
+            row.update({"rva": rva, "section": section})
+            if live_module and running:
+                live_addr = live_module[0] + rva
+                live_bytes = _read_process_bytes(running[0], live_addr, len(pattern))
+                live_ok = live_bytes is not None and all(
+                    expected is None or live_bytes[index] == expected
+                    for index, expected in enumerate(pattern)
+                )
+                row.update({"live_addr": live_addr, "live_verified": live_ok})
+        rows.append(row)
+    return rows
 
 
 def _sha256(path: Path) -> str:
@@ -476,25 +513,8 @@ def _signature_results(
     results: dict[str, object] = {}
     for signature in SIGNATURES:
         pattern = _parse_pattern(signature.pattern)
-        matches = _find_pattern(data, pattern)
-        expected_ok = len(matches) == 1 if signature.expected_unique else bool(matches)
-        match_rows: list[dict[str, object]] = []
-
-        for file_offset in matches:
-            mapped = _file_offset_to_rva(pe, file_offset)
-            row: dict[str, object] = {"file_offset": file_offset}
-            if mapped is not None:
-                rva, section = mapped
-                row.update({"rva": rva, "section": section})
-                if live_module and running:
-                    live_addr = live_module[0] + rva
-                    live_bytes = _read_process_bytes(running[0], live_addr, len(pattern))
-                    live_ok = live_bytes is not None and all(
-                        expected is None or live_bytes[index] == expected
-                        for index, expected in enumerate(pattern)
-                    )
-                    row.update({"live_addr": live_addr, "live_verified": live_ok})
-            match_rows.append(row)
+        match_rows = _pattern_match_rows(data, pattern, pe, live_module, running)
+        expected_ok = len(match_rows) == 1 if signature.expected_unique else bool(match_rows)
 
         results[signature.name] = {
             "pattern": signature.pattern,
@@ -502,10 +522,114 @@ def _signature_results(
             "reusable_as": signature.reusable_as,
             "expected_unique": signature.expected_unique,
             "status": "OK" if expected_ok else "CHECK",
-            "match_count": len(matches),
+            "match_count": len(match_rows),
             "matches": match_rows,
         }
     return results
+
+
+def _normalise_pattern(pattern: str) -> str:
+    return " ".join(pattern.strip().split()).upper()
+
+
+def _symbol_counter(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _symbol_policy(
+    name: str,
+    *,
+    aob_symbols: set[str],
+    alloc_symbols: set[str],
+    label_symbols: set[str],
+    address_counts: dict[str, int],
+) -> dict[str, object]:
+    if name in aob_symbols:
+        source = "aobscanmodule"
+        reusable_as = "AOB -> RVA -> Module.Base + RVA"
+        rebasable = True
+    elif name in alloc_symbols:
+        source = "alloc"
+        reusable_as = "Cheat Engine allocation; runtime scratch only"
+        rebasable = False
+    elif name in label_symbols:
+        source = "label"
+        reusable_as = "Auto Assembler label inside injected allocation; runtime scratch only"
+        rebasable = False
+    else:
+        source = "unknown"
+        reusable_as = "Unknown Cheat Engine symbol source; do not reuse as an offset"
+        rebasable = False
+    return {
+        "name": name,
+        "source": source,
+        "address_references": address_counts.get(name, 0),
+        "rebasable": rebasable,
+        "reusable_as": reusable_as,
+    }
+
+
+def _cheat_table_report(
+    ct_path: Path | None,
+    data: bytes,
+    pe: PeImage,
+    live_module: tuple[int, int] | None,
+    running: tuple[int, Path] | None,
+) -> dict[str, object] | None:
+    if ct_path is None or not ct_path.exists():
+        return None
+
+    text = ct_path.read_text(encoding="utf-8")
+    aobs = [
+        {
+            "symbol": match.group(1),
+            "module": match.group(2),
+            "pattern": _normalise_pattern(match.group(3)),
+        }
+        for match in _AOBSCANMODULE_RE.finditer(text)
+    ]
+    alloc_symbols = set(_ALLOC_RE.findall(text))
+    label_symbols = set(_LABEL_RE.findall(text))
+    registered_symbols = sorted(set(_REGISTER_SYMBOL_RE.findall(text)))
+    address_counts = _symbol_counter(_ADDRESS_RE.findall(text))
+    aob_symbols = {str(row["symbol"]) for row in aobs}
+
+    aob_rows: list[dict[str, object]] = []
+    for row in aobs:
+        pattern = _parse_pattern(str(row["pattern"]))
+        matches = _pattern_match_rows(data, pattern, pe, live_module, running)
+        expected_ok = str(row["module"]).lower() == "t-engine.exe" and len(matches) == 1
+        aob_rows.append(
+            {
+                **row,
+                "expected_unique": True,
+                "match_count": len(matches),
+                "matches": matches,
+                "status": "OK" if expected_ok else "CHECK",
+                "reusable_as": "AOB -> RVA -> Module.Base + RVA",
+            }
+        )
+
+    return {
+        "path": str(ct_path),
+        "sha256": _sha256(ct_path),
+        "aobscanmodule_count": len(aob_rows),
+        "aobscanmodules": aob_rows,
+        "registered_symbols": [
+            _symbol_policy(
+                name,
+                aob_symbols=aob_symbols,
+                alloc_symbols=alloc_symbols,
+                label_symbols=label_symbols,
+                address_counts=address_counts,
+            )
+            for name in registered_symbols
+        ],
+        "address_symbols": address_counts,
+    }
 
 
 def _build_report(
@@ -514,6 +638,7 @@ def _build_report(
     pe: PeImage,
     running: tuple[int, Path] | None,
     live_module: tuple[int, int] | None,
+    ct_path: Path | None,
 ) -> dict[str, object]:
     return {
         "schema": 1,
@@ -533,6 +658,7 @@ def _build_report(
             "module_size": live_module[1] if live_module else None,
         },
         "signatures": _signature_results(data, pe, live_module, running),
+        "cheat_engine_table": _cheat_table_report(ct_path, data, pe, live_module, running),
         "luajit_layout": LUAJIT_LAYOUT,
         "lua_heap_policy": {
             "rebasable": False,
@@ -556,6 +682,13 @@ def _signature_rvas(row: object) -> list[int | None]:
         rva = match.get("rva")
         values.append(int(rva) if isinstance(rva, int) else None)
     return values
+
+
+def _aob_rows(row: object) -> list[dict[str, object]]:
+    if not isinstance(row, dict):
+        return []
+    rows = row.get("aobscanmodules")
+    return [item for item in rows if isinstance(item, dict)] if isinstance(rows, list) else []
 
 
 def _compare_with_baseline(report: dict[str, object], baseline: dict[str, object]) -> list[str]:
@@ -591,6 +724,41 @@ def _compare_with_baseline(report: dict[str, object], baseline: dict[str, object
         if name not in current_sigs:
             diffs.append(f"{name}: present in baseline but missing from current report")
 
+    current_ct = report.get("cheat_engine_table")
+    baseline_ct = baseline.get("cheat_engine_table")
+    if isinstance(current_ct, dict) or isinstance(baseline_ct, dict):
+        if not isinstance(current_ct, dict) or not isinstance(baseline_ct, dict):
+            diffs.append("cheat_engine_table: missing from baseline or current report")
+        else:
+            for key in ("sha256", "aobscanmodule_count", "address_symbols"):
+                if current_ct.get(key) != baseline_ct.get(key):
+                    diffs.append(
+                        f"cheat_engine_table.{key}: "
+                        f"baseline={baseline_ct.get(key)!r} current={current_ct.get(key)!r}"
+                    )
+
+            current_aobs = _aob_rows(current_ct)
+            baseline_aobs = _aob_rows(baseline_ct)
+            if len(current_aobs) != len(baseline_aobs):
+                diffs.append(
+                    f"cheat_engine_table.aobscanmodules: "
+                    f"baseline={len(baseline_aobs)} current={len(current_aobs)}"
+                )
+            for index, (current_aob, baseline_aob) in enumerate(zip(current_aobs, baseline_aobs)):
+                for key in ("symbol", "module", "pattern", "status", "match_count"):
+                    if current_aob.get(key) != baseline_aob.get(key):
+                        diffs.append(
+                            f"cheat_engine_table.aobscanmodules[{index}].{key}: "
+                            f"baseline={baseline_aob.get(key)!r} current={current_aob.get(key)!r}"
+                        )
+                current_rvas = _signature_rvas(current_aob)
+                baseline_rvas = _signature_rvas(baseline_aob)
+                if current_rvas != baseline_rvas:
+                    diffs.append(
+                        f"cheat_engine_table.aobscanmodules[{index}].rvas: "
+                        f"baseline={baseline_rvas!r} current={current_rvas!r}"
+                    )
+
     if report.get("luajit_layout") != baseline.get("luajit_layout"):
         diffs.append("luajit_layout: baseline does not match current reader assumptions")
     return diffs
@@ -604,9 +772,44 @@ def _load_baseline(path: Path) -> dict[str, object] | None:
     return data if isinstance(data, dict) else None
 
 
+def _stable_baseline_report(report: dict[str, object]) -> dict[str, object]:
+    stable = copy.deepcopy(report)
+    stable["live_process"] = {
+        "pid": None,
+        "path": None,
+        "module_base": None,
+        "module_size": None,
+    }
+    for block_name in ("signatures",):
+        block = stable.get(block_name)
+        if not isinstance(block, dict):
+            continue
+        rows = block.values()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            matches = row.get("matches")
+            if isinstance(matches, list):
+                for match in matches:
+                    if isinstance(match, dict):
+                        match.pop("live_addr", None)
+                        match.pop("live_verified", None)
+
+    ct = stable.get("cheat_engine_table")
+    if isinstance(ct, dict):
+        for row in _aob_rows(ct):
+            matches = row.get("matches")
+            if isinstance(matches, list):
+                for match in matches:
+                    if isinstance(match, dict):
+                        match.pop("live_addr", None)
+                        match.pop("live_verified", None)
+    return stable
+
+
 def _write_baseline(path: Path, report: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(_stable_baseline_report(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _print_live_lua_roots() -> None:
@@ -663,6 +866,8 @@ def _print_live_lua_roots() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate ToME memory rebase anchors.")
     parser.add_argument("--exe", type=Path, default=None, help="Path to t-engine.exe")
+    parser.add_argument("--ct", type=Path, default=DEFAULT_CT_PATH, help="Path to Tales of Maj'Eyal .CT table")
+    parser.add_argument("--no-ct", action="store_true", help="Do not parse the Cheat Engine table")
     parser.add_argument(
         "--baseline",
         type=Path,
@@ -687,7 +892,8 @@ def main() -> int:
     data = exe_path.read_bytes()
     pe = _parse_pe(data)
     live_module = _module_base(running[0], running[1]) if running and running[1].resolve() == exe_path else None
-    report = _build_report(exe_path, data, pe, running, live_module)
+    ct_path = None if args.no_ct else args.ct.resolve()
+    report = _build_report(exe_path, data, pe, running, live_module, ct_path)
     executable = report["executable"]
     live_process = report["live_process"]
 
@@ -736,6 +942,42 @@ def main() -> int:
                     print(line)
                 if len(matches) > 10:
                     print(f"    ... {len(matches) - 10} more matches omitted")
+
+    ct_report = report.get("cheat_engine_table")
+    if isinstance(ct_report, dict):
+        print("\nCheat Engine table:")
+        print(f"  path          {ct_report['path']}")
+        print(f"  sha256        {ct_report['sha256']}")
+        print(f"  aobscanmodule {ct_report['aobscanmodule_count']}")
+        for row in _aob_rows(ct_report):
+            print(f"  {row['symbol']}: {row['status']}, matches={row['match_count']}")
+            print(f"    module      {row['module']}")
+            print(f"    pattern     {row['pattern']}")
+            print(f"    reusable    {row['reusable_as']}")
+            matches = row.get("matches")
+            if isinstance(matches, list):
+                for match in matches[:10]:
+                    if not isinstance(match, dict):
+                        continue
+                    file_offset = int(match["file_offset"])
+                    if "rva" not in match:
+                        print(f"    file+0x{file_offset:X} -> RVA unavailable")
+                        continue
+                    line = f"    file+0x{file_offset:X} -> {match['section']}:RVA 0x{int(match['rva']):X}"
+                    if "live_addr" in match:
+                        status = "verified" if match.get("live_verified") else "not verified"
+                        line += f" -> live 0x{int(match['live_addr']):08X} ({status})"
+                    print(line)
+        symbols = ct_report.get("registered_symbols")
+        if isinstance(symbols, list):
+            print("  registered symbols:")
+            for symbol in symbols:
+                if not isinstance(symbol, dict):
+                    continue
+                rebase_label = "rebasable" if symbol.get("rebasable") else "runtime-only"
+                print(f"    {symbol['name']:<8} {rebase_label:<12} {symbol['reusable_as']}")
+    elif not args.no_ct:
+        print("\nCheat Engine table: not found")
 
     baseline_path = args.baseline.resolve()
     if args.write_baseline:

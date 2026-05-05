@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 
 from tools import validate_memory_rebase as rebase
 
@@ -110,6 +112,40 @@ class MemoryRebaseValidatorTests(unittest.TestCase):
         self.assertFalse(out_of_range["safe_to_read"])
         self.assertFalse(out_of_range["gctab_ok"])
 
+    def test_cheat_table_report_validates_aobscanmodule_and_symbol_policy(self) -> None:
+        data = _minimal_pe32()
+        data[0x210 : 0x213] = bytes.fromhex("AA BB CC")
+        pe = rebase._parse_pe(bytes(data))
+        ct_text = """<?xml version="1.0"?>
+<CheatTable>
+  <AssemblerScript>
+    aobscanmodule(tome_23,t-engine.exe,AA BB CC)
+    alloc(tome_11,2048)
+    label(tome_13)
+    registersymbol(tome_23)
+    registersymbol(tome_13)
+  </AssemblerScript>
+  <Address>tome_13</Address>
+</CheatTable>
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            ct_path = Path(tmp) / "sample.CT"
+            ct_path.write_text(ct_text, encoding="utf-8")
+
+            report = rebase._cheat_table_report(ct_path, bytes(data), pe, None, None)
+
+        assert report is not None
+        self.assertEqual(report["aobscanmodule_count"], 1)
+        [aob] = report["aobscanmodules"]
+        self.assertEqual(aob["symbol"], "tome_23")
+        self.assertEqual(aob["status"], "OK")
+        self.assertEqual(aob["match_count"], 1)
+        self.assertEqual(aob["matches"][0]["rva"], 0x1010)
+        policies = {row["name"]: row for row in report["registered_symbols"]}
+        self.assertTrue(policies["tome_23"]["rebasable"])
+        self.assertFalse(policies["tome_13"]["rebasable"])
+        self.assertEqual(policies["tome_13"]["address_references"], 1)
+
     def test_compare_baseline_reports_executable_and_rva_changes(self) -> None:
         baseline = {
             "executable": {
@@ -204,6 +240,61 @@ class MemoryRebaseValidatorTests(unittest.TestCase):
             rebase._compare_with_baseline(report, baseline),
             ["luajit_layout: baseline does not match current reader assumptions"],
         )
+
+    def test_compare_baseline_reports_cheat_table_changes(self) -> None:
+        baseline = {
+            "executable": {
+                "size": 100,
+                "sha256": "same",
+                "machine": 0x014C,
+                "time_date_stamp": 1,
+                "pe_image_size": 0x3000,
+            },
+            "signatures": {},
+            "luajit_layout": {"gctab_size": 32},
+            "cheat_engine_table": {
+                "sha256": "old",
+                "aobscanmodule_count": 1,
+                "address_symbols": {"tome_13": 1},
+                "aobscanmodules": [
+                    {
+                        "symbol": "tome_23",
+                        "module": "t-engine.exe",
+                        "pattern": "AA BB",
+                        "status": "OK",
+                        "match_count": 1,
+                        "matches": [{"rva": 0x1000}],
+                    }
+                ],
+            },
+        }
+        report = {
+            **baseline,
+            "cheat_engine_table": {
+                "sha256": "new",
+                "aobscanmodule_count": 1,
+                "address_symbols": {"tome_13": 1},
+                "aobscanmodules": [
+                    {
+                        "symbol": "tome_23",
+                        "module": "t-engine.exe",
+                        "pattern": "AA CC",
+                        "status": "OK",
+                        "match_count": 1,
+                        "matches": [{"rva": 0x1010}],
+                    }
+                ],
+            },
+        }
+
+        diffs = rebase._compare_with_baseline(report, baseline)
+
+        self.assertIn("cheat_engine_table.sha256: baseline='old' current='new'", diffs)
+        self.assertIn(
+            "cheat_engine_table.aobscanmodules[0].pattern: baseline='AA BB' current='AA CC'",
+            diffs,
+        )
+        self.assertIn("cheat_engine_table.aobscanmodules[0].rvas: baseline=[4096] current=[4112]", diffs)
 
 
 if __name__ == "__main__":

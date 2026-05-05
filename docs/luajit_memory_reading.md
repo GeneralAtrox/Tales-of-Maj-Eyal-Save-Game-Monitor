@@ -213,6 +213,11 @@ after manually confirming a new ToME executable still has valid anchors:
 C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py --write-baseline
 ```
 
+The validator also parses `Tales of Maj'Eyal_v3.CT` directly. Every
+`aobscanmodule(...)` row is checked for uniqueness, mapped to an RVA, and
+live-verified when ToME is running. Registered CT symbols are classified so
+runtime scratch labels are not mistaken for portable offsets.
+
 Current executable fingerprint from the local Steam install:
 
 | Field | Value |
@@ -230,6 +235,13 @@ Current static anchors:
 | `83 79 04 FF 74 36 0F B6 46 FD 8B 29 8B 49 04 89` | unique | `.text` RVA `0x92060` | CT hook context only |
 | `83 79 04 FF 74 36` | unique | `.text` RVA `0x92060` | exact CT AOB |
 | `LuaJIT 2.0.2` bytes | unique | `.rdata` RVA `0x375793` | runtime-layout fingerprint |
+
+Current CT symbol classification:
+
+| Symbol | Rebasable? | Policy |
+|---|---:|---|
+| `tome_23` | yes | `aobscanmodule` hook, reusable as `Module.Base + 0x92060` after AOB validation |
+| `tome_7`, `tome_9`, `tome_12`, `tome_13`, `tome_15`, `tome_17` | no | Auto Assembler labels inside the injected allocation; runtime scratch only |
 
 The baseline also records the reader's LuaJIT layout assumptions: `TValue`
 size `8`, `Node` size `24`, `GCtab` size `32`, key field offsets, and the
