@@ -146,6 +146,21 @@ newTalent{
         self.assertEqual(record.target_range, 6.0)
         self.assertEqual(record.target_radius, 2.0)
 
+    def test_scaled_target_metadata_uses_maximum_reach(self) -> None:
+        lua = """
+newTalent{
+    name = "Ghoul Leap",
+    requires_target = true,
+    range = function(self, t) return math.floor(self:combatTalentScale(t, 5, 10, 0.5, 0, 1)) end,
+    radius = function(self, t) return math.ceil(self:combatTalentLimit(t, 15, 3, 10)) end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertTrue(record.requires_target)
+        self.assertEqual(record.target_range, 10.0)
+        self.assertEqual(record.target_radius, 15.0)
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{

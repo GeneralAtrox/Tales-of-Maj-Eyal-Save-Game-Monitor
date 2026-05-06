@@ -7,7 +7,7 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v14: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v15: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
 multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst,
 engine-default activated talent mode, NPC AI usability, direct numeric resource costs, and simple range metadata.
@@ -27,7 +27,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 14
+_CACHE_SCHEMA_VERSION = 15
 _RESOURCE_COST_FIELDS = frozenset(
     {
         "mana",
@@ -104,6 +104,16 @@ _RE_NO_NPC_USE_VALUE = re.compile(r"\bno_npc_use\s*=\s*([A-Za-z_][A-Za-z0-9_.]*)
 _RE_RESOURCE_COST = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*,?\s*$")
 _RE_REQUIRES_TARGET = re.compile(r"^\s*requires_target\s*=\s*(true|false)\s*,?\s*$")
 _RE_DIRECT_NUMERIC_FIELD = re.compile(r"^\s*{field}\s*=\s*(-?\d+(?:\.\d+)?)\s*,?\s*$")
+_RE_FUNCTION_RETURN_NUMBER_FIELD = re.compile(
+    r"^\s*{field}\s*=\s*function\b[\s\S]*?\breturn\s+(-?\d+(?:\.\d+)?)\b",
+    re.MULTILINE,
+)
+_RE_FUNCTION_SCALE_FIELD = re.compile(
+    r"^\s*{field}\s*=\s*function\b[\s\S]*?combatTalent(?:Scale|Limit)\s*"
+    r"\(\s*t\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)"
+    r"(?:\s*,\s*(-?\d+(?:\.\d+)?))?",
+    re.MULTILINE,
+)
 _RE_DAM_DESC = re.compile(r"damDesc\s*\(\s*[^,]+,\s*DamageType[.:](\w+)")
 _RE_DAMAGE_TYPE_TOKEN = re.compile(r"DamageType[.:](\w+)")
 _RE_SCALING = re.compile(
@@ -256,8 +266,8 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             npc_usable=_extract_npc_usable(block),
             resource_costs=_extract_resource_costs(block),
             requires_target=_extract_requires_target(block),
-            target_range=_extract_direct_numeric_field(block, "range"),
-            target_radius=_extract_direct_numeric_field(block, "radius") or 0.0,
+            target_range=_extract_numeric_or_scaled_field(block, "range"),
+            target_radius=_extract_numeric_or_scaled_field(block, "radius") or 0.0,
         )
         dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits, aux_talent_id = _extract_damage(
             block
@@ -354,6 +364,29 @@ def _extract_direct_numeric_field(block: str, field_name: str) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _extract_numeric_or_scaled_field(block: str, field_name: str) -> float | None:
+    if (value := _extract_direct_numeric_field(block, field_name)) is not None:
+        return value
+    escaped = re.escape(field_name)
+    if match := re.search(_RE_FUNCTION_RETURN_NUMBER_FIELD.pattern.format(field=escaped), block, re.MULTILINE):
+        return _float_or_none(match.group(1))
+    if match := re.search(_RE_FUNCTION_SCALE_FIELD.pattern.format(field=escaped), block, re.MULTILINE):
+        values = [_float_or_none(group) for group in match.groups()]
+        numeric_values = [value for value in values if value is not None]
+        if numeric_values:
+            return max(numeric_values)
+    return None
+
+
+def _float_or_none(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def _strip_lua_comments(text: str) -> str:
