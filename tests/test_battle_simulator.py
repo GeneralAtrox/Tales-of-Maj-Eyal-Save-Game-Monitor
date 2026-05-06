@@ -839,6 +839,59 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(report.expected_damage, 120.0)
         self.assertEqual(report.burst_expected_damage, 240.0)
 
+    def test_offhand_weapon_adds_same_action_burst_damage(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 100.0,
+                "combat.atk": 100.0,
+                "combat.damrange": 1.0,
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 60.0,
+                "combat.offhand.atk": 100.0,
+                "combat.offhand.damrange": 1.0,
+                "combat.offhand.special_on_hit": True,
+                "combat.offhand.mult": 0.5,
+            },
+            "Dual Wielder",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 100.0)
+        self.assertEqual(report.burst_expected_damage, 130.0)
+        self.assertEqual(report.burst_peak_damage, 130.0)
+        self.assertEqual(report.burst_hits, 2)
+        self.assertIn("OFFHAND adds ~30 same-action damage (x0.50 offhand multiplier)", report.notes)
+        self.assertIn("Unmodeled weapon proc hooks: special_on_hit", report.notes)
+
+    def test_enemy_offense_reads_offhand_weapon_fields(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat_dam": 10.0,
+                "stats.str": 30.0,
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 50.0,
+                "combat.offhand.dammod.str": 1.0,
+                "combat.offhand.apr": 7.0,
+                "combat.offhand.damtype": "BLIGHT",
+                "combat.offhand.melee_project.FIRE": 5.0,
+                "combat.offhand.special_on_hit": True,
+                "combat.offhand.mult": 1.0,
+            },
+            "Dual Wielder",
+        )
+
+        self.assertIsNotNone(offense.offhand)
+        assert offense.offhand is not None
+        self.assertEqual(offense.offhand.source, "OFFHAND")
+        self.assertGreater(offense.offhand.dam, 0.0)
+        self.assertEqual(offense.offhand.apr, 7.0)
+        self.assertEqual(offense.offhand.damage_type, "BLIGHT")
+        self.assertEqual(offense.offhand.melee_project, {"FIRE": 5.0})
+        self.assertEqual(offense.offhand.unmodeled_proc_hooks, ("special_on_hit",))
+        self.assertEqual(offense.offhand.damage_mult, 1.0)
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 

@@ -92,6 +92,67 @@ class PlayerDefenses:
 
 
 @dataclass(slots=True)
+class WeaponOffense:
+    """Combat-table inputs for a secondary weapon hit."""
+
+    source: str = ""
+    atk: float = 0.0
+    dam: float = 0.0
+    apr: float = 0.0
+    crit_chance_pct: float = 0.0
+    crit_power_bonus_pct: float = 0.0
+    accuracy_effect: str = ""
+    accuracy_effect_scale: bool = False
+    damage_range: float = 1.0
+    physspeed: float = 1.0
+    damage_type: str = cm.DEFAULT_DAMAGE_TYPE
+    damage_mult: float = 1.0
+    inc_damage: dict[str, float] = field(default_factory=dict)
+    resists_pen: dict[str, float] = field(default_factory=dict)
+    melee_project: dict[str, float] = field(default_factory=dict)
+    burst_on_hit: dict[str, float] = field(default_factory=dict)
+    burst_on_crit: dict[str, float] = field(default_factory=dict)
+    unmodeled_proc_hooks: tuple[str, ...] = ()
+
+    @classmethod
+    def from_all_fields(
+        cls,
+        all_fields: dict[str, str | float | bool],
+        *,
+        prefix: str,
+        stats: dict[str, float],
+        inc_damage: dict[str, float],
+        resists_pen: dict[str, float],
+    ) -> WeaponOffense | None:
+        if not _has_prefixed_fields(all_fields, prefix):
+            return None
+
+        def num(key: str, default: float = 0.0) -> float:
+            return _number_field(all_fields, f"{prefix}{key}", default)
+
+        return cls(
+            source=_string_field(all_fields, f"{prefix}source"),
+            atk=_combat_attack(all_fields, stats, num("atk")),
+            dam=_melee_damage(all_fields, num("dam"), dammod_prefix=f"{prefix}dammod."),
+            apr=_combat_apr(all_fields, num("apr")),
+            crit_chance_pct=_physical_crit_chance(all_fields, stats, weapon_physcrit_key=f"{prefix}physcrit"),
+            crit_power_bonus_pct=_number_field(all_fields, "combat_critical_power") + num("crit_power"),
+            accuracy_effect=_accuracy_effect_from_fields(all_fields, prefix=prefix),
+            accuracy_effect_scale=_truthy_field(all_fields, f"{prefix}accuracy_effect_scale"),
+            damage_range=_combat_damage_range(all_fields, weapon_damrange_key=f"{prefix}damrange"),
+            physspeed=_combat_physical_speed(all_fields, num("physspeed", 1.0)),
+            damage_type=_damage_type_from_field(all_fields.get("force_melee_damtype") or all_fields.get(f"{prefix}damtype")),
+            damage_mult=max(0.0, num("mult", 1.0)),
+            inc_damage=dict(inc_damage),
+            resists_pen=dict(resists_pen),
+            melee_project=_damage_fields_by_prefixes(all_fields, f"{prefix}melee_project."),
+            burst_on_hit=_damage_fields_by_prefixes(all_fields, f"{prefix}burst_on_hit."),
+            burst_on_crit=_damage_fields_by_prefixes(all_fields, f"{prefix}burst_on_crit."),
+            unmodeled_proc_hooks=_unmodeled_proc_hooks_from_fields(all_fields, prefix=prefix),
+        )
+
+
+@dataclass(slots=True)
 class EnemyOffense:
     """Attacker-side inputs. Defaults mean 'no data' = zero threat."""
 
@@ -124,6 +185,8 @@ class EnemyOffense:
     """Extra radius-2 project damage on successful melee crits."""
     unmodeled_proc_hooks: tuple[str, ...] = ()
     """Weapon hooks present in Lua but not deterministic enough to model here."""
+    offhand: WeaponOffense | None = None
+    """Equipped offhand weapon hit in the same attack action."""
     talents: dict[str, float] = field(default_factory=dict)
     talents_cd: dict[str, float] = field(default_factory=dict)
     resources: dict[str, float] = field(default_factory=dict)
@@ -209,6 +272,13 @@ class EnemyOffense:
             burst_on_hit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_hit."),
             burst_on_crit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_crit."),
             unmodeled_proc_hooks=_unmodeled_proc_hooks_from_fields(all_fields),
+            offhand=WeaponOffense.from_all_fields(
+                all_fields,
+                prefix="combat.offhand.",
+                stats=stats,
+                inc_damage=inc,
+                resists_pen=pen,
+            ),
             talents=talents,
             talents_cd=talents_cd,
             resources=resources,
@@ -266,8 +336,12 @@ def _combat_apr(all_fields: dict[str, str | float | bool], weapon_apr: float) ->
     return _number_field(all_fields, "combat_apr") + weapon_apr
 
 
-def _combat_damage_range(all_fields: dict[str, str | float | bool]) -> float:
-    weapon_range = _number_field(all_fields, "combat.damrange", 1.1)
+def _combat_damage_range(
+    all_fields: dict[str, str | float | bool],
+    *,
+    weapon_damrange_key: str = "combat.damrange",
+) -> float:
+    weapon_range = _number_field(all_fields, weapon_damrange_key, 1.1)
     return (_number_field(all_fields, "combat_damrange") + weapon_range) or 1.0
 
 
@@ -280,15 +354,20 @@ def _crit_stat_bonus(stats: dict[str, float]) -> float:
     return (stats.get("cun", 10.0) - 10.0) * 0.3 + (stats.get("lck", 50.0) - 50.0) * 0.3
 
 
-def _physical_crit_chance(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
-    engine_keys = ("combat_physcrit", "combat_generic_crit", "combat.physcrit", "stats.cun", "stats.lck")
+def _physical_crit_chance(
+    all_fields: dict[str, str | float | bool],
+    stats: dict[str, float],
+    *,
+    weapon_physcrit_key: str = "combat.physcrit",
+) -> float:
+    engine_keys = ("combat_physcrit", "combat_generic_crit", weapon_physcrit_key, "stats.cun", "stats.lck")
     if any(key in all_fields for key in engine_keys):
         return max(
             0.0,
             _number_field(all_fields, "combat_physcrit")
             + _number_field(all_fields, "combat_generic_crit")
             + _crit_stat_bonus(stats)
-            + _number_field(all_fields, "combat.physcrit", 1.0),
+            + _number_field(all_fields, weapon_physcrit_key, 1.0),
         )
     return _number_field(all_fields, "combat.crit")
 
@@ -302,6 +381,10 @@ def _string_field(all_fields: dict[str, str | float | bool], key: str) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _has_prefixed_fields(all_fields: dict[str, str | float | bool], prefix: str) -> bool:
+    return any(key.startswith(prefix) for key in all_fields)
+
+
 def _truthy_field(all_fields: dict[str, str | float | bool], key: str) -> bool:
     value = all_fields.get(key)
     if isinstance(value, bool):
@@ -313,14 +396,18 @@ def _truthy_field(all_fields: dict[str, str | float | bool], key: str) -> bool:
     return False
 
 
-def _accuracy_effect_from_fields(all_fields: dict[str, str | float | bool]) -> str:
-    return _string_field(all_fields, "combat.accuracy_effect") or _string_field(all_fields, "combat.talented")
+def _accuracy_effect_from_fields(all_fields: dict[str, str | float | bool], *, prefix: str = "combat.") -> str:
+    return _string_field(all_fields, f"{prefix}accuracy_effect") or _string_field(all_fields, f"{prefix}talented")
 
 
-def _unmodeled_proc_hooks_from_fields(all_fields: dict[str, str | float | bool]) -> tuple[str, ...]:
+def _unmodeled_proc_hooks_from_fields(
+    all_fields: dict[str, str | float | bool],
+    *,
+    prefix: str = "combat.",
+) -> tuple[str, ...]:
     hooks: list[str] = []
     for hook in _UNMODELED_PROC_HOOKS:
-        key = f"combat.{hook}"
+        key = f"{prefix}{hook}"
         if _truthy_field(all_fields, key) or any(field.startswith(f"{key}.") for field in all_fields):
             hooks.append(hook)
     return tuple(hooks)
@@ -357,9 +444,14 @@ def _resource_fields(all_fields: dict[str, str | float | bool]) -> dict[str, flo
     return resources
 
 
-def _melee_damage(all_fields: dict[str, str | float | bool], weapon_damage: float) -> float:
+def _melee_damage(
+    all_fields: dict[str, str | float | bool],
+    weapon_damage: float,
+    *,
+    dammod_prefix: str = "combat.dammod.",
+) -> float:
     stats = _number_fields_by_prefix(all_fields, "stats.")
-    dammod = _number_fields_by_prefix(all_fields, "combat.dammod.")
+    dammod = _number_fields_by_prefix(all_fields, dammod_prefix)
     if not stats and _number_field(all_fields, "combat_dam") <= 0.0:
         return weapon_damage
     return cm.estimate_combat_damage(
@@ -493,7 +585,7 @@ def weapon_proc_damage_multiplier(enemy: EnemyOffense, player: PlayerDefenses) -
 
 
 def weapon_project_damage(
-    enemy: EnemyOffense,
+    enemy: EnemyOffense | WeaponOffense,
     player: PlayerDefenses,
     damages: dict[str, float],
     *,
@@ -509,7 +601,7 @@ def weapon_project_damage(
 
 
 def weapon_project_damage_expected_peak(
-    enemy: EnemyOffense,
+    enemy: EnemyOffense | WeaponOffense,
     player: PlayerDefenses,
     crit_used_pct: float,
     *,
@@ -533,6 +625,12 @@ def weapon_damage_types(enemy: EnemyOffense) -> tuple[str, ...]:
         for raw_type, raw_damage in table.items():
             if raw_damage > 0.0:
                 _append_unique_damage_type_components(damage_types, raw_type)
+    if enemy.offhand is not None:
+        _append_unique_damage_type_components(damage_types, enemy.offhand.damage_type)
+        for table in (enemy.offhand.melee_project, enemy.offhand.burst_on_hit, enemy.offhand.burst_on_crit):
+            for raw_type, raw_damage in table.items():
+                if raw_damage > 0.0:
+                    _append_unique_damage_type_components(damage_types, raw_type)
     return tuple(damage_types)
 
 
@@ -547,7 +645,7 @@ def _append_unique_damage_type_components(damage_types: list[str], raw_type: str
         _append_unique_damage_type(damage_types, damage_type)
 
 
-def damage_type_resist_multiplier(enemy: EnemyOffense, player: PlayerDefenses, raw_type: str) -> float:
+def damage_type_resist_multiplier(enemy: EnemyOffense | WeaponOffense, player: PlayerDefenses, raw_type: str) -> float:
     total = 0.0
     for damage_type, fraction in cm.damage_type_components(raw_type):
         total += fraction * cm.resist_multiplier_for_type(
@@ -559,14 +657,14 @@ def damage_type_resist_multiplier(enemy: EnemyOffense, player: PlayerDefenses, r
     return total
 
 
-def damage_type_increase_pct(enemy: EnemyOffense, raw_type: str) -> float:
+def damage_type_increase_pct(enemy: EnemyOffense | WeaponOffense, raw_type: str) -> float:
     total = 0.0
     for damage_type, fraction in cm.damage_type_components(raw_type):
         total += fraction * cm.damage_increase_for_type(enemy.inc_damage, damage_type)
     return total
 
 
-def damage_type_multiplier(enemy: EnemyOffense, player: PlayerDefenses, raw_type: str) -> float:
+def damage_type_multiplier(enemy: EnemyOffense | WeaponOffense, player: PlayerDefenses, raw_type: str) -> float:
     total = 0.0
     for damage_type, fraction in cm.damage_type_components(raw_type):
         resist_mult = cm.resist_multiplier_for_type(
@@ -578,6 +676,26 @@ def damage_type_multiplier(enemy: EnemyOffense, player: PlayerDefenses, raw_type
         damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
         total += fraction * resist_mult * (1.0 + damage_inc / 100.0)
     return total
+
+
+def weapon_hit_damage_expected_peak(
+    weapon: EnemyOffense | WeaponOffense,
+    player: PlayerDefenses,
+) -> tuple[float, float]:
+    damage_type = cm.normalize_damage_type(weapon.damage_type)
+    after_armor, after_armor_peak = weapon_after_armor_expected_peak(weapon, player)
+    damage_mult = damage_type_multiplier(weapon, player, damage_type)
+    direct_mult = getattr(weapon, "damage_mult", 1.0)
+    crit_chance = weapon_crit_chance_pct(weapon, player)
+    crit_doubled = min(100.0, crit_chance * 2.0)
+    crit_power = weapon_crit_power_multiplier(weapon, player)
+    crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
+    project_expected, project_peak = weapon_project_damage_expected_peak(weapon, player, crit_doubled)
+    expected = after_armor * direct_mult * damage_mult * crit_mult + project_expected
+    peak = after_armor_peak * direct_mult * damage_mult
+    if crit_chance > 0.0 and crit_power > 1.0:
+        peak *= crit_power
+    return expected, peak + project_peak
 
 
 def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
@@ -621,13 +739,22 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     burst_expected = base_burst * crit_mult + burst_project_expected
     burst_peak = base_burst_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst_peak
     burst_peak += burst_project_peak
+    offhand_expected = 0.0
+    offhand_peak = 0.0
+    report_burst_hits = burst_hits
+    if enemy.offhand is not None:
+        offhand_expected, offhand_peak = weapon_hit_damage_expected_peak(enemy.offhand, player)
+        burst_expected += offhand_expected
+        burst_peak += offhand_peak
+        report_burst_hits += 1
 
     threat_damage = max(expected, burst_expected)
     if enemy.rank > RANK_BOSS_THRESHOLD:
         threat_damage *= RANK_BOSS_SCALAR
     if enemy.global_speed > 1.0:
         threat_damage *= enemy.global_speed
-    weapon_action_rate = _weapon_action_rate(enemy.physspeed)
+    action_physspeed = max(enemy.physspeed, enemy.offhand.physspeed if enemy.offhand is not None else enemy.physspeed)
+    weapon_action_rate = _weapon_action_rate(action_physspeed)
     if weapon_action_rate > 1.0:
         threat_damage *= weapon_action_rate
 
@@ -644,17 +771,23 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     staff_bonus = weapon_proc_damage_multiplier(enemy, player) - 1.0
     if peak >= player.effective_hp:
         notes.append(f"Can one-shot you ({peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)")
-    elif burst_peak >= player.effective_hp and burst_hits > 1:
+    elif burst_peak >= player.effective_hp and report_burst_hits > 1:
         notes.append(
-            f"Can kill with a {burst_hits}-hit weapon burst "
+            f"Can kill with a {report_burst_hits}-hit weapon burst "
             f"({burst_peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)"
         )
     elif expected >= player.effective_hp * 0.7:
         notes.append(f"Can remove ~{expected / player.effective_hp * 100:.0f}% HP per hit")
-    elif burst_expected >= player.effective_hp * 0.7 and burst_hits > 1:
+    elif burst_expected >= player.effective_hp * 0.7 and report_burst_hits > 1:
         notes.append(f"Can remove ~{burst_expected / player.effective_hp * 100:.0f}% HP in a weapon burst")
     if burst_hits > 1:
         notes.append(f"Strongest weapon talent chains {burst_hits} direct hits")
+    if enemy.offhand is not None:
+        source = enemy.offhand.source or "OFFHAND"
+        notes.append(
+            f"{source} adds ~{offhand_expected:.0f} same-action damage "
+            f"(x{enemy.offhand.damage_mult:.2f} offhand multiplier)"
+        )
     if high_roll > low_roll:
         notes.append(f"Weapon damage range: {low_roll:.0f}-{high_roll:.0f} before armor")
     if mace_bonus > 0.0:
@@ -668,8 +801,13 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
             notes.append(f"Project damage types: {', '.join(project_types)}")
     if staff_bonus > 0.0:
         notes.append(f"Staff accuracy bonus: +{staff_bonus * 100.0:.0f}% project damage")
-    if enemy.unmodeled_proc_hooks:
-        notes.append(f"Unmodeled weapon proc hooks: {', '.join(enemy.unmodeled_proc_hooks)}")
+    unmodeled_hooks = list(enemy.unmodeled_proc_hooks)
+    if enemy.offhand is not None:
+        for hook in enemy.offhand.unmodeled_proc_hooks:
+            if hook not in unmodeled_hooks:
+                unmodeled_hooks.append(hook)
+    if unmodeled_hooks:
+        notes.append(f"Unmodeled weapon proc hooks: {', '.join(unmodeled_hooks)}")
     if hit >= 75:
         notes.append(f"Very likely to hit ({hit:.0f}%)")
     elif hit < 25:
@@ -688,8 +826,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         peak_damage=round(peak, 1),
         burst_expected_damage=round(burst_expected, 1),
         burst_peak_damage=round(burst_peak, 1),
-        burst_hits=burst_hits,
-        can_burst_kill=burst_peak >= player.effective_hp and burst_hits > 1,
+        burst_hits=report_burst_hits,
+        can_burst_kill=burst_peak >= player.effective_hp and report_burst_hits > 1,
         raw_damage=round(enemy.dam, 1),
         crit_chance_pct=round(crit_chance, 1),
         crit_used_pct=crit_doubled,

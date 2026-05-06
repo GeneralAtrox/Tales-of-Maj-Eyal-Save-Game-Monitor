@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from scoring.combat_advice import AdviceItem, survive_one_hit_advice
-from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, weapon_threat
+from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, WeaponOffense, weapon_threat
 from scoring.talent_threat import EnemyPowers, TalentThreatReport, compute_talent_threat
 
 COMMON_DAMAGE_TYPES: tuple[str, ...] = (
@@ -180,6 +180,28 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             burst_on_hit=dict(offense.burst_on_hit),
             burst_on_crit=dict(offense.burst_on_crit),
             unmodeled_proc_hooks=tuple(offense.unmodeled_proc_hooks),
+            offhand=None
+            if offense.offhand is None
+            else WeaponOffense(
+                source=offense.offhand.source,
+                atk=offense.offhand.atk,
+                dam=offense.offhand.dam,
+                apr=offense.offhand.apr,
+                crit_chance_pct=offense.offhand.crit_chance_pct,
+                crit_power_bonus_pct=offense.offhand.crit_power_bonus_pct,
+                accuracy_effect=offense.offhand.accuracy_effect,
+                accuracy_effect_scale=offense.offhand.accuracy_effect_scale,
+                damage_range=offense.offhand.damage_range,
+                physspeed=offense.offhand.physspeed,
+                damage_type=offense.offhand.damage_type,
+                damage_mult=offense.offhand.damage_mult,
+                inc_damage=dict(offense.offhand.inc_damage),
+                resists_pen=dict(offense.offhand.resists_pen),
+                melee_project=dict(offense.offhand.melee_project),
+                burst_on_hit=dict(offense.offhand.burst_on_hit),
+                burst_on_crit=dict(offense.offhand.burst_on_crit),
+                unmodeled_proc_hooks=tuple(offense.offhand.unmodeled_proc_hooks),
+            ),
             talents=dict(offense.talents),
             talents_cd=dict(offense.talents_cd),
             resources=dict(offense.resources),

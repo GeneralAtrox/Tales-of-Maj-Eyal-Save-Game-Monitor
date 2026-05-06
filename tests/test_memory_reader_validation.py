@@ -380,6 +380,62 @@ class MemoryReaderValidationTests(unittest.TestCase):
         self.assertNotIn("combat.atk", snapshot)
         self.assertNotIn("combat.melee_project.FIRE", snapshot)
 
+    def test_tab_dump_entity_snapshot_reads_offhand_weapon_combat_fields(self) -> None:
+        actor_ptr = 0x10000000
+        inven_ptr = 0x20000000
+        bucket_ptr = 0x30000000
+        item_ptr = 0x40000000
+        offhand_combat_ptr = 0x50000000
+        offhand_project_ptr = 0x51000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == actor_ptr and key == "inven":
+                return inven_ptr
+            if tab_ptr == item_ptr and key == "combat":
+                return offhand_combat_ptr
+            if tab_ptr == offhand_combat_ptr and key == "melee_project":
+                return offhand_project_ptr
+            return None
+
+        def fake_ordered(_handle: int, tab_ptr: int) -> list[int]:
+            if tab_ptr == inven_ptr:
+                return [bucket_ptr]
+            if tab_ptr == bucket_ptr:
+                return [item_ptr]
+            return []
+
+        def fake_dump_flat(
+            _handle: int,
+            tab_ptr: int,
+            prefix: str = "",
+            **_kwargs: object,
+        ) -> dict[str, str | float]:
+            if tab_ptr == bucket_ptr:
+                return {"short_name": "OFFHAND"}
+            if tab_ptr == offhand_combat_ptr:
+                return {"combat.dam": 30.0, "combat.apr": 4.0, "combat.damtype": "BLIGHT"}
+            return {}
+
+        def fake_damage_subtable(_handle: int, tab_ptr: int, prefix: str = "") -> dict[str, float]:
+            if tab_ptr == offhand_project_ptr:
+                return {f"{prefix}FIRE": 6.0}
+            return {}
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", side_effect=fake_dump_flat),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_get_ordered_tables", side_effect=fake_ordered),
+            patch.object(memory_reader, "_tab_dump_damage_subtable", side_effect=fake_damage_subtable),
+        ):
+            snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
+
+        self.assertEqual(snapshot["combat.offhand.dam"], 30.0)
+        self.assertEqual(snapshot["combat.offhand.apr"], 4.0)
+        self.assertEqual(snapshot["combat.offhand.damtype"], "BLIGHT")
+        self.assertEqual(snapshot["combat.offhand.melee_project.FIRE"], 6.0)
+        self.assertEqual(snapshot["combat.offhand.mult"], 0.5)
+        self.assertEqual(snapshot["combat.offhand.source"], "OFFHAND")
+
     def test_tab_dump_entity_snapshot_ignores_archery_mainhand_for_melee_combat(self) -> None:
         actor_ptr = 0x10000000
         actor_combat_ptr = 0x20000000

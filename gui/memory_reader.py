@@ -743,6 +743,7 @@ _COMBAT_PROJECT_SUBTABLES = ("melee_project", "burst_on_hit", "burst_on_crit")
 _COMBAT_PROC_HOOK_TABLES = ("talent_on_hit", "talent_on_crit", "special_on_hit", "special_on_crit")
 _WEAPON_COMBAT_INVENTORY_BUCKETS = {"MAINHAND", "OFFHAND", "PSIONIC_FOCUS"}
 _PRIMARY_WEAPON_COMBAT_INVENTORY_BUCKETS = {"MAINHAND"}
+_OFFHAND_WEAPON_COMBAT_INVENTORY_BUCKETS = {"OFFHAND"}
 _COMBAT_REPLACE_PREFIXES = (
     "combat.dammod.",
     "combat.melee_project.",
@@ -948,6 +949,45 @@ def _tab_dump_primary_weapon_combat_fields(h: int, actor_ptr: int) -> dict[str, 
     return {}
 
 
+def _with_combat_prefix(
+    fields: dict[str, str | float | bool],
+    prefix: str,
+) -> dict[str, str | float | bool]:
+    out: dict[str, str | float | bool] = {}
+    for key, value in fields.items():
+        if key.startswith("combat."):
+            out[prefix + key.removeprefix("combat.")] = value
+        else:
+            out[prefix + key] = value
+    return out
+
+
+def _tab_dump_offhand_weapon_combat_fields(h: int, actor_ptr: int) -> dict[str, str | float | bool]:
+    """Return combat fields for the first equipped offhand melee weapon."""
+    inven_tab = _tab_get_table(h, actor_ptr, "inven")
+    if inven_tab is None:
+        return {}
+
+    for bucket_ptr in _tab_get_ordered_tables(h, inven_tab):
+        bucket = _tab_dump_flat(h, bucket_ptr, allowed_keys={"name", "short_name"})
+        bucket_name = str(bucket.get("short_name") or bucket.get("name") or "").upper()
+        if bucket_name not in _OFFHAND_WEAPON_COMBAT_INVENTORY_BUCKETS:
+            continue
+        for item_ptr in _tab_get_ordered_tables(h, bucket_ptr):
+            if _tab_get_table(h, item_ptr, "archery") is not None or _tab_get_scalar(h, item_ptr, "archery"):
+                continue
+            combat_tab = _tab_get_table(h, item_ptr, "combat")
+            if combat_tab is None:
+                continue
+            fields = _with_combat_prefix(_tab_dump_combat_fields(h, combat_tab), "combat.offhand.")
+            if fields:
+                no_penalty = bool(_tab_get_scalar(h, combat_tab, "no_offhand_penalty"))
+                fields["combat.offhand.mult"] = 1.0 if no_penalty else 0.5
+                fields["combat.offhand.source"] = bucket_name
+                return fields
+    return {}
+
+
 def _replace_combat_fields(
     out: dict[str, str | float | bool],
     combat_fields: dict[str, str | float | bool],
@@ -988,6 +1028,7 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
         out.update(_tab_dump_combat_fields(h, combat_tab))
     if primary_weapon_combat := _tab_dump_primary_weapon_combat_fields(h, actor_ptr):
         _replace_combat_fields(out, primary_weapon_combat)
+    out.update(_tab_dump_offhand_weapon_combat_fields(h, actor_ptr))
     out.update(_tab_dump_equipped_weapon_proc_hooks(h, actor_ptr))
 
     for sub in _ENTITY_PROJECT_SUBTABLES:
