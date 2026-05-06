@@ -385,6 +385,9 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         threat_damage *= RANK_BOSS_SCALAR
     if enemy.global_speed > 1.0:
         threat_damage *= enemy.global_speed
+    weapon_action_rate = _weapon_action_rate(enemy.physspeed)
+    if weapon_action_rate > 1.0:
+        threat_damage *= weapon_action_rate
 
     threat_pct = (threat_damage / player.effective_hp) * 100.0
     if threat_pct < HIGH_THREAT_DOUBLE_HITRATE_PIVOT:
@@ -414,6 +417,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         notes.append(f"Boosted {damage_type} damage: +{damage_inc:.0f}%")
     if enemy.global_speed > 1.0:
         notes.append(f"Acts {enemy.global_speed:.1f}x per turn")
+    if weapon_action_rate > 1.0:
+        notes.append(f"Fast weapon action ({weapon_action_rate:.1f}x rate)")
 
     return ThreatReport(
         weapon_threat_pct=round(threat_pct, 1),
@@ -435,3 +440,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         best_inc_pct=damage_inc,
         notes=notes,
     )
+
+
+def _weapon_action_rate(physspeed: float) -> float:
+    return 1.0 / max(physspeed or 1.0, 0.1)

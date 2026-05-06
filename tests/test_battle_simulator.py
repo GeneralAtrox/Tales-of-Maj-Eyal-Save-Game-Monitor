@@ -798,6 +798,16 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertTrue(report.can_burst_kill)
         self.assertTrue(any("2-hit weapon burst" in note for note in report.notes))
 
+    def test_weapon_threat_scales_fast_weapon_action_rate(self) -> None:
+        player = PlayerDefenses(max_life=100, armor=0, defense=0)
+        enemy = EnemyOffense(atk=100, dam=20, crit_chance_pct=0, physspeed=0.5)
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 20.0)
+        self.assertEqual(report.weapon_threat_pct, 40.0)
+        self.assertTrue(any("Fast weapon action (2.0x rate)" in note for note in report.notes))
+
     def test_enemy_powers_reads_live_spell_power_and_talents(self) -> None:
         powers = enemy_powers_from_fields(
             {
