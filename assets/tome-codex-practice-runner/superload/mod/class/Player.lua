@@ -3,6 +3,38 @@ local _M = loadPrevious(...)
 local base_act = _M.act
 local base_die = _M.die
 
+local function json_escape(value)
+	value = tostring(value or "")
+	value = value:gsub("\\", "\\\\")
+	value = value:gsub('"', '\\"')
+	value = value:gsub("\r", "\\r")
+	value = value:gsub("\n", "\\n")
+	return value
+end
+
+local function write_damage_events(file, events)
+	file:write('  "damage_events": [\n')
+	for index, event in ipairs(events or {}) do
+		local suffix = index < #(events or {}) and "," or ""
+		file:write(
+			(
+				'    {"turn": %d, "source": "%s", "source_role": "%s", ' ..
+				'"target": "%s", "target_role": "%s", "amount": %.3f, "message": "%s"}%s\n'
+			):format(
+				tonumber(event.turn) or 0,
+				json_escape(event.source),
+				json_escape(event.source_role),
+				json_escape(event.target),
+				json_escape(event.target_role),
+				tonumber(event.amount) or 0,
+				json_escape(event.message),
+				suffix
+			)
+		)
+	end
+	file:write("  ]\n")
+end
+
 local function open_result_file(result_path)
 	if result_path == "" then return nil end
 
@@ -30,20 +62,13 @@ local function finish_auto(status, winner, reason, detail)
 	local result_path = (__module_extra_info and __module_extra_info.codex_practice_result_path) or ""
 	local file = open_result_file(result_path)
 	if file then
-		local function esc(value)
-			value = tostring(value or "")
-			value = value:gsub("\\", "\\\\")
-			value = value:gsub('"', '\\"')
-			value = value:gsub("\r", "\\r")
-			value = value:gsub("\n", "\\n")
-			return value
-		end
 		file:write("{\n")
-		file:write(('  "status": "%s",\n'):format(esc(status)))
-		file:write(('  "winner": "%s",\n'):format(esc(winner)))
+		file:write(('  "status": "%s",\n'):format(json_escape(status)))
+		file:write(('  "winner": "%s",\n'):format(json_escape(winner)))
 		file:write(('  "turns": %d,\n'):format(tonumber(practice.turns) or 0))
-		file:write(('  "reason": "%s",\n'):format(esc(reason)))
-		file:write(('  "detail": "%s"\n'):format(esc(detail)))
+		file:write(('  "reason": "%s",\n'):format(json_escape(reason)))
+		file:write(('  "detail": "%s",\n'):format(json_escape(detail)))
+		write_damage_events(file, practice.damage_events)
 		file:write("}\n")
 		file:close()
 	end

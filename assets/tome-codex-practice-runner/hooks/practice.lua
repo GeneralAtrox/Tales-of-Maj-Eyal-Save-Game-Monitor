@@ -27,6 +27,86 @@ local function json_escape(value)
 	return value
 end
 
+local function actor_name(actor)
+	if not actor then return "" end
+	if actor.getName then
+		local ok, name = pcall(function() return actor:getName() end)
+		if ok and name then return tostring(name) end
+	end
+	return tostring(actor.name or "")
+end
+
+local function actor_role(actor)
+	if not actor then return "" end
+	if game and actor == game.player then return "player" end
+	local practice = game and game._codex_practice
+	if practice and practice.hostiles then
+		for _, hostile in ipairs(practice.hostiles) do
+			if actor == hostile then return "enemy" end
+		end
+	end
+	return ""
+end
+
+local function clean_damage_message(message)
+	message = tostring(message or "")
+	message = message:gsub("#[^#]+#", "")
+	message = message:gsub("%s+", " ")
+	return message
+end
+
+local function record_damage_event(src, target, dam, message)
+	local practice = game and game._codex_practice
+	if not practice or practice.finished then return end
+	local amount = tonumber(dam) or 0
+	if amount <= 0 then return end
+	practice.damage_events = practice.damage_events or {}
+	if #practice.damage_events >= 80 then return end
+	practice.damage_events[#practice.damage_events + 1] = {
+		turn = tonumber(practice.turns) or 0,
+		source = actor_name(src),
+		source_role = actor_role(src),
+		target = actor_name(target),
+		target_role = actor_role(target),
+		amount = amount,
+		message = clean_damage_message(message),
+	}
+end
+
+local function install_damage_trace()
+	if not game or game._codex_practice_damage_trace_installed then return end
+	if type(game.delayedLogDamage) ~= "function" then return end
+	local base_delayed_log_damage = game.delayedLogDamage
+	game._codex_practice_damage_trace_installed = true
+	game.delayedLogDamage = function(self, src, target, dam, message, ...)
+		record_damage_event(src, target, dam, message)
+		return base_delayed_log_damage(self, src, target, dam, message, ...)
+	end
+end
+
+local function write_damage_events(file, events)
+	file:write('  "damage_events": [\n')
+	for index, event in ipairs(events or {}) do
+		local suffix = index < #(events or {}) and "," or ""
+		file:write(
+			(
+				'    {"turn": %d, "source": "%s", "source_role": "%s", ' ..
+				'"target": "%s", "target_role": "%s", "amount": %.3f, "message": "%s"}%s\n'
+			):format(
+				tonumber(event.turn) or 0,
+				json_escape(event.source),
+				json_escape(event.source_role),
+				json_escape(event.target),
+				json_escape(event.target_role),
+				tonumber(event.amount) or 0,
+				json_escape(event.message),
+				suffix
+			)
+		)
+	end
+	file:write("  ]\n")
+end
+
 local function open_result_file(result_path)
 	if result_path == "" then return nil end
 
@@ -59,7 +139,8 @@ local function write_result(status, winner, turns, reason, detail)
 	file:write(('  "winner": "%s",\n'):format(json_escape(winner)))
 	file:write(('  "turns": %d,\n'):format(tonumber(turns) or 0))
 	file:write(('  "reason": "%s",\n'):format(json_escape(reason)))
-	file:write(('  "detail": "%s"\n'):format(json_escape(detail)))
+	file:write(('  "detail": "%s",\n'):format(json_escape(detail)))
+	write_damage_events(file, game and game._codex_practice and game._codex_practice.damage_events)
 	file:write("}\n")
 	file:close()
 end
@@ -95,7 +176,8 @@ end
 
 local function practice_enemy_die(self, src)
 	local died = mod.class.NPC.die(self, src)
-	if game and game._codex_practice and game._codex_practice.scenario and game._codex_practice.scenario.mode == "auto" then
+	if game and game._codex_practice and game._codex_practice.scenario
+		and game._codex_practice.scenario.mode == "auto" then
 		local living = 0
 		for _, hostile in ipairs(game._codex_practice.hostiles or {}) do
 			if hostile and not hostile.dead then living = living + 1 end
@@ -169,7 +251,9 @@ local function start_practice()
 		turns = 0,
 		finished = false,
 		hostiles = {},
+		damage_events = {},
 	}
+	install_damage_trace()
 
 	game:onLevelLoad("codex-practice-arena-1", enter_practice_arena)
 	game:changeLevel(1, "codex-practice-arena", {direct_switch=true, temporary_zone_shift=true})

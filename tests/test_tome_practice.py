@@ -10,6 +10,7 @@ from tome_practice import (
     _build_extra_script,
     _format_addons_line,
     _patch_clone_desc,
+    _read_result_file,
     _write_practice_resolution_cfg,
     _write_scenario_file,
 )
@@ -99,6 +100,44 @@ class TomePracticeTests(unittest.TestCase):
         self.assertIn("-uboot", command)
         self.assertTrue(any(part.startswith("-Eset_addons=") for part in command))
 
+    def test_read_result_file_parses_damage_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result_path = Path(tmp_dir) / "result.json"
+            result_path.write_text(
+                "{\n"
+                '  "status": "Simulation complete.",\n'
+                '  "winner": "enemy",\n'
+                '  "turns": 3,\n'
+                '  "reason": "The player died.",\n'
+                '  "detail": "Urkis",\n'
+                '  "damage_events": [\n'
+                '    {"turn": 2, "source": "Urkis", "source_role": "enemy", '
+                '"target": "Player", "target_role": "player", "amount": 123.5, "message": "124 lightning"}\n'
+                "  ]\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            launch = PracticeLaunchInfo(
+                clone_name="codex_practice_test",
+                clone_path=Path(tmp_dir) / "save",
+                practice_user_root=Path(tmp_dir),
+                scenario_path=Path(tmp_dir) / "scenario.lua",
+                result_path=result_path,
+                launcher_path=Path(r"C:\Games\ToME\t-engine-codex-practice.exe"),
+                used_shared_launcher=False,
+                template_key="urkis::tempest-peak",
+                template_label="Urkis, the High Tempest, Tempest Peak, 17+",
+            )
+
+            result = _read_result_file(launch)
+
+        assert result is not None
+        self.assertEqual(result.turns, 3)
+        self.assertEqual(len(result.damage_events), 1)
+        self.assertEqual(result.damage_events[0].source_role, "enemy")
+        self.assertEqual(result.damage_events[0].target_role, "player")
+        self.assertEqual(result.damage_events[0].amount, 123.5)
+
     def test_prepare_practice_home_merges_addons_into_engine_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -112,7 +151,12 @@ class TomePracticeTests(unittest.TestCase):
             original_runtime_root = tome_practice._PRACTICE_RUNTIME_ROOT
             tome_practice._PRACTICE_RUNTIME_ROOT = tmp_path / "runtime"
             try:
-                practice_user_root, practice_engine_root, practice_module_root, practice_save_root = tome_practice._prepare_practice_home(
+                (
+                    practice_user_root,
+                    practice_engine_root,
+                    practice_module_root,
+                    practice_save_root,
+                ) = tome_practice._prepare_practice_home(
                     save_root=save_root,
                     clone_name="codex_practice_test",
                 )

@@ -862,6 +862,20 @@ class BattleSimulatorPanel(QWidget):
             f"Winner: {result.winner or 'unknown'}",
             f"Turns: {result.turns}",
         ]
+        incoming_hits = [
+            event
+            for event in result.damage_events
+            if event.target_role == "player" and event.amount > 0
+        ]
+        if incoming_hits:
+            max_hit = max(incoming_hits, key=lambda event: event.amount)
+            lines.append(f"Engine max incoming hit: {max_hit.amount:.1f} from {max_hit.source}")
+            quick_report = self._state.compute().report
+            if quick_report is not None and max_hit.amount > 0:
+                ratio = quick_report.expected_damage / max_hit.amount
+                lines.append(f"Quick estimate: {quick_report.expected_damage:.1f} ({ratio:.2f}x engine max)")
+        elif result.damage_events:
+            lines.append(f"Damage events: {len(result.damage_events)} recorded")
         if result.reason:
             lines.append(f"Reason: {result.reason}")
         if result.detail:

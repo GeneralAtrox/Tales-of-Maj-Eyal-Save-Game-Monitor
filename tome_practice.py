@@ -44,6 +44,17 @@ class PracticeLaunchInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class PracticeDamageEvent:
+    turn: int
+    source: str
+    source_role: str
+    target: str
+    target_role: str
+    amount: float
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class AutoPracticeResult:
     launch: PracticeLaunchInfo
     status: str
@@ -51,6 +62,7 @@ class AutoPracticeResult:
     turns: int = 0
     reason: str = ""
     detail: str = ""
+    damage_events: tuple[PracticeDamageEvent, ...] = ()
 
 
 def launch_manual_practice(
@@ -391,4 +403,26 @@ def _read_result_file(launch: PracticeLaunchInfo) -> AutoPracticeResult | None:
         turns=int(data.get("turns") or 0),
         reason=str(data.get("reason") or ""),
         detail=str(data.get("detail") or ""),
+        damage_events=_parse_damage_events(data.get("damage_events")),
     )
+
+
+def _parse_damage_events(raw_events: object) -> tuple[PracticeDamageEvent, ...]:
+    if not isinstance(raw_events, list):
+        return ()
+    events: list[PracticeDamageEvent] = []
+    for raw in raw_events:
+        if not isinstance(raw, dict):
+            continue
+        events.append(
+            PracticeDamageEvent(
+                turn=int(raw.get("turn") or 0),
+                source=str(raw.get("source") or ""),
+                source_role=str(raw.get("source_role") or ""),
+                target=str(raw.get("target") or ""),
+                target_role=str(raw.get("target_role") or ""),
+                amount=float(raw.get("amount") or 0.0),
+                message=str(raw.get("message") or ""),
+            )
+        )
+    return tuple(events)
