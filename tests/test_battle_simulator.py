@@ -769,6 +769,17 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.damage_type, "FIRE")
 
+    def test_enemy_offense_prefers_forced_live_melee_damage_type(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.damtype": "physical",
+                "force_melee_damtype": "shadowflame",
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.damage_type, "SHADOWFLAME")
+
     def test_enemy_offense_reads_accuracy_effect_from_live_combat_table(self) -> None:
         offense = EnemyOffense.from_all_fields(
             {

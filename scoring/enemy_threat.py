@@ -192,7 +192,9 @@ class EnemyOffense:
             damage_range=_combat_damage_range(all_fields),
             physspeed=_combat_physical_speed(all_fields, num("combat.physspeed", 1.0)),
             weapon_range=num("combat.range"),
-            damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
+            damage_type=_damage_type_from_field(
+                all_fields.get("force_melee_damtype") or all_fields.get("combat.damtype")
+            ),
             inc_damage=inc,
             resists_pen=pen,
             melee_project=_damage_fields_by_prefixes(all_fields, "combat.melee_project.", "melee_project."),

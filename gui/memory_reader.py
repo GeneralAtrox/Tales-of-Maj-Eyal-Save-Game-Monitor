@@ -218,6 +218,7 @@ _ENTITY_ROOT_FIELDS = {
     "combat_spellpower",
     "combat_spellresist",
     "faction",
+    "force_melee_damtype",
     "global_speed",
     "hate",
     "max_hate",
