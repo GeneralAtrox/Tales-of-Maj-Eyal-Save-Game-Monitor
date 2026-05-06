@@ -35,6 +35,7 @@ from scoring.battle_simulator import (
     BattleSimulatorState,
     battle_calibration_estimate,
     combined_threat_pct,
+    threat_damage_type_label,
     threat_tier_label,
 )
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses
@@ -789,9 +790,7 @@ class BattleSimulatorPanel(QWidget):
             self._result_values["one_shot"].setText("Burst")
         else:
             self._result_values["one_shot"].setText("No")
-        self._result_values["worst_resist"].setText(
-            f"{report.worst_resist_type}  (x{report.worst_resist_multiplier:.2f})"
-        )
+        self._result_values["worst_resist"].setText(threat_damage_type_label(report))
         self._result_values["best_bonus"].setText(f"{report.best_inc_type}  (+{report.best_inc_pct:.0f}%)")
 
         advice_lines = []

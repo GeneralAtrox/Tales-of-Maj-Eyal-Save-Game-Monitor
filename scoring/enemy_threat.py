@@ -381,6 +381,7 @@ class ThreatReport:
 
     can_one_shot: bool
     damage_type: str
+    damage_types: tuple[str, ...]
     worst_resist_type: str
     worst_resist_multiplier: float
     best_inc_type: str
@@ -514,6 +515,23 @@ def weapon_project_damage_expected_peak(
     return expected * hits, peak * hits
 
 
+def weapon_damage_types(enemy: EnemyOffense) -> tuple[str, ...]:
+    """Return base weapon and proc damage types in the order they can appear."""
+    damage_types: list[str] = []
+    _append_unique_damage_type(damage_types, enemy.damage_type)
+    for table in (enemy.melee_project, enemy.burst_on_hit, enemy.burst_on_crit):
+        for raw_type, raw_damage in table.items():
+            if raw_damage > 0.0:
+                _append_unique_damage_type(damage_types, raw_type)
+    return tuple(damage_types)
+
+
+def _append_unique_damage_type(damage_types: list[str], raw_type: str) -> None:
+    damage_type = cm.normalize_damage_type(raw_type)
+    if damage_type not in damage_types:
+        damage_types.append(damage_type)
+
+
 def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     """Compute a single-hit weapon threat report.
 
@@ -522,6 +540,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     damage type.
     """
     damage_type = cm.normalize_damage_type(enemy.damage_type)
+    damage_types = weapon_damage_types(enemy)
     hit = cm.hit_rate(enemy.atk, player.defense, player.evasion_pct)
     after_armor, after_armor_peak = weapon_after_armor_expected_peak(enemy, player)
     resist_mult = cm.resist_multiplier_for_type(
@@ -601,6 +620,9 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         notes.append(f"Knife accuracy bonus: +{knife_bonus * 100.0:.0f}% armor penetration")
     if project_expected > 0.0:
         notes.append(f"On-hit project adds ~{project_expected:.0f} damage")
+        project_types = tuple(type_name for type_name in damage_types if type_name != damage_type)
+        if project_types:
+            notes.append(f"Project damage types: {', '.join(project_types)}")
     if staff_bonus > 0.0:
         notes.append(f"Staff accuracy bonus: +{staff_bonus * 100.0:.0f}% project damage")
     if hit >= 75:
@@ -628,6 +650,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         crit_used_pct=crit_doubled,
         can_one_shot=peak >= player.effective_hp,
         damage_type=damage_type,
+        damage_types=damage_types,
         worst_resist_type=damage_type,
         worst_resist_multiplier=round(resist_mult, 3),
         best_inc_type=damage_type,

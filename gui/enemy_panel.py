@@ -46,7 +46,7 @@ from gui.theme import (
     TEXT,
     YELLOW,
 )
-from scoring.battle_simulator import combined_threat_pct, threat_tier_label
+from scoring.battle_simulator import combined_threat_pct, threat_damage_type_label, threat_tier_label
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, weapon_threat
 from scoring.talent_threat import (
@@ -361,6 +361,9 @@ class _EnemyCard(QFrame):
                     f"{talent_report.worst_damage_type or 'all'} "
                     f"({talent_report.max_threat_pct:.0f}% HP{timing_text})"
                 )
+            damage_type_label = (
+                "Damage type" if len(report.damage_types or (report.damage_type,)) == 1 else "Damage types"
+            )
             tooltip = (
                 f"Threat score: {threat_pct:.0f}% of effective HP\n"
                 f"Weapon threat: {report.weapon_threat_pct:.0f}% of effective HP\n"
@@ -369,8 +372,7 @@ class _EnemyCard(QFrame):
                 f"Peak weapon burst: {report.burst_peak_damage:.0f}"
                 f"{f' across {report.burst_hits} hits' if report.burst_hits > 1 else ''}\n"
                 f"Hit rate: {report.hit_rate_pct:.0f}%\n"
-                f"Damage type: {report.damage_type} "
-                f"(x{report.worst_resist_multiplier:.2f})"
+                f"{damage_type_label}: {threat_damage_type_label(report)}"
                 f"{talent_line}"
             )
             danger_badge = QLabel(badge_text)

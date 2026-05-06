@@ -9,6 +9,7 @@ from scoring.battle_simulator import (
     BattleSimulatorState,
     battle_calibration_estimate,
     combined_threat_pct,
+    threat_damage_type_label,
     threat_tier_label,
 )
 from scoring.combat_advice import survive_one_hit_advice
@@ -738,7 +739,10 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(report.expected_damage, 120.0)
         self.assertEqual(report.peak_damage, 120.0)
+        self.assertEqual(report.damage_types, ("PHYSICAL", "FIRE"))
+        self.assertEqual(threat_damage_type_label(report), "PHYSICAL, FIRE  (base PHYSICAL x1.00)")
         self.assertIn("On-hit project adds ~20 damage", report.notes)
+        self.assertIn("Project damage types: FIRE", report.notes)
 
     def test_staff_accuracy_multiplies_melee_project_damage(self) -> None:
         player = PlayerDefenses(max_life=300, defense=0)
