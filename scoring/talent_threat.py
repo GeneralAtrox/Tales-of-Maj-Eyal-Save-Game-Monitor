@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 
-from game_data.talent_db import TalentRecord, get_talent_db_by_id
+from game_data.talent_db import TalentRecord, get_talent_db_by_id, resolve_target_range
 
 from . import combat_math as cm
 from .enemy_threat import PlayerDefenses
@@ -379,7 +379,7 @@ def compute_talent_threat(
         daminc_mult = 1.0 + cm.damage_increase_for_type(powers.inc_damage, dtype or "all") / 100.0
         expected = after * mult * daminc_mult * _crit_multiplier(record, powers, player)
         threat_pct = (expected / player.effective_hp) * 100.0 * _speed_threat_scalar(powers)
-        range_to_target, range_limit = _range_check(record, powers, player)
+        range_to_target, range_limit = _range_check(record, powers, player, records)
 
         entry = TalentThreatEntry(
             talent_id=tid,
@@ -524,21 +524,14 @@ def _range_check(
     record: TalentRecord,
     powers: EnemyPowers,
     player: PlayerDefenses,
+    records: dict[str, TalentRecord],
 ) -> tuple[float | None, float | None]:
     if not record.requires_target:
         return None, None
-    target_range = _record_target_range(record, powers)
+    target_range = resolve_target_range(record, records, weapon_range=powers.weapon_range)
     if target_range is None:
         return None, None
     if powers.x is None or powers.y is None or player.x is None or player.y is None:
         return None, None
     distance = max(abs(powers.x - player.x), abs(powers.y - player.y))
     return distance, max(0.0, target_range + max(0.0, record.target_radius))
-
-
-def _record_target_range(record: TalentRecord, powers: EnemyPowers) -> float | None:
-    if record.target_range is not None:
-        return record.target_range
-    if record.target_range_source == "archery" and powers.weapon_range > 0.0:
-        return powers.weapon_range
-    return None

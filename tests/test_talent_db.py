@@ -185,6 +185,103 @@ newTalent{
         self.assertIsNone(record.target_range)
         self.assertEqual(record.target_range_source, "archery")
 
+    def test_target_table_range_is_used_when_talent_range_is_effect_distance(self) -> None:
+        lua = """
+newTalent{
+    name = "Anomaly Teleport",
+    requires_target = true,
+    range = function(self, t) return getAnomalyRange(self, t) end,
+    target = function(self, t)
+        return {type="ball", range=10, radius=self:getTalentRadius(t)}
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.target_range, 10.0)
+        self.assertEqual(record.target_range_source, "")
+
+    def test_trap_range_uses_engine_hard_cap(self) -> None:
+        lua = """
+newTalent{
+    name = "Beam Trap",
+    requires_target = true,
+    range = trap_range,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.target_range, 10.0)
+        self.assertEqual(record.target_range_source, "")
+
+    def test_target_range_resolves_delegated_talent_range(self) -> None:
+        lua = """
+newTalent{
+    name = "Throwing Knives",
+    short_name = "THROWING_KNIVES",
+    requires_target = true,
+    range = function(self, t) return math.floor(self:combatTalentLimit(t, 10, 4, 7)) end,
+}
+newTalent{
+    name = "Venomous Throw",
+    short_name = "VENOMOUS_THROW",
+    requires_target = true,
+    range = function(self, t)
+        local t = self:getTalentFromId(self.T_THROWING_KNIVES)
+        return self:getTalentRange(t)
+    end,
+}
+"""
+        records = {record.talent_id: record for _name, record in talent_db._parse_lua(lua)}
+
+        record = records["T_VENOMOUS_THROW"]
+        self.assertEqual(record.target_range_source, "talent_range:T_THROWING_KNIVES")
+        self.assertEqual(talent_db.resolve_target_range(record, records), 10.0)
+
+    def test_target_range_resolves_delegated_helper_range(self) -> None:
+        lua = """
+newTalent{
+    name = "Warp Mines",
+    short_name = "WARP_MINES",
+    getRange = function(self, t) return math.floor(self:combatTalentScale(t, 5, 9, 0.5, 0, 1)) end,
+}
+newTalent{
+    name = "Warp Mine Toward",
+    short_name = "WARP_MINE_TOWARD",
+    requires_target = true,
+    range = function(self, t) return self:callTalent(self.T_WARP_MINES, "getRange") or 5 end,
+}
+"""
+        records = {record.talent_id: record for _name, record in talent_db._parse_lua(lua)}
+
+        record = records["T_WARP_MINE_TOWARD"]
+        self.assertEqual(record.target_range_source, "talent_helper:T_WARP_MINES:getRange")
+        self.assertEqual(talent_db.resolve_target_range(record, records), 9.0)
+
+    def test_target_range_resolves_percentage_helper_range(self) -> None:
+        lua = """
+newTalent{
+    name = "Reach",
+    short_name = "REACH",
+    rangebonus = function(self, t) return math.max(0, self:combatTalentScale(t, 3, 10)) end,
+}
+newTalent{
+    name = "Bind",
+    short_name = "BIND",
+    requires_target = true,
+    range = function(self, t)
+        local r = 5
+        local mult = 1 + 0.01*self:callTalent(self.T_REACH, "rangebonus")
+        return math.floor(r*mult)
+    end,
+}
+"""
+        records = {record.talent_id: record for _name, record in talent_db._parse_lua(lua)}
+
+        record = records["T_BIND"]
+        self.assertEqual(record.target_range_source, "talent_helper_pct:T_REACH:rangebonus:5:0.01")
+        self.assertEqual(talent_db.resolve_target_range(record, records), 6.0)
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{

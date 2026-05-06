@@ -893,6 +893,56 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertTrue(report.entries[0].is_out_of_range)
         self.assertEqual(report.entries[0].range_limit, 6.0)
 
+    def test_weapon_threat_resolves_delegated_talent_range(self) -> None:
+        db = {
+            "T_THROWING_KNIVES": TalentRecord(talent_id="T_THROWING_KNIVES", target_range=10.0),
+            "T_VENOMOUS_THROW": TalentRecord(
+                talent_id="T_VENOMOUS_THROW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=2.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=2.0,
+                weapon_burst_hits=1,
+                requires_target=True,
+                target_range_source="talent_range:T_THROWING_KNIVES",
+            ),
+        }
+        player = PlayerDefenses(max_life=100, defense=0, x=0, y=0)
+        enemy = EnemyOffense(atk=100, dam=50, talents={"T_VENOMOUS_THROW": 5.0}, x=11, y=0)
+
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            out_of_range = weapon_threat(enemy, player)
+            enemy.x = 10
+            in_range = weapon_threat(enemy, player)
+
+        self.assertEqual(out_of_range.expected_damage, 50.0)
+        self.assertEqual(in_range.expected_damage, 100.0)
+
+    def test_talent_threat_resolves_delegated_helper_range(self) -> None:
+        player = PlayerDefenses(max_life=100, resists_cap={"all": 70}, x=0, y=0)
+        powers = EnemyPowers(spellpower=100, talents={"T_WARP_MINE_TOWARD": 5}, x=10, y=0)
+        db = {
+            "T_WARP_MINES": TalentRecord(
+                talent_id="T_WARP_MINES",
+                numeric_helpers={"getRange": 9.0},
+            ),
+            "T_WARP_MINE_TOWARD": TalentRecord(
+                talent_id="T_WARP_MINE_TOWARD",
+                damage_type="PHYSICAL",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=50.0,
+                requires_target=True,
+                target_range_source="talent_helper:T_WARP_MINES:getRange",
+            ),
+        }
+
+        report = compute_talent_threat(powers, player, db=db)
+
+        self.assertTrue(report.entries[0].is_out_of_range)
+        self.assertEqual(report.entries[0].range_limit, 9.0)
+
     def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:
         player = PlayerDefenses(max_life=100, armor=0, defense=0)
         enemy = EnemyOffense(

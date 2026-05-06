@@ -7,18 +7,21 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v17: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v19: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
 multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst,
 engine-default activated talent mode, NPC AI usability, direct numeric resource costs, and simple range metadata.
-Weapon talents also track simple ``combatTalentWeaponDamage`` auxiliary talent scaling.
+Weapon talents also track simple ``combatTalentWeaponDamage`` auxiliary talent scaling. Dynamic range metadata can
+now point at parsed helper talents when the engine delegates one talent's range to another.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -27,7 +30,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 17
+_CACHE_SCHEMA_VERSION = 19
 _RESOURCE_COST_FIELDS = frozenset(
     {
         "mana",
@@ -89,6 +92,8 @@ class TalentRecord:
     """Dynamic range source when static range is unavailable, e.g. ``archery``."""
     target_radius: float = 0.0
     """Direct numeric ``radius`` field when present."""
+    numeric_helpers: dict[str, float] = field(default_factory=dict)
+    """Simple helper return values, used to resolve delegated range functions."""
 
 
 _db: dict[str, TalentRecord] | None = None
@@ -107,6 +112,10 @@ _RE_RESOURCE_COST = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+(?:\.\
 _RE_REQUIRES_TARGET = re.compile(r"^\s*requires_target\s*=\s*(true|false)\s*,?\s*$")
 _RE_DIRECT_NUMERIC_FIELD = re.compile(r"^\s*{field}\s*=\s*(-?\d+(?:\.\d+)?)\s*,?\s*$")
 _RE_DIRECT_IDENTIFIER_FIELD = re.compile(r"^\s*{field}\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*,?\s*$")
+_RE_TARGET_RETURN_NUMERIC_RANGE = re.compile(
+    r"\btarget\s*=\s*function\b[\s\S]*?\breturn\s*\{[\s\S]{0,320}?\brange\s*=\s*(-?\d+(?:\.\d+)?)\b",
+    re.MULTILINE,
+)
 _RE_FUNCTION_RETURN_NUMBER_FIELD = re.compile(
     r"^\s*{field}\s*=\s*function\b[\s\S]*?\breturn\s+(-?\d+(?:\.\d+)?)\b",
     re.MULTILINE,
@@ -117,6 +126,24 @@ _RE_FUNCTION_SCALE_FIELD = re.compile(
     r"(?:\s*,\s*(-?\d+(?:\.\d+)?))?",
     re.MULTILINE,
 )
+_RE_FUNCTION_TALENT_RANGE_SOURCE = re.compile(
+    r"^\s*{field}\s*=\s*function\b[\s\S]*?getTalentFromId\s*\(\s*self\.(T_[A-Z0-9_]+)\s*\)"
+    r"[\s\S]*?\breturn\s+self:getTalentRange\s*\(\s*t\s*\)",
+    re.MULTILINE,
+)
+_RE_FUNCTION_TALENT_HELPER_SOURCE = re.compile(
+    r"^\s*{field}\s*=\s*function\b[\s\S]*?\breturn\s+self:callTalent\s*"
+    r"\(\s*self\.(T_[A-Z0-9_]+)\s*,\s*\"([A-Za-z_][A-Za-z0-9_]*)\"\s*\)",
+    re.MULTILINE,
+)
+_RE_FUNCTION_PERCENT_HELPER_SOURCE = re.compile(
+    r"^\s*{field}\s*=\s*function\b[\s\S]*?\blocal\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+    r"(-?\d+(?:\.\d+)?)[\s\S]*?1\s*\+\s*(-?\d+(?:\.\d+)?)\s*\*\s*self:callTalent\s*"
+    r"\(\s*self\.(T_[A-Z0-9_]+)\s*,\s*\"([A-Za-z_][A-Za-z0-9_]*)\"\s*\)"
+    r"[\s\S]*?\breturn\s+math\.floor\s*\(\s*\1\s*\*",
+    re.MULTILINE,
+)
+_RE_HELPER_FUNCTION_FIELD = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*function\b", re.MULTILINE)
 _RE_DAM_DESC = re.compile(r"damDesc\s*\(\s*[^,]+,\s*DamageType[.:](\w+)")
 _RE_DAMAGE_TYPE_TOKEN = re.compile(r"DamageType[.:](\w+)")
 _RE_SCALING = re.compile(
@@ -210,6 +237,61 @@ def lookup_talent_by_id(talent_id: str) -> TalentRecord | None:
     return get_talent_db_by_id().get(talent_id)
 
 
+def resolve_target_range(
+    record: TalentRecord,
+    records: Mapping[str, TalentRecord] | None = None,
+    *,
+    weapon_range: float = 0.0,
+    _seen: set[str] | None = None,
+) -> float | None:
+    if record.target_range is not None:
+        return record.target_range
+    source = record.target_range_source
+    if not source:
+        return None
+    if source == "archery":
+        return weapon_range if weapon_range > 0.0 else None
+    if records is None:
+        return None
+    if _seen is None:
+        _seen = set()
+    if record.talent_id:
+        if record.talent_id in _seen:
+            return None
+        _seen.add(record.talent_id)
+    if source.startswith("talent_range:"):
+        _, talent_id = source.split(":", 1)
+        other = records.get(talent_id)
+        if other is None:
+            return None
+        return resolve_target_range(other, records, weapon_range=weapon_range, _seen=_seen)
+    if source.startswith("talent_helper:"):
+        parts = source.split(":")
+        if len(parts) != 3:
+            return None
+        _, talent_id, helper_name = parts
+        return _helper_value(records, talent_id, helper_name)
+    if source.startswith("talent_helper_pct:"):
+        parts = source.split(":")
+        if len(parts) != 5:
+            return None
+        _, talent_id, helper_name, raw_base, raw_percent = parts
+        helper_value = _helper_value(records, talent_id, helper_name)
+        base = _float_or_none(raw_base)
+        percent = _float_or_none(raw_percent)
+        if helper_value is None or base is None or percent is None:
+            return None
+        return float(math.ceil(base * (1.0 + percent * helper_value)))
+    return None
+
+
+def _helper_value(records: Mapping[str, TalentRecord], talent_id: str, helper_name: str) -> float | None:
+    record = records.get(talent_id)
+    if record is None:
+        return None
+    return record.numeric_helpers.get(helper_name)
+
+
 def _rebuild() -> None:
     global _db, _db_by_id
     _db, _db_by_id = _load_or_build()
@@ -272,6 +354,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             target_range=_extract_target_range(block),
             target_range_source=_extract_target_range_source(block),
             target_radius=_extract_numeric_or_scaled_field(block, "radius") or 0.0,
+            numeric_helpers=_extract_numeric_helpers(block),
         )
         dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits, aux_talent_id = _extract_damage(
             block
@@ -362,18 +445,61 @@ def _extract_target_range(block: str) -> float | None:
     value = _extract_numeric_or_scaled_field(block, "range")
     if value is not None:
         return value
+    if _extract_direct_identifier_field(block, "range") == "trap_range":
+        return 10.0
+    value = _extract_target_table_range(block)
+    if value is not None:
+        return value
     if _extract_requires_target(block) and not _has_direct_field_assignment(block, "range"):
         return 1.0
     return None
 
 
 def _extract_target_range_source(block: str) -> str:
-    if _extract_numeric_or_scaled_field(block, "range") is not None:
+    if (
+        _extract_numeric_or_scaled_field(block, "range") is not None
+        or _extract_direct_identifier_field(block, "range") == "trap_range"
+        or _extract_target_table_range(block) is not None
+    ):
         return ""
     identifier = _extract_direct_identifier_field(block, "range")
     if identifier == "archery_range":
         return "archery"
+    if source := _extract_percent_helper_range_source(block, "range"):
+        return source
+    if source := _extract_talent_helper_range_source(block, "range"):
+        return source
+    if source := _extract_talent_range_source(block, "range"):
+        return source
     return ""
+
+
+def _extract_target_table_range(block: str) -> float | None:
+    if not (match := _RE_TARGET_RETURN_NUMERIC_RANGE.search(_strip_lua_comments(block))):
+        return None
+    return _float_or_none(match.group(1))
+
+
+def _extract_talent_range_source(block: str, field_name: str) -> str:
+    pattern = re.compile(_RE_FUNCTION_TALENT_RANGE_SOURCE.pattern.format(field=re.escape(field_name)), re.MULTILINE)
+    if not (match := pattern.search(_strip_lua_comments(block))):
+        return ""
+    return f"talent_range:{match.group(1)}"
+
+
+def _extract_talent_helper_range_source(block: str, field_name: str) -> str:
+    pattern = re.compile(_RE_FUNCTION_TALENT_HELPER_SOURCE.pattern.format(field=re.escape(field_name)), re.MULTILINE)
+    if not (match := pattern.search(_strip_lua_comments(block))):
+        return ""
+    return f"talent_helper:{match.group(1)}:{match.group(2)}"
+
+
+def _extract_percent_helper_range_source(block: str, field_name: str) -> str:
+    pattern = re.compile(_RE_FUNCTION_PERCENT_HELPER_SOURCE.pattern.format(field=re.escape(field_name)), re.MULTILINE)
+    if not (match := pattern.search(_strip_lua_comments(block))):
+        return ""
+    _variable, base, percent, talent_id, helper_name = match.groups()
+    return f"talent_helper_pct:{talent_id}:{helper_name}:{base}:{percent}"
 
 
 def _extract_direct_numeric_field(block: str, field_name: str) -> float | None:
@@ -405,14 +531,27 @@ def _extract_numeric_or_scaled_field(block: str, field_name: str) -> float | Non
     if (value := _extract_direct_numeric_field(block, field_name)) is not None:
         return value
     escaped = re.escape(field_name)
-    if match := re.search(_RE_FUNCTION_RETURN_NUMBER_FIELD.pattern.format(field=escaped), block, re.MULTILINE):
-        return _float_or_none(match.group(1))
     if match := re.search(_RE_FUNCTION_SCALE_FIELD.pattern.format(field=escaped), block, re.MULTILINE):
         values = [_float_or_none(group) for group in match.groups()]
         numeric_values = [value for value in values if value is not None]
         if numeric_values:
             return max(numeric_values)
+    if match := re.search(_RE_FUNCTION_RETURN_NUMBER_FIELD.pattern.format(field=escaped), block, re.MULTILINE):
+        return _float_or_none(match.group(1))
     return None
+
+
+def _extract_numeric_helpers(block: str) -> dict[str, float]:
+    helpers: dict[str, float] = {}
+    stripped = _strip_lua_comments(block)
+    for match in _RE_HELPER_FUNCTION_FIELD.finditer(stripped):
+        helper_name = match.group(1)
+        if helper_name not in {"getRange", "rangebonus"} and not helper_name.lower().endswith("range"):
+            continue
+        value = _extract_numeric_or_scaled_field(stripped, helper_name)
+        if value is not None:
+            helpers[helper_name] = value
+    return helpers
 
 
 def _float_or_none(value: str | None) -> float | None:
@@ -644,6 +783,7 @@ def _record_to_cache(record: TalentRecord) -> dict[str, object]:
         "target_range": record.target_range,
         "target_range_source": record.target_range_source,
         "target_radius": record.target_radius,
+        "numeric_helpers": dict(record.numeric_helpers),
     }
 
 
@@ -653,6 +793,8 @@ def _record_from_cache(value: object) -> TalentRecord | None:
     td = value.get("tactical_disable", [])
     raw_costs = value.get("resource_costs", {})
     cost_items = raw_costs.items() if isinstance(raw_costs, dict) else ()
+    raw_helpers = value.get("numeric_helpers", {})
+    helper_items = raw_helpers.items() if isinstance(raw_helpers, dict) else ()
     return TalentRecord(
         description=str(value.get("description", "")),
         icon=str(value.get("icon", "")),
@@ -686,4 +828,9 @@ def _record_from_cache(value: object) -> TalentRecord | None:
         ),
         target_range_source=str(value.get("target_range_source", "")),
         target_radius=float(value.get("target_radius", 0.0) or 0.0),
+        numeric_helpers={
+            str(key): float(helper)
+            for key, helper in helper_items
+            if isinstance(helper, (int, float))
+        },
     )
