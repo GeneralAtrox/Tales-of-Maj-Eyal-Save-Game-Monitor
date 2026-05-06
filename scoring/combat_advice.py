@@ -21,6 +21,7 @@ from .enemy_threat import (
     EnemyOffense,
     PlayerDefenses,
     ThreatReport,
+    damage_type_multiplier,
     weapon_after_armor_expected_peak,
     weapon_apr_after_accuracy,
     weapon_crit_chance_pct,
@@ -82,14 +83,7 @@ def _peak_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     """
     _, after_armor_peak = weapon_after_armor_expected_peak(enemy, player)
     damage_type = cm.normalize_damage_type(enemy.damage_type)
-    resist_mult = cm.resist_multiplier_for_type(
-        player.resists,
-        enemy.resists_pen,
-        player.resists_cap,
-        damage_type,
-    )
-    damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
-    daminc_mult = 1.0 + damage_inc / 100.0
+    damage_mult = damage_type_multiplier(enemy, player, damage_type)
     crit_mult = _crit_multiplier(enemy, player, peak=True)
 
     weapon_mults = enemy.weapon_multipliers_against(player)
@@ -98,7 +92,7 @@ def _peak_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
         player,
         100.0 if weapon_crit_chance_pct(enemy, player) > 0.0 else 0.0,
     )
-    return after_armor_peak * crit_mult * resist_mult * daminc_mult * max(1.0, weapon_mults.max_hit) + project_peak
+    return after_armor_peak * crit_mult * damage_mult * max(1.0, weapon_mults.max_hit) + project_peak
 
 
 def survive_one_hit_advice(
@@ -134,79 +128,76 @@ def survive_one_hit_advice(
     daminc_mult = 1.0 + damage_inc / 100.0
     tal_mult = max(1.0, enemy.weapon_multipliers_against(player).max_hit)
     wrapper = crit_mult * daminc_mult * tal_mult
+    damage_mult = damage_type_multiplier(enemy, player, damage_type)
+    armor_wrapper = crit_mult * tal_mult
 
     # ── Lever 1: resistance on the actual weapon damage type ──────────────
-    current_effective = cm.effective_resist_pct(
-        player.resists,
-        damage_type,
-        player.resists_cap,
-    )
-    current_raw = player.resists.get(damage_type, player.resists.get(damage_type.lower(), 0.0))
-    all_resist = player.resists.get("all", player.resists.get("ALL", 0.0))
-    pen = cm.resist_pen_for_type(enemy.resists_pen, damage_type)
-    cap = cm.resist_cap_for_type(player.resists_cap, damage_type)
-    # expected = after_armor * wrapper * (1 - effective/100) <= base_target_dam
-    # effective >= (1 - base_target_dam / (after_armor * wrapper)) * 100
-    denom = after_armor * wrapper
-    if denom > 0:
-        needed_effective = (1.0 - base_target_dam / denom) * 100.0
-        pen_factor = 1.0 - min(100.0, max(0.0, pen)) / 100.0
-        if needed_effective > 0.0 and pen_factor <= 0.0:
-            delta = max(0.0, cap - current_effective)
-            if delta > 0:
-                advice.append(
-                    AdviceItem(
-                        lever=f"{damage_type} resist",
-                        description=(
-                            f"Raise {damage_type} effective resistance as far as possible "
-                            f"(cap {cap:.0f}%, +{delta:.0f} from {current_effective:.0f}%)"
-                            " -- not feasible alone because the enemy fully penetrates it"
-                        ),
-                        delta=round(delta, 1),
-                        target_value=round(cap, 1),
-                        feasible=False,
+    if cm.damage_type_components(damage_type) == ((damage_type, 1.0),):
+        current_effective = cm.effective_resist_pct(
+            player.resists,
+            damage_type,
+            player.resists_cap,
+        )
+        current_raw = player.resists.get(damage_type, player.resists.get(damage_type.lower(), 0.0))
+        all_resist = player.resists.get("all", player.resists.get("ALL", 0.0))
+        pen = cm.resist_pen_for_type(enemy.resists_pen, damage_type)
+        cap = cm.resist_cap_for_type(player.resists_cap, damage_type)
+        # expected = after_armor * wrapper * (1 - effective/100) <= base_target_dam
+        # effective >= (1 - base_target_dam / (after_armor * wrapper)) * 100
+        denom = after_armor * wrapper
+        if denom > 0:
+            needed_effective = (1.0 - base_target_dam / denom) * 100.0
+            pen_factor = 1.0 - min(100.0, max(0.0, pen)) / 100.0
+            if needed_effective > 0.0 and pen_factor <= 0.0:
+                delta = max(0.0, cap - current_effective)
+                if delta > 0:
+                    advice.append(
+                        AdviceItem(
+                            lever=f"{damage_type} resist",
+                            description=(
+                                f"Raise {damage_type} effective resistance as far as possible "
+                                f"(cap {cap:.0f}%, +{delta:.0f} from {current_effective:.0f}%)"
+                                " -- not feasible alone because the enemy fully penetrates it"
+                            ),
+                            delta=round(delta, 1),
+                            target_value=round(cap, 1),
+                            feasible=False,
+                        )
                     )
-                )
-        else:
-            needed_combined = needed_effective
-            if needed_effective > 0.0:
-                needed_combined = needed_effective / pen_factor
-            if damage_type == "all":
-                needed_raw_resist = needed_combined
             else:
-                needed_raw_resist = _raw_resist_for_effective(all_resist, needed_combined)
-            feasible = needed_combined <= cap + 1e-6
-            delta = max(0.0, needed_raw_resist - current_raw)
-            if delta > 0:
-                advice.append(
-                    AdviceItem(
-                        lever=f"{damage_type} resist",
-                        description=(
-                            f"Raise {damage_type} resistance to "
-                            f"{needed_raw_resist:.0f}% (+{delta:.0f} from {current_raw:.0f}%)"
-                            + ("" if feasible else f" -- exceeds {cap:.0f}% cap, not feasible alone")
-                        ),
-                        delta=round(delta, 1),
-                        target_value=round(needed_raw_resist, 1),
-                        feasible=feasible,
+                needed_combined = needed_effective
+                if needed_effective > 0.0:
+                    needed_combined = needed_effective / pen_factor
+                if damage_type == "all":
+                    needed_raw_resist = needed_combined
+                else:
+                    needed_raw_resist = _raw_resist_for_effective(all_resist, needed_combined)
+                feasible = needed_combined <= cap + 1e-6
+                delta = max(0.0, needed_raw_resist - current_raw)
+                if delta > 0:
+                    advice.append(
+                        AdviceItem(
+                            lever=f"{damage_type} resist",
+                            description=(
+                                f"Raise {damage_type} resistance to "
+                                f"{needed_raw_resist:.0f}% (+{delta:.0f} from {current_raw:.0f}%)"
+                                + ("" if feasible else f" -- exceeds {cap:.0f}% cap, not feasible alone")
+                            ),
+                            delta=round(delta, 1),
+                            target_value=round(needed_raw_resist, 1),
+                            feasible=feasible,
+                        )
                     )
-                )
 
     # ── Lever 2: armor (only meaningful for the hardened portion) ─────────
     hard_pct = max(0.0, min(100.0, player.armor_hardiness_pct)) / 100.0
     if hard_pct > 0:
-        resist_mult = cm.resist_multiplier_for_type(
-            player.resists,
-            enemy.resists_pen,
-            player.resists_cap,
-            damage_type,
-        )
         # Fixed portion (soft damage) can't be armored away.
         soft_dam = high_roll_damage * (1.0 - hard_pct)
-        soft_after_resist = soft_dam * resist_mult * wrapper
-        # Need: (hardened_after_armor + soft_dam) * resist_mult * wrapper <= base_target_dam
-        # hardened_after_armor <= base_target_dam/(resist_mult*wrapper) - soft_dam
-        budget = base_target_dam / (resist_mult * wrapper) - soft_dam if resist_mult * wrapper > 0 else -1
+        soft_after_resist = soft_dam * damage_mult * armor_wrapper
+        # Need: (hardened_after_armor + soft_dam) * damage_mult * armor_wrapper <= base_target_dam
+        # hardened_after_armor <= base_target_dam/(damage_mult*armor_wrapper) - soft_dam
+        budget = base_target_dam / (damage_mult * armor_wrapper) - soft_dam if damage_mult * armor_wrapper > 0 else -1
         if budget < 0:
             advice.append(
                 AdviceItem(

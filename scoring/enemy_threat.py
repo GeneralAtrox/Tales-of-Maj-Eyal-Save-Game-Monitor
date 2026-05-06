@@ -486,15 +486,7 @@ def weapon_project_damage(
     for raw_type, raw_damage in damages.items():
         if raw_damage <= 0.0:
             continue
-        damage_type = cm.normalize_damage_type(raw_type)
-        resist_mult = cm.resist_multiplier_for_type(
-            player.resists,
-            enemy.resists_pen,
-            player.resists_cap,
-            damage_type,
-        )
-        damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
-        total += raw_damage * multiplier * resist_mult * (1.0 + damage_inc / 100.0)
+        total += raw_damage * multiplier * damage_type_multiplier(enemy, player, raw_type)
     return total
 
 
@@ -518,11 +510,11 @@ def weapon_project_damage_expected_peak(
 def weapon_damage_types(enemy: EnemyOffense) -> tuple[str, ...]:
     """Return base weapon and proc damage types in the order they can appear."""
     damage_types: list[str] = []
-    _append_unique_damage_type(damage_types, enemy.damage_type)
+    _append_unique_damage_type_components(damage_types, enemy.damage_type)
     for table in (enemy.melee_project, enemy.burst_on_hit, enemy.burst_on_crit):
         for raw_type, raw_damage in table.items():
             if raw_damage > 0.0:
-                _append_unique_damage_type(damage_types, raw_type)
+                _append_unique_damage_type_components(damage_types, raw_type)
     return tuple(damage_types)
 
 
@@ -530,6 +522,44 @@ def _append_unique_damage_type(damage_types: list[str], raw_type: str) -> None:
     damage_type = cm.normalize_damage_type(raw_type)
     if damage_type not in damage_types:
         damage_types.append(damage_type)
+
+
+def _append_unique_damage_type_components(damage_types: list[str], raw_type: str) -> None:
+    for damage_type, _fraction in cm.damage_type_components(raw_type):
+        _append_unique_damage_type(damage_types, damage_type)
+
+
+def damage_type_resist_multiplier(enemy: EnemyOffense, player: PlayerDefenses, raw_type: str) -> float:
+    total = 0.0
+    for damage_type, fraction in cm.damage_type_components(raw_type):
+        total += fraction * cm.resist_multiplier_for_type(
+            player.resists,
+            enemy.resists_pen,
+            player.resists_cap,
+            damage_type,
+        )
+    return total
+
+
+def damage_type_increase_pct(enemy: EnemyOffense, raw_type: str) -> float:
+    total = 0.0
+    for damage_type, fraction in cm.damage_type_components(raw_type):
+        total += fraction * cm.damage_increase_for_type(enemy.inc_damage, damage_type)
+    return total
+
+
+def damage_type_multiplier(enemy: EnemyOffense, player: PlayerDefenses, raw_type: str) -> float:
+    total = 0.0
+    for damage_type, fraction in cm.damage_type_components(raw_type):
+        resist_mult = cm.resist_multiplier_for_type(
+            player.resists,
+            enemy.resists_pen,
+            player.resists_cap,
+            damage_type,
+        )
+        damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
+        total += fraction * resist_mult * (1.0 + damage_inc / 100.0)
+    return total
 
 
 def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
@@ -543,14 +573,9 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     damage_types = weapon_damage_types(enemy)
     hit = cm.hit_rate(enemy.atk, player.defense, player.evasion_pct)
     after_armor, after_armor_peak = weapon_after_armor_expected_peak(enemy, player)
-    resist_mult = cm.resist_multiplier_for_type(
-        player.resists,
-        enemy.resists_pen,
-        player.resists_cap,
-        damage_type,
-    )
-    damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
-    daminc_mult = 1.0 + damage_inc / 100.0
+    resist_mult = damage_type_resist_multiplier(enemy, player, damage_type)
+    damage_inc = damage_type_increase_pct(enemy, damage_type)
+    damage_mult = damage_type_multiplier(enemy, player, damage_type)
 
     crit_chance = weapon_crit_chance_pct(enemy, player)
     crit_doubled = min(100.0, crit_chance * 2.0)
@@ -566,8 +591,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         burst_hits=burst_hits,
     )
 
-    base_multiplier = after_armor * resist_mult * daminc_mult
-    base_peak_multiplier = after_armor_peak * resist_mult * daminc_mult
+    base_multiplier = after_armor * damage_mult
+    base_peak_multiplier = after_armor_peak * damage_mult
     base_hit = base_multiplier * max(1.0, weapon_mults.max_hit)
     base_hit_peak = base_peak_multiplier * max(1.0, weapon_mults.max_hit)
     base_burst = base_multiplier * max(1.0, weapon_mults.burst)

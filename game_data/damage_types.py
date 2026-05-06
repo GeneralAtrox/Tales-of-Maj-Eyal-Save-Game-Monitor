@@ -40,6 +40,15 @@ _DAMAGE_TYPE_ALIASES: Final[dict[str, str]] = {
     "WARP": "TEMPORAL",
     "WORMBLIGHT": "BLIGHT",
 }
+_DAMAGE_TYPE_COMPONENTS: Final[dict[str, tuple[tuple[str, float], ...]]] = {
+    "DARKLIGHT": (("DARKNESS", 0.5), ("LIGHT", 0.5)),
+    "ENTANGLE": (("PHYSICAL", 1.0 / 3.0), ("NATURE", 2.0 / 3.0)),
+    "FETID": (("BLIGHT", 0.5), ("DARKNESS", 0.5)),
+    "FROSTDUSK": (("COLD", 0.5), ("DARKNESS", 0.5)),
+    "METEOR": (("PHYSICAL", 0.5), ("FIRE", 0.5)),
+    "MOLTENROCK": (("FIRE", 0.5), ("PHYSICAL", 0.5)),
+    "SHADOWFLAME": (("FIRE", 0.5), ("DARKNESS", 0.5)),
+}
 
 
 def normalize_damage_type(damage_type: str | None, default: str = "PHYSICAL") -> str:
@@ -85,3 +94,11 @@ def normalize_damage_type(damage_type: str | None, default: str = "PHYSICAL") ->
     if key.startswith("ARCANE"):
         return "ARCANE"
     return key
+
+
+def damage_type_components(damage_type: str | None, default: str = "PHYSICAL") -> tuple[tuple[str, float], ...]:
+    """Return base damage components for split projectors."""
+    key = normalize_damage_type(damage_type, default)
+    if key in _DAMAGE_TYPE_COMPONENTS:
+        return _DAMAGE_TYPE_COMPONENTS[key]
+    return ((key, 1.0),)

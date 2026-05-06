@@ -6,6 +6,7 @@ from game_data.talent_db import TalentRecord
 from scoring import combat_math as cm
 from scoring.battle_simulator import (
     BattleEnemySnapshot,
+    BattleSimulationResult,
     BattleSimulatorState,
     battle_calibration_estimate,
     combined_threat_pct,
@@ -760,6 +761,27 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(report.expected_damage, 86.0)
         self.assertEqual(report.damage_types, ("PHYSICAL", "COLD", "NATURE", "BLIGHT"))
+
+    def test_split_weapon_damage_type_uses_component_resists(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0, resists={"FIRE": 50, "DARKNESS": 0})
+        enemy = EnemyOffense(atk=100, dam=100, damage_type="SHADOWFLAME")
+
+        report = weapon_threat(enemy, player)
+        estimate = battle_calibration_estimate(
+            BattleSimulationResult(
+                player=player,
+                enemy=BattleEnemySnapshot(offense=enemy),
+                report=report,
+                advice=[],
+            )
+        )
+
+        self.assertEqual(report.expected_damage, 75.0)
+        self.assertEqual(report.peak_damage, 75.0)
+        self.assertEqual(report.damage_type, "SHADOWFLAME")
+        self.assertEqual(report.damage_types, ("FIRE", "DARKNESS"))
+        self.assertEqual(threat_damage_type_label(report), "FIRE, DARKNESS  (base SHADOWFLAME x0.75)")
+        self.assertEqual(estimate.damage_types, ("FIRE", "DARKNESS"))
 
     def test_staff_accuracy_multiplies_melee_project_damage(self) -> None:
         player = PlayerDefenses(max_life=300, defense=0)

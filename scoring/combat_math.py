@@ -11,7 +11,11 @@ from __future__ import annotations
 import math
 from typing import Final
 
-from game_data.damage_types import BASE_DAMAGE_TYPES, normalize_damage_type as _normalize_game_damage_type
+from game_data.damage_types import (
+    BASE_DAMAGE_TYPES,
+    damage_type_components as _game_damage_type_components,
+    normalize_damage_type as _normalize_game_damage_type,
+)
 
 # ── ToME constants ──────────────────────────────────────────────────────────
 
@@ -42,6 +46,14 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 def normalize_damage_type(damage_type: str | None, default: str = DEFAULT_DAMAGE_TYPE) -> str:
     """Return the canonical key used by ToME damage tables."""
     return _normalize_game_damage_type(damage_type, default)
+
+
+def damage_type_components(
+    damage_type: str | None,
+    default: str = DEFAULT_DAMAGE_TYPE,
+) -> tuple[tuple[str, float], ...]:
+    """Return base damage components for split ToME damage types."""
+    return _game_damage_type_components(damage_type, default)
 
 
 def _table_value(table: dict[str, float] | None, damage_type: str) -> float:
