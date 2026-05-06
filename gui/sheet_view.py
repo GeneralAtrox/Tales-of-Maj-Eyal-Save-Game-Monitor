@@ -1940,6 +1940,9 @@ class CharacterSheetView(QWidget):
         super().__init__(parent)
         self._detail_panel: _TalentDetailPanel | None = None
         self._talents_feature_lay: QVBoxLayout | None = None
+        self._talents_tab_lay: QVBoxLayout | None = None
+        self._talents_scroll: QScrollArea | None = None
+        self._left_lay: QVBoxLayout | None = None
         mark_startup_phase("sheet_detail_panel_deferred")
         self._current_category: str = ""
         self._current_sprite: QPixmap | None = None
@@ -1993,45 +1996,14 @@ class CharacterSheetView(QWidget):
         root.addWidget(self._content_tabs, 1)
         mark_startup_phase("sheet_tabs_create_done")
 
-        # Talents tab: left scroll | open feature area
-        mark_startup_phase("sheet_talents_tab_create_start")
+        # Talents tab scaffold is built lazily when sheet data first arrives.
+        mark_startup_phase("sheet_talents_placeholder_start")
         talents_tab = QWidget()
-        talents_root = QVBoxLayout(talents_tab)
-        talents_root.setContentsMargins(0, 0, 0, 0)
-        talents_root.setSpacing(0)
-
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(1)
-        splitter.setChildrenCollapsible(False)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}")
-        self._talents_scroll = scroll
-        self._left = QWidget()
-        self._left.setStyleSheet(f"background: {BG};")
-        self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._left_lay = QVBoxLayout(self._left)
-        self._left_lay.setContentsMargins(12, 12, 12, 24)
-        self._left_lay.setSpacing(2)
-        self._left_lay.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._left_lay.addStretch()
-        scroll.setWidget(self._left)
-        splitter.addWidget(scroll)
-        self._talents_feature_host = QWidget()
-        self._talents_feature_host.setStyleSheet(f"background: {BG}; border-left: 1px solid {BORDER};")
-        feature_lay = QVBoxLayout(self._talents_feature_host)
-        feature_lay.setContentsMargins(12, 12, 12, 12)
-        feature_lay.setSpacing(0)
-        feature_lay.addStretch()
-        self._talents_feature_lay = feature_lay
-        splitter.addWidget(self._talents_feature_host)
-        splitter.setSizes([860, 140])
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-        talents_root.addWidget(splitter)
+        self._talents_tab_lay = QVBoxLayout(talents_tab)
+        self._talents_tab_lay.setContentsMargins(0, 0, 0, 0)
+        self._talents_tab_lay.setSpacing(0)
         self._content_tabs.addTab(talents_tab, "Talents")
-        mark_startup_phase("sheet_talents_tab_create_done")
+        mark_startup_phase("sheet_talents_placeholder_done")
 
         mark_startup_phase("sheet_inventory_placeholder_start")
         inventory_tab = QWidget()
@@ -2334,6 +2306,10 @@ class CharacterSheetView(QWidget):
         return merged
 
     def _reload_current(self) -> None:
+        if not self._ensure_talents_tab():
+            return
+        assert self._talents_scroll is not None
+        assert self._left_lay is not None
         talent_scroll_value = self._talents_scroll.verticalScrollBar().value()
         self._clear_left()
         self._clear_player_box()
@@ -2495,6 +2471,46 @@ class CharacterSheetView(QWidget):
             )
         )
         self._inventory_dirty = False
+
+    def _ensure_talents_tab(self) -> bool:
+        if self._talents_scroll is not None and self._left_lay is not None:
+            return True
+        if self._talents_tab_lay is None:
+            return False
+
+        mark_startup_phase("sheet_talents_tab_create_start")
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(1)
+        splitter.setChildrenCollapsible(False)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}")
+        self._talents_scroll = scroll
+        self._left = QWidget()
+        self._left.setStyleSheet(f"background: {BG};")
+        self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._left_lay = QVBoxLayout(self._left)
+        self._left_lay.setContentsMargins(12, 12, 12, 24)
+        self._left_lay.setSpacing(2)
+        self._left_lay.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._left_lay.addStretch()
+        scroll.setWidget(self._left)
+        splitter.addWidget(scroll)
+        self._talents_feature_host = QWidget()
+        self._talents_feature_host.setStyleSheet(f"background: {BG}; border-left: 1px solid {BORDER};")
+        feature_lay = QVBoxLayout(self._talents_feature_host)
+        feature_lay.setContentsMargins(12, 12, 12, 12)
+        feature_lay.setSpacing(0)
+        feature_lay.addStretch()
+        self._talents_feature_lay = feature_lay
+        splitter.addWidget(self._talents_feature_host)
+        splitter.setSizes([860, 140])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        self._talents_tab_lay.addWidget(splitter)
+        mark_startup_phase("sheet_talents_tab_create_done")
+        return True
 
     def _ensure_inventory_tab(self) -> bool:
         if (
@@ -2698,6 +2714,7 @@ class CharacterSheetView(QWidget):
     def _ensure_detail_panel(self) -> _TalentDetailPanel:
         if self._detail_panel is not None:
             return self._detail_panel
+        self._ensure_talents_tab()
         panel = _TalentDetailPanel()
         self._detail_panel = panel
         if self._talents_feature_lay is not None:
@@ -2707,6 +2724,8 @@ class CharacterSheetView(QWidget):
     # ── Helpers ───────────────────────────────────────────────────────────
 
     def _clear_left(self) -> None:
+        if self._left_lay is None:
+            return
         while self._left_lay.count() > 1:  # keep trailing stretch
             item = self._left_lay.takeAt(0)
             if item.widget():

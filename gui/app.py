@@ -7,11 +7,6 @@ import sys
 import time
 from pathlib import Path
 
-import pyuac
-import win32con
-import win32gui
-import win32process
-
 from gui.startup_trace import configure_startup_trace, mark_startup_phase, write_startup_trace
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -42,6 +37,9 @@ def _pid_image_name(pid: int) -> str:
 
 def _find_existing_windows(window_title: str) -> list[tuple[int, int]]:
     """Return ``(hwnd, pid)`` pairs for matching GUI windows owned by Python processes."""
+    import win32gui
+    import win32process
+
     current_pid = os.getpid()
     matches: list[tuple[int, int]] = []
 
@@ -75,6 +73,9 @@ def _request_existing_shutdown(window_title: str, timeout_s: float = 5.0) -> Non
     """Close any existing GUI windows for this app before launching a new one."""
     import subprocess
 
+    import win32con
+    import win32gui
+
     deadline = time.monotonic() + timeout_s
     force_after = time.monotonic() + 1.0
     while True:
@@ -105,10 +106,20 @@ def _request_existing_shutdown(window_title: str, timeout_s: float = 5.0) -> Non
 def _relaunch_elevated() -> bool:
     """Start an elevated copy of the app and return True when launch succeeds."""
     try:
+        import pyuac
+
         pyuac.runAsAdmin(wait=False)
     except Exception:
         return False
     return True
+
+
+def _is_user_admin() -> bool:
+    """Return True when the current process has administrator rights."""
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
 
 
 def main(*, startup_started_at: float | None = None) -> None:
@@ -117,7 +128,7 @@ def main(*, startup_started_at: float | None = None) -> None:
 
     # ── Request Administrator if not already elevated ──
     mark_startup_phase("admin_check_start")
-    is_admin = pyuac.isUserAdmin()
+    is_admin = _is_user_admin()
     mark_startup_phase("admin_check_done", is_admin=is_admin)
     if not is_admin:
         if _debug_mode_active():
