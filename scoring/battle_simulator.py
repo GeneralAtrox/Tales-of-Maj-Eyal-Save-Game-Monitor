@@ -55,6 +55,47 @@ class BattleSimulationResult:
     status: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class BattleCalibrationEstimate:
+    expected_damage: float | None = None
+    peak_damage: float | None = None
+    damage_types: tuple[str, ...] = ()
+
+
+def battle_calibration_estimate(result: BattleSimulationResult) -> BattleCalibrationEstimate:
+    """Return the quick-sim damage values that should be compared with engine practice logs."""
+    expected_candidates: list[tuple[float, str]] = []
+    peak_candidates: list[tuple[float, str]] = []
+    damage_types: list[str] = []
+    if result.report is not None:
+        _add_damage_candidate(expected_candidates, result.report.expected_damage, result.report.damage_type)
+        _add_damage_candidate(peak_candidates, result.report.peak_damage, result.report.damage_type)
+        _add_unique_damage_type(damage_types, result.report.damage_type)
+    if result.talent_report is not None and result.talent_report.max_expected_damage > 0.0:
+        talent_type = result.talent_report.worst_damage_type
+        _add_damage_candidate(expected_candidates, result.talent_report.max_expected_damage, talent_type)
+        _add_damage_candidate(peak_candidates, result.talent_report.max_expected_damage, talent_type)
+        _add_unique_damage_type(damage_types, talent_type)
+    expected = max(expected_candidates, default=None, key=lambda item: item[0])
+    peak = max(peak_candidates, default=None, key=lambda item: item[0])
+    return BattleCalibrationEstimate(
+        expected_damage=expected[0] if expected is not None else None,
+        peak_damage=peak[0] if peak is not None else None,
+        damage_types=tuple(damage_types),
+    )
+
+
+def _add_damage_candidate(candidates: list[tuple[float, str]], damage: float, damage_type: str) -> None:
+    if damage > 0.0:
+        candidates.append((damage, damage_type))
+
+
+def _add_unique_damage_type(damage_types: list[str], damage_type: str) -> None:
+    normalized = damage_type.strip().upper()
+    if normalized and normalized not in damage_types:
+        damage_types.append(normalized)
+
+
 def copy_player_defenses(player: PlayerDefenses | None) -> PlayerDefenses | None:
     if player is None:
         return None

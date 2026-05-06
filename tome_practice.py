@@ -88,6 +88,7 @@ def summarize_damage_calibration(
     quick_expected_damage: float | None = None,
     quick_peak_damage: float | None = None,
     quick_damage_type: str = "",
+    quick_damage_types: tuple[str, ...] = (),
     limit: int = 3,
 ) -> tuple[str, ...]:
     """Return compact engine-vs-quick-estimate lines for the simulator UI."""
@@ -127,10 +128,9 @@ def summarize_damage_calibration(
         if ratio < _QUICK_ESTIMATE_UNDER_RATIO:
             shortfall = (1.0 - ratio) * 100.0
             lines.append(f"Warning: {warning_label} is {shortfall:.0f}% below the engine max hit")
-    if max_hit.damage_type and quick_damage_type:
-        normalized_quick_type = quick_damage_type.strip().upper()
-        if max_hit.damage_type != normalized_quick_type:
-            lines.append(f"Damage type mismatch: engine {max_hit.damage_type}, quick {normalized_quick_type}")
+    normalized_quick_types = _normalized_quick_damage_types(quick_damage_type, quick_damage_types)
+    if max_hit.damage_type and normalized_quick_types and max_hit.damage_type not in normalized_quick_types:
+        lines.append(f"Damage type mismatch: engine {max_hit.damage_type}, quick {', '.join(normalized_quick_types)}")
 
     lines.append("Top incoming hits:")
     for event in incoming_hits[: max(1, limit)]:
@@ -138,6 +138,15 @@ def summarize_damage_calibration(
         dtype = f" {event.damage_type}" if event.damage_type else ""
         lines.append(f"  T{event.turn}: {event.amount:.1f}{dtype} from {event.source or 'unknown'}{message}")
     return tuple(lines)
+
+
+def _normalized_quick_damage_types(quick_damage_type: str, quick_damage_types: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for damage_type in (*quick_damage_types, quick_damage_type):
+        value = damage_type.strip().upper()
+        if value and value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
 
 
 def _incoming_damage_by_type(events: list[PracticeDamageEvent], limit: int = 4) -> tuple[str, ...]:

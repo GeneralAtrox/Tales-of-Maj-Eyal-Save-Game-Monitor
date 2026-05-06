@@ -204,6 +204,28 @@ class TomePracticeTests(unittest.TestCase):
         self.assertIn("Quick peak: 110.0 (1.10x engine max)", lines)
         self.assertFalse(any(line.startswith("Warning:") for line in lines))
 
+    def test_damage_calibration_accepts_multiple_quick_damage_types(self) -> None:
+        events = (
+            tome_practice.PracticeDamageEvent(
+                turn=1,
+                source="Caster",
+                source_role="enemy",
+                target="Player",
+                target_role="player",
+                amount=100.0,
+                damage_type="FIRE",
+                message="100 fire",
+            ),
+        )
+
+        lines = summarize_damage_calibration(
+            events,
+            quick_expected_damage=100.0,
+            quick_damage_types=("PHYSICAL", "FIRE"),
+        )
+
+        self.assertFalse(any(line.startswith("Damage type mismatch:") for line in lines))
+
     def test_prepare_practice_home_merges_addons_into_engine_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

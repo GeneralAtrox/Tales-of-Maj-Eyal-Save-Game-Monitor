@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from game_data.talent_db import TalentRecord
 from scoring import combat_math as cm
-from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState
+from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState, battle_calibration_estimate
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, weapon_threat
 from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields
@@ -112,6 +112,36 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.max_threat_pct, expected)
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
+
+    def test_calibration_estimate_includes_talent_damage(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Caster",
+                offense=EnemyOffense(name="Caster", atk=10, dam=5, damage_type="PHYSICAL"),
+                powers=EnemyPowers(spellpower=100, talents={"T_FLAME": 5}),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        estimate = battle_calibration_estimate(result)
+
+        expected = round(cm.rescale_damage(100.0), 1)
+        self.assertEqual(estimate.expected_damage, expected)
+        self.assertEqual(estimate.peak_damage, expected)
+        self.assertEqual(estimate.damage_types, ("PHYSICAL", "FIRE"))
 
     def test_compute_applies_talent_crit_wrappers(self) -> None:
         state = BattleSimulatorState()

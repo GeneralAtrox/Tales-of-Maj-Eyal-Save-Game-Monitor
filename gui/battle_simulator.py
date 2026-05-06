@@ -33,6 +33,7 @@ from scoring.battle_simulator import (
     COMMON_DAMAGE_TYPES,
     BattleEnemySnapshot,
     BattleSimulatorState,
+    battle_calibration_estimate,
 )
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses
 from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields
@@ -908,15 +909,13 @@ class BattleSimulatorPanel(QWidget):
             f"Winner: {result.winner or 'unknown'}",
             f"Turns: {result.turns}",
         ]
-        quick_report = self._state.compute().report
-        quick_expected_damage = quick_report.expected_damage if quick_report is not None else None
-        quick_peak_damage = quick_report.peak_damage if quick_report is not None else None
+        quick_estimate = battle_calibration_estimate(self._state.compute())
         lines.extend(
             summarize_damage_calibration(
                 result.damage_events,
-                quick_expected_damage=quick_expected_damage,
-                quick_peak_damage=quick_peak_damage,
-                quick_damage_type=quick_report.damage_type if quick_report is not None else "",
+                quick_expected_damage=quick_estimate.expected_damage,
+                quick_peak_damage=quick_estimate.peak_damage,
+                quick_damage_types=quick_estimate.damage_types,
             )
         )
         if result.reason:
