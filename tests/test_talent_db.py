@@ -161,6 +161,29 @@ newTalent{
         self.assertEqual(record.target_range, 10.0)
         self.assertEqual(record.target_radius, 15.0)
 
+    def test_target_range_defaults_to_engine_melee_range(self) -> None:
+        lua = """
+newTalent{
+    name = "Slam",
+    requires_target = true,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.target_range, 1.0)
+
+    def test_unparsed_explicit_target_range_is_not_defaulted(self) -> None:
+        lua = """
+newTalent{
+    name = "Arrow Shot",
+    requires_target = true,
+    range = archery_range,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertIsNone(record.target_range)
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{

@@ -7,7 +7,7 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v15: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v16: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
 multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst,
 engine-default activated talent mode, NPC AI usability, direct numeric resource costs, and simple range metadata.
@@ -27,7 +27,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 15
+_CACHE_SCHEMA_VERSION = 16
 _RESOURCE_COST_FIELDS = frozenset(
     {
         "mana",
@@ -266,7 +266,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             npc_usable=_extract_npc_usable(block),
             resource_costs=_extract_resource_costs(block),
             requires_target=_extract_requires_target(block),
-            target_range=_extract_numeric_or_scaled_field(block, "range"),
+            target_range=_extract_target_range(block),
             target_radius=_extract_numeric_or_scaled_field(block, "radius") or 0.0,
         )
         dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits, aux_talent_id = _extract_damage(
@@ -354,6 +354,15 @@ def _extract_requires_target(block: str) -> bool:
     return False
 
 
+def _extract_target_range(block: str) -> float | None:
+    value = _extract_numeric_or_scaled_field(block, "range")
+    if value is not None:
+        return value
+    if _extract_requires_target(block) and not _has_direct_field_assignment(block, "range"):
+        return 1.0
+    return None
+
+
 def _extract_direct_numeric_field(block: str, field_name: str) -> float | None:
     pattern = re.compile(_RE_DIRECT_NUMERIC_FIELD.pattern.format(field=re.escape(field_name)))
     for line in _strip_lua_comments(block).splitlines():
@@ -364,6 +373,11 @@ def _extract_direct_numeric_field(block: str, field_name: str) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _has_direct_field_assignment(block: str, field_name: str) -> bool:
+    pattern = re.compile(rf"^\s*{re.escape(field_name)}\s*=", re.MULTILINE)
+    return pattern.search(_strip_lua_comments(block)) is not None
 
 
 def _extract_numeric_or_scaled_field(block: str, field_name: str) -> float | None:
