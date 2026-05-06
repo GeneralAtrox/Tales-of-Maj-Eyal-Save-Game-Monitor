@@ -163,6 +163,30 @@ class MemoryReaderValidationTests(unittest.TestCase):
             },
         )
 
+    def test_tab_dump_damage_subtable_reads_numeric_damage_type_keys(self) -> None:
+        indexed_values = {
+            memory_reader._BASE_DAMAGE_TYPE_IDS["FIRE"]: 25.0,
+            memory_reader._BASE_DAMAGE_TYPE_IDS["COLD"]: 10.0,
+        }
+
+        def fake_index(_handle: int, _table: int, idx: int) -> float | None:
+            return indexed_values.get(idx)
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", return_value={"inc_damage.all": 5.0}),
+            patch.object(memory_reader, "_tab_get_number_by_index", side_effect=fake_index),
+        ):
+            values = memory_reader._tab_dump_damage_subtable(1, 0x20000000, prefix="inc_damage.")
+
+        self.assertEqual(
+            values,
+            {
+                "inc_damage.all": 5.0,
+                "inc_damage.FIRE": 25.0,
+                "inc_damage.COLD": 10.0,
+            },
+        )
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1

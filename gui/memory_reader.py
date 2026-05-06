@@ -723,6 +723,7 @@ _ENTITY_SUBTABLES = (
     "inc_damage",  # % damage bonuses by type
     "resists_pen",  # penetration values
 )
+_DAMAGE_SUBTABLES = {"resists", "resists_cap", "inc_damage", "resists_pen"}
 
 
 def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
@@ -740,9 +741,27 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
         if sub_ptr:
             if sub == "stats":
                 out.update(_tab_dump_stat_subtable(h, sub_ptr))
+            elif sub in _DAMAGE_SUBTABLES:
+                out.update(_tab_dump_damage_subtable(h, sub_ptr, prefix=f"{sub}."))
             else:
                 out.update(_tab_dump_flat(h, sub_ptr, prefix=f"{sub}."))
 
+    return out
+
+
+def _tab_dump_damage_subtable(h: int, tab_ptr: int, prefix: str = "") -> dict[str, float]:
+    out = {
+        key: float(value)
+        for key, value in _tab_dump_flat(h, tab_ptr, prefix=prefix).items()
+        if isinstance(value, (int, float))
+    }
+    for damage_type, index in _BASE_DAMAGE_TYPE_IDS.items():
+        key = f"{prefix}{damage_type}"
+        if key in out:
+            continue
+        value = _tab_get_number_by_index(h, tab_ptr, index)
+        if isinstance(value, (int, float)):
+            out[key] = float(value)
     return out
 
 
@@ -792,15 +811,15 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
 
     resists_tab = _tab_get_table(h, actor_ptr, "resists")
     if resists_tab:
-        out.update(_tab_dump_flat(h, resists_tab, prefix="resists.", allowed_keys=_ENTITY_RESIST_FIELDS))
+        out.update(_tab_dump_damage_subtable(h, resists_tab, prefix="resists."))
 
     inc_damage_tab = _tab_get_table(h, actor_ptr, "inc_damage")
     if inc_damage_tab:
-        out.update(_tab_dump_flat(h, inc_damage_tab, prefix="inc_damage."))
+        out.update(_tab_dump_damage_subtable(h, inc_damage_tab, prefix="inc_damage."))
 
     resists_pen_tab = _tab_get_table(h, actor_ptr, "resists_pen")
     if resists_pen_tab:
-        out.update(_tab_dump_flat(h, resists_pen_tab, prefix="resists_pen."))
+        out.update(_tab_dump_damage_subtable(h, resists_pen_tab, prefix="resists_pen."))
 
     return out
 
@@ -1497,6 +1516,8 @@ class MemoryReader:
             sub_ptr = _tab_get_table(h, pt, sub_key)
             if not sub_ptr:
                 return {}
+            if sub_key in _DAMAGE_SUBTABLES:
+                return _tab_dump_damage_subtable(h, sub_ptr)
             raw = _tab_dump_flat(h, sub_ptr)
             return {k: float(v) for k, v in raw.items() if isinstance(v, (int, float))}
 
