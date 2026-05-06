@@ -1955,6 +1955,11 @@ class CharacterSheetView(QWidget):
         self._selected_inventory_key: tuple[Any, ...] | None = None
         self._inventory_tab_index = -1
         self._inventory_dirty = True
+        self._inventory_host_lay: QVBoxLayout | None = None
+        self._equipped_panel: _ItemListPanel | None = None
+        self._inventory_panel: _ItemListPanel | None = None
+        self._transmog_panel: _ItemListPanel | None = None
+        self._inventory_detail_panel: _InventoryDetailPanel | None = None
         self._progression_tab: Any | None = None
         self._progression_tab_index = -1
         self._progression_state: tuple[set[str], set[str], set[str], tuple[str, int, int] | None] | None = None
@@ -2016,44 +2021,10 @@ class CharacterSheetView(QWidget):
         talents_root.addWidget(splitter)
         self._content_tabs.addTab(talents_tab, "Talents")
 
-        # Inventory tab: equipped | current+transmog | detail
         inventory_tab = QWidget()
-        inventory_root = QVBoxLayout(inventory_tab)
-        inventory_root.setContentsMargins(0, 0, 0, 0)
-        inventory_root.setSpacing(0)
-
-        inventory_workspace = QSplitter(Qt.Orientation.Horizontal)
-        inventory_workspace.setHandleWidth(1)
-        inventory_workspace.setChildrenCollapsible(False)
-        inventory_splitter = QSplitter(Qt.Orientation.Horizontal)
-        inventory_splitter.setHandleWidth(1)
-        inventory_splitter.setChildrenCollapsible(False)
-        self._equipped_panel = _ItemListPanel("EQUIPPED")
-        right_inventory = QSplitter(Qt.Orientation.Vertical)
-        right_inventory.setHandleWidth(1)
-        right_inventory.setChildrenCollapsible(False)
-        self._inventory_panel = _ItemListPanel("CURRENT")
-        self._transmog_panel = _ItemListPanel("TRANSMOG CHEST")
-        right_inventory.addWidget(self._inventory_panel)
-        right_inventory.addWidget(self._transmog_panel)
-        right_inventory.setStretchFactor(0, 1)
-        right_inventory.setStretchFactor(1, 1)
-        right_inventory.setSizes([300, 220])
-        inventory_splitter.addWidget(self._equipped_panel)
-        inventory_splitter.addWidget(right_inventory)
-        inventory_splitter.setSizes([420, 520])
-        inventory_splitter.setStretchFactor(0, 1)
-        inventory_splitter.setStretchFactor(1, 1)
-        self._inventory_detail_panel = _InventoryDetailPanel()
-        inventory_workspace.addWidget(inventory_splitter)
-        inventory_workspace.addWidget(self._inventory_detail_panel)
-        inventory_workspace.setSizes([900, 360])
-        inventory_workspace.setStretchFactor(0, 2)
-        inventory_workspace.setStretchFactor(1, 1)
-        inventory_root.addWidget(inventory_workspace)
-        self._equipped_panel.item_selected.connect(self._on_inventory_item_selected)
-        self._inventory_panel.item_selected.connect(self._on_inventory_item_selected)
-        self._transmog_panel.item_selected.connect(self._on_inventory_item_selected)
+        self._inventory_host_lay = QVBoxLayout(inventory_tab)
+        self._inventory_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._inventory_host_lay.setSpacing(0)
         self._inventory_tab_index = self._content_tabs.addTab(inventory_tab, "Inventory")
 
         self._progression_host = QWidget()
@@ -2383,6 +2354,13 @@ class CharacterSheetView(QWidget):
         )
 
     def _restore_inventory_selection(self, sections: tuple[tuple[str, list[dict[str, Any]]], ...]) -> None:
+        if (
+            self._equipped_panel is None
+            or self._inventory_panel is None
+            or self._transmog_panel is None
+            or self._inventory_detail_panel is None
+        ):
+            return
         if self._selected_inventory_key is not None and self._selected_inventory_source:
             for source, items in sections:
                 if source != self._selected_inventory_source:
@@ -2405,6 +2383,13 @@ class CharacterSheetView(QWidget):
         self._inventory_detail_panel.clear()
 
     def _set_selected_inventory(self, source: str, item: dict[str, Any]) -> None:
+        if (
+            self._equipped_panel is None
+            or self._inventory_panel is None
+            or self._transmog_panel is None
+            or self._inventory_detail_panel is None
+        ):
+            return
         self._selected_inventory_source = source
         self._selected_inventory_key = _inventory_item_key(item)
         self._equipped_panel.set_selected_key(
@@ -2449,6 +2434,8 @@ class CharacterSheetView(QWidget):
     def _reload_inventory_panels(self) -> None:
         if not self._inventory_dirty:
             return
+        if not self._ensure_inventory_tab():
+            return
 
         file_equipment = self._current_data.get("Equipment", [])
         inventory = self._current_data.get("Inventory", [])
@@ -2488,6 +2475,51 @@ class CharacterSheetView(QWidget):
             )
         )
         self._inventory_dirty = False
+
+    def _ensure_inventory_tab(self) -> bool:
+        if (
+            self._equipped_panel is not None
+            and self._inventory_panel is not None
+            and self._transmog_panel is not None
+            and self._inventory_detail_panel is not None
+        ):
+            return True
+        if self._inventory_host_lay is None:
+            return False
+
+        inventory_workspace = QSplitter(Qt.Orientation.Horizontal)
+        inventory_workspace.setHandleWidth(1)
+        inventory_workspace.setChildrenCollapsible(False)
+        inventory_splitter = QSplitter(Qt.Orientation.Horizontal)
+        inventory_splitter.setHandleWidth(1)
+        inventory_splitter.setChildrenCollapsible(False)
+        self._equipped_panel = _ItemListPanel("EQUIPPED")
+        right_inventory = QSplitter(Qt.Orientation.Vertical)
+        right_inventory.setHandleWidth(1)
+        right_inventory.setChildrenCollapsible(False)
+        self._inventory_panel = _ItemListPanel("CURRENT")
+        self._transmog_panel = _ItemListPanel("TRANSMOG CHEST")
+        right_inventory.addWidget(self._inventory_panel)
+        right_inventory.addWidget(self._transmog_panel)
+        right_inventory.setStretchFactor(0, 1)
+        right_inventory.setStretchFactor(1, 1)
+        right_inventory.setSizes([300, 220])
+        inventory_splitter.addWidget(self._equipped_panel)
+        inventory_splitter.addWidget(right_inventory)
+        inventory_splitter.setSizes([420, 520])
+        inventory_splitter.setStretchFactor(0, 1)
+        inventory_splitter.setStretchFactor(1, 1)
+        self._inventory_detail_panel = _InventoryDetailPanel()
+        inventory_workspace.addWidget(inventory_splitter)
+        inventory_workspace.addWidget(self._inventory_detail_panel)
+        inventory_workspace.setSizes([900, 360])
+        inventory_workspace.setStretchFactor(0, 2)
+        inventory_workspace.setStretchFactor(1, 1)
+        self._inventory_host_lay.addWidget(inventory_workspace)
+        self._equipped_panel.item_selected.connect(self._on_inventory_item_selected)
+        self._inventory_panel.item_selected.connect(self._on_inventory_item_selected)
+        self._transmog_panel.item_selected.connect(self._on_inventory_item_selected)
+        return True
 
     def _ensure_progression_tab(self) -> Any:
         if self._progression_tab is not None:
