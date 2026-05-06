@@ -24,6 +24,7 @@ _PRACTICE_RUNTIME_ROOT = Path(tempfile.gettempdir()) / "codex-tome-practice"
 _PRACTICE_WINDOW_SIZE = "1280x720 Windowed"
 _DEFAULT_TURN_CAP = 200
 _RESULT_TIMEOUT_SECONDS = 300
+_QUICK_ESTIMATE_UNDER_RATIO = 0.9
 
 
 class PracticeLaunchError(RuntimeError):
@@ -63,6 +64,43 @@ class AutoPracticeResult:
     reason: str = ""
     detail: str = ""
     damage_events: tuple[PracticeDamageEvent, ...] = ()
+
+
+def summarize_damage_calibration(
+    damage_events: tuple[PracticeDamageEvent, ...],
+    *,
+    quick_expected_damage: float | None = None,
+    limit: int = 3,
+) -> tuple[str, ...]:
+    """Return compact engine-vs-quick-estimate lines for the simulator UI."""
+    incoming_hits = sorted(
+        (
+            event
+            for event in damage_events
+            if event.target_role == "player" and event.amount > 0
+        ),
+        key=lambda event: event.amount,
+        reverse=True,
+    )
+    if not incoming_hits:
+        if damage_events:
+            return (f"Damage events: {len(damage_events)} recorded",)
+        return ()
+
+    max_hit = incoming_hits[0]
+    lines = [f"Engine max incoming hit: {max_hit.amount:.1f} from {max_hit.source or 'unknown'}"]
+    if quick_expected_damage is not None and max_hit.amount > 0:
+        ratio = quick_expected_damage / max_hit.amount
+        lines.append(f"Quick estimate: {quick_expected_damage:.1f} ({ratio:.2f}x engine max)")
+        if ratio < _QUICK_ESTIMATE_UNDER_RATIO:
+            shortfall = (1.0 - ratio) * 100.0
+            lines.append(f"Warning: quick estimate is {shortfall:.0f}% below the engine max hit")
+
+    lines.append("Top incoming hits:")
+    for event in incoming_hits[: max(1, limit)]:
+        message = f" - {event.message}" if event.message else ""
+        lines.append(f"  T{event.turn}: {event.amount:.1f} from {event.source or 'unknown'}{message}")
+    return tuple(lines)
 
 
 def launch_manual_practice(

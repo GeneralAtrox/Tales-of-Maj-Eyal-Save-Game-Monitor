@@ -13,6 +13,7 @@ from tome_practice import (
     _read_result_file,
     _write_practice_resolution_cfg,
     _write_scenario_file,
+    summarize_damage_calibration,
 )
 
 
@@ -137,6 +138,36 @@ class TomePracticeTests(unittest.TestCase):
         self.assertEqual(result.damage_events[0].source_role, "enemy")
         self.assertEqual(result.damage_events[0].target_role, "player")
         self.assertEqual(result.damage_events[0].amount, 123.5)
+
+    def test_damage_calibration_summary_flags_underestimate_and_top_hits(self) -> None:
+        events = (
+            tome_practice.PracticeDamageEvent(
+                turn=1,
+                source="Minor hit",
+                source_role="enemy",
+                target="Player",
+                target_role="player",
+                amount=40.0,
+                message="40 physical",
+            ),
+            tome_practice.PracticeDamageEvent(
+                turn=2,
+                source="Urkis",
+                source_role="enemy",
+                target="Player",
+                target_role="player",
+                amount=120.0,
+                message="120 lightning",
+            ),
+        )
+
+        lines = summarize_damage_calibration(events, quick_expected_damage=90.0, limit=2)
+
+        self.assertEqual(lines[0], "Engine max incoming hit: 120.0 from Urkis")
+        self.assertIn("0.75x engine max", lines[1])
+        self.assertIn("below the engine max hit", lines[2])
+        self.assertEqual(lines[3], "Top incoming hits:")
+        self.assertIn("Urkis", lines[4])
 
     def test_prepare_practice_home_merges_addons_into_engine_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
