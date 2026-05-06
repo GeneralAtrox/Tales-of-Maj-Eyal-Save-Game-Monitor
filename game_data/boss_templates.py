@@ -997,27 +997,7 @@ def _parse_damage_type_expr(expr: str | None, default: str = "PHYSICAL") -> str:
 
 
 def _normalize_damage_type(raw_key: str) -> str:
-    key = raw_key.strip().upper()
-    if key in {
-        "ALL",
-        "PHYSICAL",
-        "FIRE",
-        "COLD",
-        "LIGHTNING",
-        "ACID",
-        "NATURE",
-        "ARCANE",
-        "LIGHT",
-        "DARKNESS",
-        "BLIGHT",
-        "TEMPORAL",
-        "MIND",
-        "STEAM",
-    }:
-        return key
-    if key == "ICE":
-        return "COLD"
-    return ""
+    return cm.normalize_damage_type(raw_key, "").upper()
 
 
 def _template_level(level_label: str) -> float:

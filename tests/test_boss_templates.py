@@ -122,6 +122,34 @@ newEntity{
         self.assertTrue(stats.has_combat_data)
         self.assertEqual(stats.warning, "")
 
+    def test_stats_normalize_special_damage_type_aliases(self) -> None:
+        template = BossTemplate("The Test Boss", "Test Zone", "23+", "Quest: Testing")
+        block = """
+newEntity{
+    name = "The Test Boss",
+    level_range = {23, nil},
+    combat = {
+        dam = 50,
+        damtype = DamageType.SHADOWFLAME,
+        melee_project = {
+            [DamageType.ICE] = 5,
+            [DamageType.SLIME] = 7,
+            [DamageType.DRAINLIFE] = 9,
+        },
+    },
+    inc_damage = { [DamageType.FIREBURN] = 20 },
+}
+"""
+        with patch(
+            "game_data.boss_templates._resolve_boss_block",
+            return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+        ):
+            stats = _boss_template_stats(template)
+
+        self.assertEqual(stats.damage_type, "SHADOWFLAME")
+        self.assertEqual(stats.melee_project, {"COLD": 5.0, "NATURE": 7.0, "BLIGHT": 9.0})
+        self.assertEqual(stats.inc_damage["FIRE"], 20.0)
+
     def test_stats_apply_engine_attack_apr_speed_and_crit_defaults(self) -> None:
         template = BossTemplate("The Test Boss", "Test Zone", "1+", "Quest: Testing")
         block = """

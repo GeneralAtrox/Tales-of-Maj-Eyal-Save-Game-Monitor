@@ -744,6 +744,23 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertIn("On-hit project adds ~20 damage", report.notes)
         self.assertIn("Project damage types: FIRE", report.notes)
 
+    def test_special_project_damage_types_use_base_resists(self) -> None:
+        player = PlayerDefenses(
+            max_life=300,
+            defense=0,
+            resists={"COLD": 50, "NATURE": 25, "BLIGHT": 10},
+        )
+        enemy = EnemyOffense(
+            atk=100,
+            dam=0,
+            melee_project={"ICE": 40, "SLIME": 40, "DRAINLIFE": 40},
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 86.0)
+        self.assertEqual(report.damage_types, ("PHYSICAL", "COLD", "NATURE", "BLIGHT"))
+
     def test_staff_accuracy_multiplies_melee_project_damage(self) -> None:
         player = PlayerDefenses(max_life=300, defense=0)
         enemy = EnemyOffense(
