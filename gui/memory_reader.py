@@ -744,6 +744,10 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
     if talents_tab:
         out.update(_tab_dump_flat(h, talents_tab, prefix="talents."))
 
+    talents_cd_tab = _tab_get_table(h, actor_ptr, "talents_cd")
+    if talents_cd_tab:
+        out.update(_tab_dump_flat(h, talents_cd_tab, prefix="talents_cd."))
+
     resists_tab = _tab_get_table(h, actor_ptr, "resists")
     if resists_tab:
         out.update(_tab_dump_flat(h, resists_tab, prefix="resists.", allowed_keys=_ENTITY_RESIST_FIELDS))

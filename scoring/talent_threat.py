@@ -37,6 +37,8 @@ class EnemyPowers:
     resists_pen: dict[str, float] = field(default_factory=dict)
     talents: dict[str, int] = field(default_factory=dict)
     """``T_XXX`` → talent level (raw, before mastery)."""
+    talents_cd: dict[str, int] = field(default_factory=dict)
+    """``T_XXX`` → current cooldown turns visible on the actor."""
     stats: dict[str, float] = field(default_factory=dict)
     """Base stat values used by ``combatTalentStatDamage`` talents."""
     spell_crit_pct: float = 0.0
@@ -63,6 +65,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         inc_damage=_number_fields_by_prefix(all_fields, "inc_damage."),
         resists_pen=_number_fields_by_prefix(all_fields, "resists_pen."),
         talents=_talent_fields_by_prefix(all_fields, "talents."),
+        talents_cd=_cooldown_fields_by_prefix(all_fields, "talents_cd."),
         stats=stats,
         spell_crit_pct=_spell_crit(all_fields, stats),
         mind_crit_pct=_mind_crit(all_fields, stats),
@@ -80,7 +83,12 @@ class TalentThreatEntry:
     expected_damage: float
     threat_pct: float
     cooldown: int
+    current_cooldown: int
     mode: str
+
+    @property
+    def is_available(self) -> bool:
+        return self.current_cooldown <= 0
 
 
 @dataclass(slots=True)
@@ -91,14 +99,18 @@ class TalentThreatReport:
     worst_talent_name: str = ""
     worst_damage_type: str = ""
     worst_cooldown: int = 0
+    worst_current_cooldown: int = 0
     worst_mode: str = ""
     entries: list[TalentThreatEntry] = field(default_factory=list)
     cc_tags: list[str] = field(default_factory=list)
     """Unique ``tactical.disable`` tags across all known talents — the
     enemy's crowd-control toolkit (stun, pin, disarm, ...)."""
 
+    def strongest_available_entry(self) -> TalentThreatEntry | None:
+        return next((entry for entry in self.entries if entry.is_available), None)
 
-def talent_timing_label(mode: str, cooldown: int) -> str:
+
+def talent_timing_label(mode: str, cooldown: int, current_cooldown: int = 0) -> str:
     """Compact display label for a parsed talent's activation context."""
     parts: list[str] = []
     normalized_mode = mode.strip().lower()
@@ -108,6 +120,8 @@ def talent_timing_label(mode: str, cooldown: int) -> str:
         parts.append(f"cd {cooldown}")
     elif normalized_mode == "activated":
         parts.append("no cd")
+    if current_cooldown > 0:
+        parts.append(f"cooling {current_cooldown}")
     return ", ".join(parts)
 
 
@@ -322,6 +336,7 @@ def compute_talent_threat(
             expected_damage=round(expected, 1),
             threat_pct=round(threat_pct, 1),
             cooldown=record.cooldown,
+            current_cooldown=powers.talents_cd.get(tid, 0),
             mode=record.mode,
         )
         report.entries.append(entry)
@@ -332,6 +347,7 @@ def compute_talent_threat(
             report.worst_talent_name = entry.talent_name
             report.worst_damage_type = dtype
             report.worst_cooldown = entry.cooldown
+            report.worst_current_cooldown = entry.current_cooldown
             report.worst_mode = entry.mode
 
     report.entries.sort(key=lambda e: e.expected_damage, reverse=True)
@@ -381,3 +397,20 @@ def _talent_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: 
             talent_id = f"T_{talent_id}"
         talents[talent_id] = level
     return talents
+
+
+def _cooldown_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: str) -> dict[str, int]:
+    cooldowns: dict[str, int] = {}
+    for key, value in all_fields.items():
+        if not key.startswith(prefix) or not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        cooldown = math.ceil(float(value))
+        if cooldown <= 0:
+            continue
+        talent_id = key.removeprefix(prefix).strip().upper()
+        if not talent_id:
+            continue
+        if not talent_id.startswith("T_"):
+            talent_id = f"T_{talent_id}"
+        cooldowns[talent_id] = cooldown
+    return cooldowns

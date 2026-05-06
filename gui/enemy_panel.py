@@ -344,7 +344,11 @@ class _EnemyCard(QFrame):
             talent_line = ""
             if talent_report is not None and talent_report.max_expected_damage > 0.0:
                 talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
-                timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+                timing = talent_timing_label(
+                    talent_report.worst_mode,
+                    talent_report.worst_cooldown,
+                    talent_report.worst_current_cooldown,
+                )
                 timing_text = f", {timing}" if timing else ""
                 talent_line = (
                     f"\nTalent threat: {talent_name} {talent_report.max_expected_damage:.0f} "
@@ -371,10 +375,8 @@ class _EnemyCard(QFrame):
             )
             top.addWidget(danger_badge)
 
-            talent_can_kill = (
-                talent_report is not None
-                and talent_report.max_expected_damage >= player.effective_hp
-            )
+            available_talent = talent_report.strongest_available_entry() if talent_report is not None else None
+            talent_can_kill = available_talent is not None and available_talent.expected_damage >= player.effective_hp
             if report.can_one_shot or report.can_burst_kill or talent_can_kill:
                 if report.can_one_shot:
                     badge_label = " 1-SHOT "
@@ -384,7 +386,7 @@ class _EnemyCard(QFrame):
                     badge_tooltip = "This enemy can remove all your HP with a multi-hit weapon talent."
                 else:
                     badge_label = " TALENT "
-                    badge_tooltip = "This enemy can remove all your HP with a non-weapon talent."
+                    badge_tooltip = "This enemy can remove all your HP with an available non-weapon talent."
                 oneshot = QLabel(badge_label)
                 oneshot.setToolTip(badge_tooltip)
                 oneshot.setStyleSheet(
@@ -492,7 +494,11 @@ class _EnemyCard(QFrame):
                     info.addWidget(advice_lbl)
             if talent_report is not None and (talent_can_kill or talent_pressure_high):
                 talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
-                timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+                timing = talent_timing_label(
+                    talent_report.worst_mode,
+                    talent_report.worst_cooldown,
+                    talent_report.worst_current_cooldown,
+                )
                 timing_text = f", {timing}" if timing else ""
                 prefix = "⚠ " if talent_can_kill else "● "
                 text = (

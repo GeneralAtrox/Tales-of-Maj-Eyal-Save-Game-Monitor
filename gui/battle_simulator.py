@@ -742,7 +742,11 @@ class BattleSimulatorPanel(QWidget):
         if talent_report is not None and talent_report.max_expected_damage > 0.0:
             talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
             damage_type = talent_report.worst_damage_type or "all"
-            timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+            timing = talent_timing_label(
+                talent_report.worst_mode,
+                talent_report.worst_cooldown,
+                talent_report.worst_current_cooldown,
+            )
             timing_text = f", {timing}" if timing else ""
             self._result_values["talent"].setText(
                 f"{talent_name}: {talent_report.max_expected_damage:.1f} {damage_type} "
@@ -771,7 +775,11 @@ class BattleSimulatorPanel(QWidget):
             advice_lines.extend(f"- {note}" for note in report.notes)
         if talent_report is not None and talent_report.max_expected_damage > 0.0:
             talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
-            timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+            timing = talent_timing_label(
+                talent_report.worst_mode,
+                talent_report.worst_cooldown,
+                talent_report.worst_current_cooldown,
+            )
             timing_text = f", {timing}" if timing else ""
             advice_lines.append(
                 f"- Strongest known talent: {talent_name} "

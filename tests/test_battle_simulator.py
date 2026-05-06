@@ -94,6 +94,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
                     spellpower=100,
                     inc_damage={"FIRE": 50},
                     talents={"T_FLAME": 5},
+                    talents_cd={"T_FLAME": 2},
                 ),
             )
         )
@@ -120,13 +121,17 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.max_threat_pct, expected)
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
         self.assertEqual(result.talent_report.worst_cooldown, 3)
+        self.assertEqual(result.talent_report.worst_current_cooldown, 2)
         self.assertEqual(result.talent_report.worst_mode, "activated")
         self.assertEqual(result.talent_report.entries[0].cooldown, 3)
+        self.assertEqual(result.talent_report.entries[0].current_cooldown, 2)
         self.assertEqual(result.talent_report.entries[0].mode, "activated")
+        self.assertIsNone(result.talent_report.strongest_available_entry())
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
 
     def test_talent_timing_label_includes_mode_and_cooldown(self) -> None:
         self.assertEqual(talent_timing_label("activated", 4), "activated, cd 4")
+        self.assertEqual(talent_timing_label("activated", 4, 2), "activated, cd 4, cooling 2")
         self.assertEqual(talent_timing_label("activated", 0), "activated, no cd")
         self.assertEqual(talent_timing_label("passive", 0), "passive")
 
@@ -477,6 +482,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 "inc_damage.FIRE": 25.0,
                 "resists_pen.FIRE": 10.0,
                 "talents.flame": 5.0,
+                "talents_cd.flame": 1.2,
             }
         )
 
@@ -492,6 +498,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(powers.inc_damage, {"FIRE": 25.0})
         self.assertEqual(powers.resists_pen, {"FIRE": 10.0})
         self.assertEqual(powers.talents, {"T_FLAME": 5})
+        self.assertEqual(powers.talents_cd, {"T_FLAME": 2})
 
     def test_enemy_powers_respect_precomputed_engine_power_fields(self) -> None:
         powers = enemy_powers_from_fields(

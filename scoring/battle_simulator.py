@@ -174,6 +174,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             inc_damage=dict(powers.inc_damage),
             resists_pen=dict(powers.resists_pen),
             talents=dict(powers.talents),
+            talents_cd=dict(powers.talents_cd),
             stats=dict(powers.stats),
             spell_crit_pct=powers.spell_crit_pct,
             mind_crit_pct=powers.mind_crit_pct,
