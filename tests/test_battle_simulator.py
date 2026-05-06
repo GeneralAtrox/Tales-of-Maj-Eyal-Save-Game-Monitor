@@ -695,6 +695,41 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
         self.assertEqual(offense.talent_burst_weapon_hits, 1)
 
+    def test_weapon_threat_respects_live_weapon_talent_range(self) -> None:
+        db = {
+            "T_STUNNING_BLOW": TalentRecord(
+                talent_id="T_STUNNING_BLOW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=3.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=1,
+                requires_target=True,
+                target_range=1.0,
+            )
+        }
+        player = PlayerDefenses(max_life=100, defense=0, x=0, y=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=50,
+            talents={"T_STUNNING_BLOW": 5.0},
+            x=5,
+            y=0,
+            talent_max_weapon_mult=3.0,
+            talent_burst_weapon_mult=3.0,
+        )
+
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            out_of_range = weapon_threat(enemy, player)
+            enemy.x = 1
+            in_range = weapon_threat(enemy, player)
+
+        self.assertEqual(out_of_range.expected_damage, 50.0)
+        self.assertEqual(out_of_range.burst_expected_damage, 50.0)
+        self.assertEqual(in_range.expected_damage, 150.0)
+        self.assertEqual(in_range.burst_expected_damage, 150.0)
+
     def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:
         player = PlayerDefenses(max_life=100, armor=0, defense=0)
         enemy = EnemyOffense(

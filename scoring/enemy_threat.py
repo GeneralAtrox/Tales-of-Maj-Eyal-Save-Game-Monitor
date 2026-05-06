@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from . import combat_math as cm
-from .talent_weapon import weapon_multipliers_for_talents
+from .talent_weapon import WeaponTalentMultipliers, weapon_multipliers_for_talents
 
 # ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +101,12 @@ class EnemyOffense:
     """Weapon damage type. ToME defaults melee weapons to PHYSICAL."""
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
+    talents: dict[str, float] = field(default_factory=dict)
+    talents_cd: dict[str, float] = field(default_factory=dict)
+    resources: dict[str, float] = field(default_factory=dict)
+    has_resource_snapshot: bool = False
+    x: float | None = None
+    y: float | None = None
     talent_max_weapon_mult: float = 1.0
     """Largest weapon multiplier across the enemy's activated talents.
 
@@ -112,6 +118,20 @@ class EnemyOffense:
     """Largest summed same-action weapon multiplier across visible talents."""
     talent_burst_weapon_hits: int = 1
     """Number of direct weapon hits in the strongest same-action burst."""
+
+    def weapon_multipliers_against(self, player: PlayerDefenses) -> WeaponTalentMultipliers:
+        if not self.talents:
+            return WeaponTalentMultipliers(
+                max_hit=self.talent_max_weapon_mult,
+                burst=self.talent_burst_weapon_mult,
+                burst_hits=self.talent_burst_weapon_hits,
+            )
+        return weapon_multipliers_for_talents(
+            self.talents,
+            cooldowns=self.talents_cd,
+            resources=self.resources if self.has_resource_snapshot else None,
+            range_to_target=_range_to_target(self, player),
+        )
 
     @classmethod
     def from_all_fields(cls, all_fields: dict[str, str | float | bool], name: str = "") -> EnemyOffense:
@@ -134,9 +154,11 @@ class EnemyOffense:
             if k.startswith("resists_pen.") and isinstance(v, (int, float))
         }
         resources = _resource_fields(all_fields)
+        talents = _number_fields_by_prefix(all_fields, "talents.")
+        talents_cd = _number_fields_by_prefix(all_fields, "talents_cd.")
         weapon_mults = weapon_multipliers_for_talents(
-            _number_fields_by_prefix(all_fields, "talents."),
-            cooldowns=_number_fields_by_prefix(all_fields, "talents_cd."),
+            talents,
+            cooldowns=talents_cd,
             resources=resources or None,
         )
         return cls(
@@ -152,6 +174,12 @@ class EnemyOffense:
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
             resists_pen=pen,
+            talents=talents,
+            talents_cd=talents_cd,
+            resources=resources,
+            has_resource_snapshot=bool(resources),
+            x=_optional_number_field(all_fields, "x"),
+            y=_optional_number_field(all_fields, "y"),
             talent_max_weapon_mult=weapon_mults.max_hit,
             talent_burst_weapon_mult=weapon_mults.burst,
             talent_burst_weapon_hits=weapon_mults.burst_hits,
@@ -166,6 +194,19 @@ def _number_field(all_fields: dict[str, str | float | bool], key: str, default: 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     return default
+
+
+def _optional_number_field(all_fields: dict[str, str | float | bool], key: str) -> float | None:
+    value = all_fields.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _range_to_target(enemy: EnemyOffense, player: PlayerDefenses) -> float | None:
+    if enemy.x is None or enemy.y is None or player.x is None or player.y is None:
+        return None
+    return max(abs(enemy.x - player.x), abs(enemy.y - player.y))
 
 
 def _physical_crit_chance(all_fields: dict[str, str | float | bool]) -> float:
@@ -295,15 +336,16 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
         crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
+    weapon_mults = enemy.weapon_multipliers_against(player)
 
     base_multiplier = after_armor * resist_mult * daminc_mult
-    base_hit = base_multiplier * max(1.0, enemy.talent_max_weapon_mult)
-    base_burst = base_multiplier * max(1.0, enemy.talent_burst_weapon_mult)
+    base_hit = base_multiplier * max(1.0, weapon_mults.max_hit)
+    base_burst = base_multiplier * max(1.0, weapon_mults.burst)
     expected = base_hit * crit_mult
     peak = base_hit * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit
     burst_expected = base_burst * crit_mult
     burst_peak = base_burst * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst
-    burst_hits = max(1, enemy.talent_burst_weapon_hits)
+    burst_hits = max(1, weapon_mults.burst_hits)
 
     threat_damage = max(expected, burst_expected)
     if enemy.rank > RANK_BOSS_THRESHOLD:

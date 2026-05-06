@@ -87,7 +87,8 @@ def _peak_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     daminc_mult = 1.0 + damage_inc / 100.0
     crit_mult = _crit_multiplier(enemy, player, peak=True)
 
-    return after_armor * crit_mult * resist_mult * daminc_mult * max(1.0, enemy.talent_max_weapon_mult)
+    weapon_mults = enemy.weapon_multipliers_against(player)
+    return after_armor * crit_mult * resist_mult * daminc_mult * max(1.0, weapon_mults.max_hit)
 
 
 def survive_one_hit_advice(
@@ -115,7 +116,7 @@ def survive_one_hit_advice(
     crit_mult = _crit_multiplier(enemy, player, peak=True)
     damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
     daminc_mult = 1.0 + damage_inc / 100.0
-    tal_mult = max(1.0, enemy.talent_max_weapon_mult)
+    tal_mult = max(1.0, enemy.weapon_multipliers_against(player).max_hit)
     wrapper = crit_mult * daminc_mult * tal_mult
 
     # ── Lever 1: resistance on the actual weapon damage type ──────────────
