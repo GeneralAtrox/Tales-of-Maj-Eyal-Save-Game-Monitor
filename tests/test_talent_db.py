@@ -183,6 +183,7 @@ newTalent{
         [(_name, record)] = talent_db._parse_lua(lua)
 
         self.assertIsNone(record.target_range)
+        self.assertEqual(record.target_range_source, "archery")
 
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """

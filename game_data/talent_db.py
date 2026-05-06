@@ -7,7 +7,7 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v16: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v17: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
 multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst,
 engine-default activated talent mode, NPC AI usability, direct numeric resource costs, and simple range metadata.
@@ -27,7 +27,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 16
+_CACHE_SCHEMA_VERSION = 17
 _RESOURCE_COST_FIELDS = frozenset(
     {
         "mana",
@@ -85,6 +85,8 @@ class TalentRecord:
     """True when the Lua talent explicitly sets ``requires_target = true``."""
     target_range: float | None = None
     """Direct numeric ``range`` field when present."""
+    target_range_source: str = ""
+    """Dynamic range source when static range is unavailable, e.g. ``archery``."""
     target_radius: float = 0.0
     """Direct numeric ``radius`` field when present."""
 
@@ -104,6 +106,7 @@ _RE_NO_NPC_USE_VALUE = re.compile(r"\bno_npc_use\s*=\s*([A-Za-z_][A-Za-z0-9_.]*)
 _RE_RESOURCE_COST = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*,?\s*$")
 _RE_REQUIRES_TARGET = re.compile(r"^\s*requires_target\s*=\s*(true|false)\s*,?\s*$")
 _RE_DIRECT_NUMERIC_FIELD = re.compile(r"^\s*{field}\s*=\s*(-?\d+(?:\.\d+)?)\s*,?\s*$")
+_RE_DIRECT_IDENTIFIER_FIELD = re.compile(r"^\s*{field}\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*,?\s*$")
 _RE_FUNCTION_RETURN_NUMBER_FIELD = re.compile(
     r"^\s*{field}\s*=\s*function\b[\s\S]*?\breturn\s+(-?\d+(?:\.\d+)?)\b",
     re.MULTILINE,
@@ -267,6 +270,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             resource_costs=_extract_resource_costs(block),
             requires_target=_extract_requires_target(block),
             target_range=_extract_target_range(block),
+            target_range_source=_extract_target_range_source(block),
             target_radius=_extract_numeric_or_scaled_field(block, "radius") or 0.0,
         )
         dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits, aux_talent_id = _extract_damage(
@@ -363,6 +367,15 @@ def _extract_target_range(block: str) -> float | None:
     return None
 
 
+def _extract_target_range_source(block: str) -> str:
+    if _extract_numeric_or_scaled_field(block, "range") is not None:
+        return ""
+    identifier = _extract_direct_identifier_field(block, "range")
+    if identifier == "archery_range":
+        return "archery"
+    return ""
+
+
 def _extract_direct_numeric_field(block: str, field_name: str) -> float | None:
     pattern = re.compile(_RE_DIRECT_NUMERIC_FIELD.pattern.format(field=re.escape(field_name)))
     for line in _strip_lua_comments(block).splitlines():
@@ -373,6 +386,14 @@ def _extract_direct_numeric_field(block: str, field_name: str) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _extract_direct_identifier_field(block: str, field_name: str) -> str:
+    pattern = re.compile(_RE_DIRECT_IDENTIFIER_FIELD.pattern.format(field=re.escape(field_name)))
+    for line in _strip_lua_comments(block).splitlines():
+        if match := pattern.match(line):
+            return match.group(1)
+    return ""
 
 
 def _has_direct_field_assignment(block: str, field_name: str) -> bool:
@@ -621,6 +642,7 @@ def _record_to_cache(record: TalentRecord) -> dict[str, object]:
         "resource_costs": dict(record.resource_costs),
         "requires_target": record.requires_target,
         "target_range": record.target_range,
+        "target_range_source": record.target_range_source,
         "target_radius": record.target_radius,
     }
 
@@ -662,5 +684,6 @@ def _record_from_cache(value: object) -> TalentRecord | None:
             if isinstance(value.get("target_range"), (int, float))
             else None
         ),
+        target_range_source=str(value.get("target_range_source", "")),
         target_radius=float(value.get("target_radius", 0.0) or 0.0),
     )

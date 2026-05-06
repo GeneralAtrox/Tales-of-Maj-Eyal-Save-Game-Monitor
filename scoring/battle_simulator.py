@@ -160,6 +160,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             crit_chance_pct=offense.crit_chance_pct,
             crit_power_bonus_pct=offense.crit_power_bonus_pct,
             physspeed=offense.physspeed,
+            weapon_range=offense.weapon_range,
             damage_type=offense.damage_type,
             inc_damage=dict(offense.inc_damage),
             resists_pen=dict(offense.resists_pen),
@@ -178,6 +179,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             mindpower=powers.mindpower,
             physicalpower=powers.physicalpower,
             global_speed=powers.global_speed,
+            weapon_range=powers.weapon_range,
             atk=powers.atk,
             dam=powers.dam,
             apr=powers.apr,
@@ -286,6 +288,7 @@ class BattleSimulatorState:
             setattr(enemy.offense, field_name, self._merged_dict(getattr(enemy.offense, field_name), overrides))
         enemy.offense.name = enemy.name
         enemy.powers.global_speed = enemy.offense.global_speed
+        enemy.powers.weapon_range = enemy.offense.weapon_range
         enemy.powers.atk = enemy.offense.atk
         enemy.powers.dam = enemy.offense.dam
         enemy.powers.apr = enemy.offense.apr

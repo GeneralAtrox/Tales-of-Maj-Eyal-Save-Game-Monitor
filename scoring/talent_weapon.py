@@ -37,6 +37,7 @@ def weapon_multipliers_for_talents(
     cooldowns: Mapping[str, float] | None = None,
     resources: Mapping[str, float] | None = None,
     range_to_target: float | None = None,
+    weapon_range: float = 0.0,
 ) -> WeaponTalentMultipliers:
     """Return strongest single hit and strongest same-action burst across visible weapon talents."""
     if not talents:
@@ -61,7 +62,7 @@ def weapon_multipliers_for_talents(
             continue
         if resources is not None and not _resource_costs_available(record.resource_costs, resources):
             continue
-        if not _target_range_available(record, range_to_target):
+        if not _target_range_available(record, range_to_target, weapon_range):
             continue
         aux_level = talents_by_id.get(record.weapon_aux_talent_id, 0.0) if record.weapon_aux_talent_id else 0.0
         hit = _weapon_multiplier(record.damage_low, record.damage_high, raw_level, aux_level)
@@ -97,11 +98,22 @@ def _normalize_number_map(values: Mapping[str, float] | None) -> dict[str, float
     return {_normalize_talent_id(key): float(value) for key, value in values.items()}
 
 
-def _target_range_available(record: TalentRecord, range_to_target: float | None) -> bool:
-    if range_to_target is None or not record.requires_target or record.target_range is None:
+def _target_range_available(record: TalentRecord, range_to_target: float | None, weapon_range: float = 0.0) -> bool:
+    if range_to_target is None or not record.requires_target:
         return True
-    limit = max(0.0, record.target_range + max(0.0, record.target_radius))
+    target_range = _record_target_range(record, weapon_range)
+    if target_range is None:
+        return True
+    limit = max(0.0, target_range + max(0.0, record.target_radius))
     return range_to_target <= limit
+
+
+def _record_target_range(record: TalentRecord, weapon_range: float = 0.0) -> float | None:
+    if record.target_range is not None:
+        return record.target_range
+    if record.target_range_source == "archery" and weapon_range > 0.0:
+        return weapon_range
+    return None
 
 
 def _resource_costs_available(costs: Mapping[str, float], resources: Mapping[str, float]) -> bool:

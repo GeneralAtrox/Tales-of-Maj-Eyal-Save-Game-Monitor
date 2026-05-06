@@ -257,6 +257,7 @@ _ENTITY_COMBAT_FIELDS = {
     "damtype",
     "physcrit",
     "physspeed",
+    "range",
 }
 
 _ENTITY_STAT_FIELDS = {"str", "dex", "con", "mag", "wil", "cun", "lck"}

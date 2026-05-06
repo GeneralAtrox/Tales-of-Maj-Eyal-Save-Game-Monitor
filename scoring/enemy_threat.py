@@ -97,6 +97,7 @@ class EnemyOffense:
     crit_power_bonus_pct: float = 0.0
     """`combat_critical_power` plus weapon crit power, as a percent bonus above the 1.5 base."""
     physspeed: float = 1.0
+    weapon_range: float = 0.0
     damage_type: str = cm.DEFAULT_DAMAGE_TYPE
     """Weapon damage type. ToME defaults melee weapons to PHYSICAL."""
     inc_damage: dict[str, float] = field(default_factory=dict)
@@ -131,6 +132,7 @@ class EnemyOffense:
             cooldowns=self.talents_cd,
             resources=self.resources if self.has_resource_snapshot else None,
             range_to_target=_range_to_target(self, player),
+            weapon_range=self.weapon_range,
         )
 
     @classmethod
@@ -172,6 +174,7 @@ class EnemyOffense:
             crit_chance_pct=_physical_crit_chance(all_fields, stats),
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
             physspeed=num("combat.physspeed", 1.0) or 1.0,
+            weapon_range=num("combat.range"),
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
             resists_pen=pen,

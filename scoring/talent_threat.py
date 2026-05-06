@@ -43,6 +43,7 @@ class EnemyPowers:
     mindpower: float = 0.0
     physicalpower: float = 0.0
     global_speed: float = 1.0
+    weapon_range: float = 0.0
     atk: float = 0.0
     dam: float = 0.0
     apr: float = 0.0
@@ -79,6 +80,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         mindpower=_mind_power(all_fields, stats),
         physicalpower=_physical_power(all_fields, stats),
         global_speed=_number_field(all_fields, "global_speed", 1.0) or 1.0,
+        weapon_range=_number_field(all_fields, "combat.range"),
         atk=_number_field(all_fields, "combat.atk"),
         dam=_number_field(all_fields, "combat.dam"),
         apr=_number_field(all_fields, "combat_apr") + _number_field(all_fields, "combat.apr"),
@@ -523,9 +525,20 @@ def _range_check(
     powers: EnemyPowers,
     player: PlayerDefenses,
 ) -> tuple[float | None, float | None]:
-    if not record.requires_target or record.target_range is None:
+    if not record.requires_target:
+        return None, None
+    target_range = _record_target_range(record, powers)
+    if target_range is None:
         return None, None
     if powers.x is None or powers.y is None or player.x is None or player.y is None:
         return None, None
     distance = max(abs(powers.x - player.x), abs(powers.y - player.y))
-    return distance, max(0.0, record.target_range + max(0.0, record.target_radius))
+    return distance, max(0.0, target_range + max(0.0, record.target_radius))
+
+
+def _record_target_range(record: TalentRecord, powers: EnemyPowers) -> float | None:
+    if record.target_range is not None:
+        return record.target_range
+    if record.target_range_source == "archery" and powers.weapon_range > 0.0:
+        return powers.weapon_range
+    return None

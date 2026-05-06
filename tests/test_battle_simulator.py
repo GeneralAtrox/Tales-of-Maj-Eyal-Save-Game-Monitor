@@ -13,7 +13,13 @@ from scoring.battle_simulator import (
 )
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, weapon_threat
-from scoring.talent_threat import EnemyPowers, TalentThreatReport, enemy_powers_from_fields, talent_timing_label
+from scoring.talent_threat import (
+    EnemyPowers,
+    TalentThreatReport,
+    compute_talent_threat,
+    enemy_powers_from_fields,
+    talent_timing_label,
+)
 
 
 class BattleSimulatorStateTests(unittest.TestCase):
@@ -834,6 +840,58 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(out_of_range.burst_expected_damage, 50.0)
         self.assertEqual(in_range.expected_damage, 150.0)
         self.assertEqual(in_range.burst_expected_damage, 150.0)
+
+    def test_weapon_threat_respects_live_archery_range(self) -> None:
+        db = {
+            "T_SKIRMISHER_KNEECAPPER": TalentRecord(
+                talent_id="T_SKIRMISHER_KNEECAPPER",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=3.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=1,
+                requires_target=True,
+                target_range_source="archery",
+            )
+        }
+        player = PlayerDefenses(max_life=100, defense=0, x=0, y=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=50,
+            talents={"T_SKIRMISHER_KNEECAPPER": 5.0},
+            weapon_range=6.0,
+            x=8,
+            y=0,
+        )
+
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            out_of_range = weapon_threat(enemy, player)
+            enemy.weapon_range = 9.0
+            in_range = weapon_threat(enemy, player)
+
+        self.assertEqual(out_of_range.expected_damage, 50.0)
+        self.assertEqual(in_range.expected_damage, 150.0)
+
+    def test_talent_threat_respects_live_archery_range(self) -> None:
+        player = PlayerDefenses(max_life=100, resists_cap={"all": 70}, x=0, y=0)
+        powers = EnemyPowers(spellpower=100, talents={"T_ARROW_SPELL": 5}, weapon_range=6.0, x=8, y=0)
+        db = {
+            "T_ARROW_SPELL": TalentRecord(
+                talent_id="T_ARROW_SPELL",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=50.0,
+                requires_target=True,
+                target_range_source="archery",
+            )
+        }
+
+        report = compute_talent_threat(powers, player, db=db)
+
+        self.assertTrue(report.entries[0].is_out_of_range)
+        self.assertEqual(report.entries[0].range_limit, 6.0)
 
     def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:
         player = PlayerDefenses(max_life=100, armor=0, defense=0)
