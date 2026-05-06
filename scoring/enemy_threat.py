@@ -52,6 +52,12 @@ _UNMODELED_PROC_HOOKS: Final[tuple[str, ...]] = (
     "special_on_hit",
     "special_on_crit",
 )
+_OFFHAND_MULT_TALENTS: Final[dict[str, tuple[float, float, float]]] = {
+    # talent id: (limit, low at TL 1, high at TL 5), matching getoffmult in ToME Lua.
+    "t_dual_weapon_training": (1.0, 0.65, 0.85),
+    "t_dual_weapon_mastery": (1.0, 0.60, 0.85),
+    "t_corrupted_strength": (1.0, 0.60, 0.80),
+}
 
 
 def _damage_type_from_field(value: str | float | bool | None) -> str:
@@ -123,6 +129,7 @@ class WeaponOffense:
         stats: dict[str, float],
         inc_damage: dict[str, float],
         resists_pen: dict[str, float],
+        talents: dict[str, float],
     ) -> WeaponOffense | None:
         if not _has_prefixed_fields(all_fields, prefix):
             return None
@@ -141,8 +148,10 @@ class WeaponOffense:
             accuracy_effect_scale=_truthy_field(all_fields, f"{prefix}accuracy_effect_scale"),
             damage_range=_combat_damage_range(all_fields, weapon_damrange_key=f"{prefix}damrange"),
             physspeed=_combat_physical_speed(all_fields, num("physspeed", 1.0)),
-            damage_type=_damage_type_from_field(all_fields.get("force_melee_damtype") or all_fields.get(f"{prefix}damtype")),
-            damage_mult=max(0.0, num("mult", 1.0)),
+            damage_type=_damage_type_from_field(
+                all_fields.get("force_melee_damtype") or all_fields.get(f"{prefix}damtype")
+            ),
+            damage_mult=_offhand_damage_multiplier(all_fields, prefix=prefix, talents=talents),
             inc_damage=dict(inc_damage),
             resists_pen=dict(resists_pen),
             melee_project=_damage_fields_by_prefixes(all_fields, f"{prefix}melee_project."),
@@ -278,6 +287,7 @@ class EnemyOffense:
                 stats=stats,
                 inc_damage=inc,
                 resists_pen=pen,
+                talents=talents,
             ),
             talents=talents,
             talents_cd=talents_cd,
@@ -419,6 +429,26 @@ def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: 
         for key, value in all_fields.items()
         if key.startswith(prefix) and isinstance(value, (int, float)) and not isinstance(value, bool)
     }
+
+
+def _talent_level(talents: dict[str, float], talent_id: str) -> float:
+    normalized = talent_id.lower()
+    return max(0.0, talents.get(normalized, talents.get(normalized.removeprefix("t_"), 0.0)))
+
+
+def _offhand_damage_multiplier(
+    all_fields: dict[str, str | float | bool],
+    *,
+    prefix: str,
+    talents: dict[str, float],
+) -> float:
+    """Mirror ToME `getOffHandMult` for the standard offhand attack."""
+    offmult = max(0.0, _number_field(all_fields, f"{prefix}mult", 0.5))
+    for talent_id, (limit, low, high) in _OFFHAND_MULT_TALENTS.items():
+        level = _talent_level(talents, talent_id)
+        if level > 0.0:
+            offmult = max(offmult, cm.combat_talent_limit(level, limit, low, high))
+    return offmult
 
 
 def _damage_fields_by_prefixes(all_fields: dict[str, str | float | bool], *prefixes: str) -> dict[str, float]:

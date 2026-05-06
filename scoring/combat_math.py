@@ -107,6 +107,40 @@ def combat_damage_power(weapon_damage: float) -> float:
     return (math.sqrt(power / 10.0) - 1.0) * 0.5 + 1.0
 
 
+def combat_talent_limit(
+    talent_level: float,
+    limit: float,
+    low: float,
+    high: float,
+    *,
+    mastery: float | None = None,
+) -> float:
+    """ToME's `combatTalentLimit` diminishing return curve.
+
+    `low` matches talent level 1 with default 1.3 mastery and `high`
+    matches talent level 5 with default 1.3 mastery, unless a specific
+    mastery value is supplied.
+    """
+    x_low = math.sqrt(mastery if mastery is not None else 1.3)
+    x_high = math.sqrt(mastery * 5.0 if mastery is not None else 6.5)
+    level = max(float(talent_level), 0.5)
+
+    if high >= low:
+        a = math.log((high - limit) / (low - limit)) / (x_high - x_low)
+        b = -(
+            (x_high - x_low) * math.log(1.0 - high / limit)
+            - x_high * math.log((high - limit) / (low - limit))
+        ) / (x_low - x_high)
+        return limit * (1.0 - math.exp(math.sqrt(level) * a + b))
+
+    a = math.log((high - limit) / (low - limit)) / (x_high - x_low)
+    b = -(
+        (x_high - x_low) * math.log(1.0 - (low - high) / (low - limit))
+        - x_high * math.log((high - limit) / (low - limit))
+    ) / (x_low - x_high)
+    return low - (low - limit) * (1.0 - math.exp(math.sqrt(level) * a + b))
+
+
 def estimate_combat_damage(
     weapon_damage: float,
     *,

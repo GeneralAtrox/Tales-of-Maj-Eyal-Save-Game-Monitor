@@ -892,8 +892,55 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.offhand.unmodeled_proc_hooks, ("special_on_hit",))
         self.assertEqual(offense.offhand.damage_mult, 1.0)
 
+    def test_offhand_multiplier_uses_dual_weapon_training(self) -> None:
+        expected_mult = cm.combat_talent_limit(5.0, 1.0, 0.65, 0.85)
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 60.0,
+                "combat.offhand.damrange": 1.0,
+                "combat.offhand.mult": 0.5,
+                "talents.T_DUAL_WEAPON_TRAINING": 5.0,
+            },
+            "Trained Dual Wielder",
+        )
+
+        self.assertIsNotNone(offense.offhand)
+        assert offense.offhand is not None
+        self.assertAlmostEqual(offense.offhand.damage_mult, expected_mult, places=6)
+
+        report = weapon_threat(offense, PlayerDefenses(max_life=300, defense=0))
+
+        self.assertEqual(report.burst_expected_damage, round(60.0 * expected_mult, 1))
+        self.assertIn(
+            f"OFFHAND adds ~{60.0 * expected_mult:.0f} same-action damage (x{expected_mult:.2f} offhand multiplier)",
+            report.notes,
+        )
+
+    def test_offhand_multiplier_uses_strongest_known_talent(self) -> None:
+        mastery_mult = cm.combat_talent_limit(5.0, 1.0, 0.60, 0.85)
+        corrupted_mult = cm.combat_talent_limit(5.0, 1.0, 0.60, 0.80)
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 60.0,
+                "combat.offhand.mult": 0.5,
+                "talents.T_DUAL_WEAPON_MASTERY": 5.0,
+                "talents.T_CORRUPTED_STRENGTH": 5.0,
+            },
+            "Master Dual Wielder",
+        )
+
+        self.assertIsNotNone(offense.offhand)
+        assert offense.offhand is not None
+        self.assertAlmostEqual(offense.offhand.damage_mult, max(mastery_mult, corrupted_mult), places=6)
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
+
+    def test_combat_talent_limit_matches_engine_anchor_points(self) -> None:
+        self.assertAlmostEqual(cm.combat_talent_limit(1.3, 1.0, 0.65, 0.85), 0.65, places=6)
+        self.assertAlmostEqual(cm.combat_talent_limit(6.5, 1.0, 0.65, 0.85), 0.85, places=6)
 
     def test_enemy_offense_reads_live_damage_type(self) -> None:
         offense = EnemyOffense.from_all_fields({"combat.damtype": "fire"}, "Test")
