@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QSize, QSignalBlocker, Qt, QTimer, Signal
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from game_data.talent_db import lookup_talent_description, lookup_talent_icon
+from game_data.talent_icons import TALENT_ICONS, normalize_icon_name, resolve_talent_icon_path, to_display_snake
 from gui.sprite_composer import compose_layers, get_sprite, normalize_sprite_layers
 from gui.startup_trace import mark_startup_phase
 from gui.theme import (
@@ -43,10 +44,10 @@ from gui.theme import (
     TEXT,
     YELLOW,
 )
+from scoring.enemy_threat import PlayerDefenses
 
 # ── Asset paths ───────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).parent.parent
-TALENT_ICONS = _ROOT / "Icons" / "talents"
 STAT_ICONS = _ROOT / "Icons" / "stats"
 CLASS_ICONS = _ROOT / "Icons" / "class-icons"
 
@@ -74,54 +75,29 @@ _STAT_ICONS: dict[str, str] = {
 }
 _STAT_ORDER = list(_STAT_ICONS)
 
-# ── Icon overrides ────────────────────────────────────────────────────────────
-# Talent names whose icon filename doesn't match their snake_case name.
-# Value is the stem (no .png) of the file in Icons/talents/.
-_ICON_OVERRIDES: dict[str, str] = {
-    "Pulverising Auger": "dig",
-    "Pulverizing Auger": "dig",
-    "Mirror Image": "mirror_images",
-    "Temporal Shield": "time_shield",
-    "Arcane Reconstruction": "heal",
-    "Ogric Wrath": "ogre_wrath",
-    "Heavy Armour Training": "armour_training",
-    "Combat Accuracy": "weapon_combat",
-    "Dagger Mastery": "knife_mastery",
-}
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
 def _to_snake(name: str) -> str:
-    """'Stunning Blow' → 'stunning_blow', "Hunter's Sight" → 'hunters_sight'."""
-    s = name.lower().replace("'", "")
-    return re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-
-
-def _normalize_talent_icon_name(icon_value: str) -> str:
-    icon_value = icon_value.strip()
-    if not icon_value:
-        return ""
-    return PurePosixPath(icon_value).name
+    return to_display_snake(name)
 
 
 def _resolve_talent_icon_path(name: str, data: Any) -> Path:
+    data_icon = ""
+    talent_id = ""
     if isinstance(data, dict):
         icon_value = data.get("Icon")
         if isinstance(icon_value, str):
-            icon_name = _normalize_talent_icon_name(icon_value)
-            if icon_name:
-                candidate = TALENT_ICONS / icon_name
-                if candidate.exists():
-                    return candidate
-
-    fallback_icon = lookup_talent_icon(name)
-    if fallback_icon:
-        candidate = TALENT_ICONS / fallback_icon
-        if candidate.exists():
-            return candidate
-
-    return TALENT_ICONS / f"{_ICON_OVERRIDES.get(name, _to_snake(name))}.png"
+            data_icon = normalize_icon_name(icon_value)
+        raw_tid = data.get("talent_id") or data.get("Talent Id") or data.get("TalentID")
+        if isinstance(raw_tid, str):
+            talent_id = raw_tid
+    return resolve_talent_icon_path(
+        name=name,
+        data_icon=data_icon,
+        lookup_icon=lookup_talent_icon(name),
+        talent_id=talent_id,
+    )
 
 
 def _load_pixmap(path: Path, size: int) -> QPixmap:
@@ -1966,9 +1942,17 @@ class CharacterSheetView(QWidget):
         self._inventory_panel: _ItemListPanel | None = None
         self._transmog_panel: _ItemListPanel | None = None
         self._inventory_detail_panel: _InventoryDetailPanel | None = None
+        self._log_panel: QWidget | None = None
+        self._battle_sim_panel: Any | None = None
+        self._battle_sim_tab_index = -1
+        self._battle_save_context: tuple[Path | None, str, str] = (None, "", "")
+        self._battle_live_player: PlayerDefenses | None = None
+        self._enemy_tab_index = -1
         self._progression_tab: Any | None = None
         self._progression_tab_index = -1
         self._progression_state: tuple[set[str], set[str], set[str], tuple[str, int, int] | None] | None = None
+        self._connecting_overlay: QWidget | None = None
+        self._connecting_overlay_pending = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1982,12 +1966,28 @@ class CharacterSheetView(QWidget):
 
         # ── Fixed player overview ────────────────────────────────────────
         mark_startup_phase("sheet_top_row_create_start")
+        self._top_row = QWidget()
+        self._top_row.setStyleSheet(f"background: {BG}; border-bottom: 1px solid {BORDER};")
+        self._top_row_lay = QHBoxLayout(self._top_row)
+        self._top_row_lay.setContentsMargins(0, 0, 0, 0)
+        self._top_row_lay.setSpacing(0)
+
         self._player_box = QFrame()
-        self._player_box.setStyleSheet(f"background: {BG}; border-bottom: 1px solid {BORDER};")
+        self._player_box.setStyleSheet(f"background: {BG};")
         self._player_box_lay = QVBoxLayout(self._player_box)
         self._player_box_lay.setContentsMargins(12, 0, 12, 8)
         self._player_box_lay.setSpacing(0)
-        root.addWidget(self._player_box)
+        self._top_row_lay.addWidget(self._player_box, 1)
+
+        self._log_host = QWidget()
+        self._log_host.setStyleSheet(f"background: {BG};")
+        self._log_host_lay = QVBoxLayout(self._log_host)
+        self._log_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._log_host_lay.setSpacing(0)
+        self._log_host.setMinimumWidth(280)
+        self._log_host.setMaximumWidth(380)
+        self._top_row_lay.addWidget(self._log_host, 0, Qt.AlignmentFlag.AlignTop)
+        root.addWidget(self._top_row)
         mark_startup_phase("sheet_top_row_create_done")
 
         # ── Content tabs ─────────────────────────────────────────────────
@@ -1996,7 +1996,7 @@ class CharacterSheetView(QWidget):
         root.addWidget(self._content_tabs, 1)
         mark_startup_phase("sheet_tabs_create_done")
 
-        # Talents tab scaffold is built lazily when sheet data first arrives.
+        # Talents tab: left scroll | open feature area
         mark_startup_phase("sheet_talents_placeholder_start")
         talents_tab = QWidget()
         self._talents_tab_lay = QVBoxLayout(talents_tab)
@@ -2026,35 +2026,26 @@ class CharacterSheetView(QWidget):
         self._enemy_host_lay = QVBoxLayout(self._enemy_host)
         self._enemy_host_lay.setContentsMargins(0, 0, 0, 0)
         self._enemy_host_lay.setSpacing(0)
-        self._content_tabs.addTab(self._enemy_host, "Enemies")
-        self._content_tabs.currentChanged.connect(self._on_content_tab_changed)
+        self._enemy_tab_index = self._content_tabs.addTab(self._enemy_host, "Enemies")
         mark_startup_phase("sheet_enemy_placeholder_done")
 
-        mark_startup_phase("sheet_overlay_create_start")
-        self._connecting_overlay = QWidget(self)
-        self._connecting_overlay.setStyleSheet(f"background: {BG};")
-        overlay_lay = QVBoxLayout(self._connecting_overlay)
-        overlay_lay.setContentsMargins(24, 24, 24, 24)
-        overlay_lay.addStretch()
-        overlay_title = QLabel("Connecting To Game")
-        overlay_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        overlay_title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {TEXT};")
-        overlay_subtitle = QLabel("Character data will load after a live game session is attached.")
-        overlay_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        overlay_subtitle.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0};")
-        overlay_lay.addWidget(overlay_title)
-        overlay_lay.addSpacing(8)
-        overlay_lay.addWidget(overlay_subtitle)
-        overlay_lay.addStretch()
-        self._connecting_overlay.raise_()
-        self._connecting_overlay.show()
-        mark_startup_phase("sheet_overlay_create_done")
+        mark_startup_phase("sheet_battle_placeholder_start")
+        self._battle_sim_host = QWidget()
+        self._battle_sim_host_lay = QVBoxLayout(self._battle_sim_host)
+        self._battle_sim_host_lay.setContentsMargins(0, 0, 0, 0)
+        self._battle_sim_host_lay.setSpacing(0)
+        self._battle_sim_tab_index = self._content_tabs.addTab(self._battle_sim_host, "Battle Simulator")
+        self._content_tabs.currentChanged.connect(self._on_content_tab_changed)
+        mark_startup_phase("sheet_battle_placeholder_done")
+
+        mark_startup_phase("sheet_overlay_deferred")
 
     # ── Public API ────────────────────────────────────────────────────────
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
-        self._connecting_overlay.setGeometry(self.rect())
+        if self._connecting_overlay is not None:
+            self._connecting_overlay.setGeometry(self.rect())
 
     def set_hp(self, life: float, max_life: float) -> None:
         self._header.set_hp(life, max_life)
@@ -2079,6 +2070,22 @@ class CharacterSheetView(QWidget):
 
     def set_actions_menu(self, menu) -> None:
         self._header.set_actions_menu(menu)
+
+    def set_log_panel(self, panel: QWidget) -> None:
+        while self._log_host_lay.count():
+            item = self._log_host_lay.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        self._log_panel = panel
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._log_host_lay.addWidget(panel)
+        if panel.objectName() != "LogPlaceholder":
+            self._sync_top_row_height()
+
+    def set_save_context(self, save_root: Path | None, folder_name: str, char_name: str = "") -> None:
+        self._battle_save_context = (save_root, folder_name, char_name)
+        if self._battle_sim_panel is not None:
+            self._battle_sim_panel.set_save_context(save_root, folder_name, char_name)
 
     def set_sprite(self, image_hint: str, sprite_layers: list[str] | None = None) -> None:
         sprite_key = (image_hint, tuple(sprite_layers or ()))
@@ -2108,9 +2115,52 @@ class CharacterSheetView(QWidget):
 
     def set_game_connected(self, connected: bool) -> None:
         if connected == self._game_connected:
+            if not connected:
+                self._schedule_connecting_overlay()
             return
         self._game_connected = connected
-        self._connecting_overlay.setVisible(not connected)
+        if connected:
+            self._connecting_overlay_pending = False
+            if self._connecting_overlay is not None:
+                self._connecting_overlay.hide()
+        else:
+            self._schedule_connecting_overlay()
+
+    def _schedule_connecting_overlay(self) -> None:
+        if self._connecting_overlay is not None:
+            self._connecting_overlay.show()
+            self._connecting_overlay.raise_()
+            return
+        if self._connecting_overlay_pending:
+            return
+        self._connecting_overlay_pending = True
+        QTimer.singleShot(500, self._show_connecting_overlay_if_needed)
+
+    def _show_connecting_overlay_if_needed(self) -> None:
+        self._connecting_overlay_pending = False
+        if self._game_connected or self._connecting_overlay is not None:
+            return
+        mark_startup_phase("sheet_overlay_create_start")
+        overlay = QWidget(self)
+        overlay.setStyleSheet(f"background: {BG};")
+        overlay_lay = QVBoxLayout(overlay)
+        overlay_lay.setContentsMargins(24, 24, 24, 24)
+        overlay_lay.addStretch()
+        overlay_title = QLabel("Connecting To Game")
+        overlay_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay_title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {TEXT};")
+        overlay_subtitle = QLabel("Character data will load after a live game session is attached.")
+        overlay_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay_subtitle.setStyleSheet(f"font-size: 13px; color: {SUBTEXT0};")
+        overlay_lay.addWidget(overlay_title)
+        overlay_lay.addSpacing(8)
+        overlay_lay.addWidget(overlay_subtitle)
+        overlay_lay.addStretch()
+        overlay.setGeometry(self.rect())
+        overlay.raise_()
+        overlay.show()
+        self._connecting_overlay = overlay
+        mark_startup_phase("sheet_overlay_create_done")
 
     def set_live_inventory(
         self,
@@ -2179,6 +2229,11 @@ class CharacterSheetView(QWidget):
         self._live_prodigies = prodigies
         self._inventory_dirty = True
         self._reload_current()
+
+    def set_live_player_defenses(self, defenses: PlayerDefenses | None) -> None:
+        self._battle_live_player = defenses
+        if self._battle_sim_panel is not None:
+            self._battle_sim_panel.set_live_player(defenses)
 
     def clear_live_inventory(self) -> None:
         if (
@@ -2344,6 +2399,7 @@ class CharacterSheetView(QWidget):
         if self._content_tabs.currentIndex() == self._inventory_tab_index:
             self._reload_inventory_panels()
         self._left.adjustSize()
+        self._sync_top_row_height()
         QTimer.singleShot(
             0,
             lambda value=talent_scroll_value: self._talents_scroll.verticalScrollBar().setValue(value),
@@ -2410,6 +2466,15 @@ class CharacterSheetView(QWidget):
                 item.widget().setParent(None)
         self._enemy_host_lay.addWidget(panel)
 
+    def load_battle_enemy(self, enemy: Any) -> None:
+        if not hasattr(enemy, "all_fields"):
+            return
+        from gui.battle_simulator import battle_enemy_from_entity
+
+        panel = self._ensure_battle_sim_panel()
+        panel.load_enemy_snapshot(battle_enemy_from_entity(enemy))
+        self._content_tabs.setCurrentIndex(self._battle_sim_tab_index)
+
     def update_progression(
         self,
         visited: set[str],
@@ -2426,6 +2491,8 @@ class CharacterSheetView(QWidget):
             self._reload_inventory_panels()
         if index == self._progression_tab_index:
             self._ensure_progression_tab()
+        if index == self._battle_sim_tab_index:
+            self._ensure_battle_sim_panel()
 
     def _reload_inventory_panels(self) -> None:
         if not self._inventory_dirty:
@@ -2472,46 +2539,6 @@ class CharacterSheetView(QWidget):
         )
         self._inventory_dirty = False
 
-    def _ensure_talents_tab(self) -> bool:
-        if self._talents_scroll is not None and self._left_lay is not None:
-            return True
-        if self._talents_tab_lay is None:
-            return False
-
-        mark_startup_phase("sheet_talents_tab_create_start")
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(1)
-        splitter.setChildrenCollapsible(False)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}")
-        self._talents_scroll = scroll
-        self._left = QWidget()
-        self._left.setStyleSheet(f"background: {BG};")
-        self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._left_lay = QVBoxLayout(self._left)
-        self._left_lay.setContentsMargins(12, 12, 12, 24)
-        self._left_lay.setSpacing(2)
-        self._left_lay.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._left_lay.addStretch()
-        scroll.setWidget(self._left)
-        splitter.addWidget(scroll)
-        self._talents_feature_host = QWidget()
-        self._talents_feature_host.setStyleSheet(f"background: {BG}; border-left: 1px solid {BORDER};")
-        feature_lay = QVBoxLayout(self._talents_feature_host)
-        feature_lay.setContentsMargins(12, 12, 12, 12)
-        feature_lay.setSpacing(0)
-        feature_lay.addStretch()
-        self._talents_feature_lay = feature_lay
-        splitter.addWidget(self._talents_feature_host)
-        splitter.setSizes([860, 140])
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-        self._talents_tab_lay.addWidget(splitter)
-        mark_startup_phase("sheet_talents_tab_create_done")
-        return True
-
     def _ensure_inventory_tab(self) -> bool:
         if (
             self._equipped_panel is not None
@@ -2557,6 +2584,45 @@ class CharacterSheetView(QWidget):
         self._transmog_panel.item_selected.connect(self._on_inventory_item_selected)
         return True
 
+    def _ensure_talents_tab(self) -> bool:
+        if self._talents_scroll is not None and self._left_lay is not None:
+            return True
+        if self._talents_tab_lay is None:
+            return False
+        mark_startup_phase("sheet_talents_tab_create_start")
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(1)
+        splitter.setChildrenCollapsible(False)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}")
+        self._talents_scroll = scroll
+        self._left = QWidget()
+        self._left.setStyleSheet(f"background: {BG};")
+        self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._left_lay = QVBoxLayout(self._left)
+        self._left_lay.setContentsMargins(12, 12, 12, 24)
+        self._left_lay.setSpacing(2)
+        self._left_lay.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._left_lay.addStretch()
+        scroll.setWidget(self._left)
+        splitter.addWidget(scroll)
+        self._talents_feature_host = QWidget()
+        self._talents_feature_host.setStyleSheet(f"background: {BG};")
+        feature_lay = QVBoxLayout(self._talents_feature_host)
+        feature_lay.setContentsMargins(12, 12, 12, 12)
+        feature_lay.setSpacing(0)
+        feature_lay.addStretch()
+        self._talents_feature_lay = feature_lay
+        splitter.addWidget(self._talents_feature_host)
+        splitter.setSizes([860, 140])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        self._talents_tab_lay.addWidget(splitter)
+        mark_startup_phase("sheet_talents_tab_create_done")
+        return True
+
     def _ensure_progression_tab(self) -> Any:
         if self._progression_tab is not None:
             return self._progression_tab
@@ -2568,6 +2634,19 @@ class CharacterSheetView(QWidget):
         self._progression_host_lay.addWidget(panel)
         if self._progression_state is not None:
             panel.update(*self._progression_state)
+        return panel
+
+    def _ensure_battle_sim_panel(self) -> Any:
+        if self._battle_sim_panel is not None:
+            return self._battle_sim_panel
+
+        from gui.battle_simulator import BattleSimulatorPanel
+
+        panel = BattleSimulatorPanel()
+        panel.set_save_context(*self._battle_save_context)
+        panel.set_live_player(self._battle_live_player)
+        self._battle_sim_panel = panel
+        self._battle_sim_host_lay.addWidget(panel)
         return panel
 
     # ── Builders ─────────────────────────────────────────────────────────
@@ -2737,6 +2816,12 @@ class CharacterSheetView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+    def _sync_top_row_height(self) -> None:
+        if self._log_panel is None:
+            return
+        target_height = max(180, self._player_box.sizeHint().height())
+        self._log_panel.setFixedHeight(target_height)
+
     @staticmethod
     def _insert(layout: QVBoxLayout, widget: QWidget) -> None:
         layout.insertWidget(layout.count() - 1, widget)
@@ -2778,8 +2863,7 @@ class _HeaderBar(QWidget):
         self._class_icon = QLabel()
         self._class_icon.setFixedSize(_ICON_CLASS, _ICON_CLASS)
         self._class_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._default_class_icon = _placeholder(_ICON_CLASS)
-        self._class_icon.setPixmap(self._default_class_icon)
+        self._default_class_icon: QPixmap | None = None
 
         self._char_btn = QToolButton()
         self._char_btn.setText("No character loaded  \u25be")
@@ -2864,9 +2948,10 @@ class _HeaderBar(QWidget):
         if cls:
             icon_file = CLASS_ICONS / f"{_to_snake(cls)}_32_bg.png"
             self._default_class_icon = _load_pixmap(icon_file, _ICON_CLASS)
+            self._class_icon.setPixmap(self._default_class_icon)
         else:
-            self._default_class_icon = _placeholder(_ICON_CLASS)
-        self._class_icon.setPixmap(self._default_class_icon)
+            self._default_class_icon = None
+            self._class_icon.clear()
 
         parts = [p for p in [char_name or cls, race, f"Level {level}" if level else "", mode] if p]
         label = "   ·   ".join(parts) if parts else "No character loaded"

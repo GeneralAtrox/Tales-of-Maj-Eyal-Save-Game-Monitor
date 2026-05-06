@@ -1,0 +1,1 @@
+class:loadHooksFile("practice.lua")

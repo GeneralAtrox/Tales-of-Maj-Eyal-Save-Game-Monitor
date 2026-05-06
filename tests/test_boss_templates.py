@@ -1,0 +1,105 @@
+import unittest
+from unittest.mock import patch
+
+from game_data.boss_templates import (
+    BossTemplate,
+    BossActorRef,
+    _BossBlock,
+    _boss_actor_refs,
+    _boss_template_stats,
+    get_boss_templates,
+)
+
+
+class BossTemplateTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        _boss_template_stats.cache_clear()
+        _boss_actor_refs.cache_clear()
+
+    def test_display_label_uses_name_location_level_and_quest(self) -> None:
+        templates = get_boss_templates()
+        urkis = next(template for template in templates if template.name == "Urkis, the High Tempest")
+        self.assertEqual(
+            urkis.display_label,
+            "Urkis, the High Tempest, Tempest Peak, 17+, Optional Quest: Storming the city",
+        )
+
+    def test_stats_fall_back_to_template_metadata_without_source_data(self) -> None:
+        template = BossTemplate("Fallback Boss", "Somewhere", "42+", "Quest: Testing")
+        with patch("game_data.boss_templates._resolve_boss_block", return_value=None):
+            stats = _boss_template_stats(template)
+
+        self.assertEqual(stats.name, "Fallback Boss")
+        self.assertEqual(stats.level, 42.0)
+        self.assertEqual(stats.rank, 4.0)
+        self.assertFalse(stats.has_combat_data)
+        self.assertIn("partial", stats.warning.lower())
+
+    def test_stats_parse_scalar_and_damage_fields_from_lua_block(self) -> None:
+        template = BossTemplate("The Test Boss", "Test Zone", "23+", "Quest: Testing")
+        block = """
+newEntity{
+    name = "The Test Boss",
+    type = "undead", subtype = "vampire", faction = "dreadfell",
+    level_range = {23, nil},
+    max_life = resolvers.rngavg(300, 500),
+    rank = 5,
+    global_speed_base = 1.2,
+    combat = { dam = resolvers.rngavg(40, 60), atk = 35, apr = 12, crit = 10, crit_power = 30, physspeed = 2 },
+    inc_damage = { [DamageType.BLIGHT] = 25, all = 10 },
+    resists_pen = { [DamageType.COLD] = 15 },
+}
+"""
+        with patch(
+            "game_data.boss_templates._resolve_boss_block",
+            return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+        ):
+            stats = _boss_template_stats(template)
+
+        self.assertEqual(stats.level, 23.0)
+        self.assertEqual(stats.max_life, 400.0)
+        self.assertEqual(stats.rank, 5.0)
+        self.assertEqual(stats.rank_name, "Elite Boss")
+        self.assertEqual(stats.faction, "dreadfell")
+        self.assertEqual(stats.type_name, "undead")
+        self.assertEqual(stats.subtype, "vampire")
+        self.assertEqual(stats.global_speed, 1.2)
+        self.assertEqual(stats.dam, 50.0)
+        self.assertEqual(stats.atk, 35.0)
+        self.assertEqual(stats.apr, 12.0)
+        self.assertEqual(stats.crit_chance_pct, 10.0)
+        self.assertEqual(stats.crit_power_bonus_pct, 30.0)
+        self.assertEqual(stats.physspeed, 2.0)
+        self.assertEqual(stats.inc_damage["BLIGHT"], 25.0)
+        self.assertEqual(stats.inc_damage["ALL"], 10.0)
+        self.assertEqual(stats.resists_pen["COLD"], 15.0)
+        self.assertTrue(stats.has_combat_data)
+        self.assertEqual(stats.warning, "")
+
+    def test_actor_refs_resolve_source_path_and_define_as(self) -> None:
+        template = BossTemplate(
+            "Tannen & Drolem",
+            "Tannen's Tower",
+            "35+",
+            "Optional Quest: Back and there again",
+            source_names=("Tannen", "Drolem"),
+            source_zone="tannen-tower",
+        )
+        mapping = {
+            "tannen": [_BossBlock("data/zones/tannen-tower/npcs.lua", 'newEntity{ name = "Tannen", define_as = "TANNEN" }')],
+            "drolem": [_BossBlock("data/zones/tannen-tower/npcs.lua", 'newEntity{ name = "Drolem", define_as = "DROLEM" }')],
+        }
+        with patch("game_data.boss_templates._boss_block_map", return_value=mapping):
+            refs = _boss_actor_refs(template)
+
+        self.assertEqual(
+            refs,
+            (
+                BossActorRef("/data/zones/tannen-tower/npcs.lua", "Tannen", "TANNEN"),
+                BossActorRef("/data/zones/tannen-tower/npcs.lua", "Drolem", "DROLEM"),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

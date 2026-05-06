@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -38,6 +37,8 @@ class MainWindow(QMainWindow):
         self._startup_started_at = startup_started_at
         self._startup_timer_reported = False
         self._startup_metrics_path = config_path.parent / ".startup_timing.txt"
+        self._status_bar_created = False
+        self._pending_status_message: tuple[str, int] | None = ("Starting...", 0)
 
         # ── Log bridge: redirect stdout/stderr before anything prints ──
         self._log_bridge = LogBridge(self)
@@ -48,10 +49,13 @@ class MainWindow(QMainWindow):
         self._input_bridge = InputBridge(self)
         self._input_bridge.input_needed.connect(self._handle_input_request)
 
+        # ── Log panel is expensive under some IDE/Qt font paths; create it
+        # after first live startup instead of blocking the memory hook.
         mark_startup_phase("log_panel_deferred")
         self._log_panel: QWidget | None = None
         self._pending_log_messages: list[str] = []
         self._log_placeholder = QWidget()
+        self._log_placeholder.setObjectName("LogPlaceholder")
 
         # ── Top bar: status dots ─────────────────────────────────────────────
         mark_startup_phase("top_bar_create_start")
@@ -78,9 +82,9 @@ class MainWindow(QMainWindow):
         central_lay.addWidget(top_bar)
 
         # ── Status bar ──
-        self.setStatusBar(QStatusBar())
-        self.statusBar().showMessage("Starting\u2026")
-        mark_startup_phase("status_bar_ready")
+        # QStatusBar creation can be slow on some IDE/Qt font paths, so it is
+        # delayed until after the first live connection is reported.
+        mark_startup_phase("status_bar_deferred")
 
         # ── Dashboard (log panel parented inside it) ──
         mark_startup_phase("dashboard_create_start")
@@ -93,8 +97,8 @@ class MainWindow(QMainWindow):
         self._char_menu = QMenu(self)
         self._actions_menu = QMenu(self)
         self._actions_menu.aboutToShow.connect(self._rebuild_actions_menu)
-        self._dashboard._sheet_visual.set_character_menu(self._char_menu)
-        self._dashboard._sheet_visual.set_actions_menu(self._actions_menu)
+        self._dashboard.set_character_menu(self._char_menu)
+        self._dashboard.set_actions_menu(self._actions_menu)
 
         self._settings_tab: SettingsTab | None = None
         self._char_items: list[tuple[str, str]] = []  # (folder_name, label)
@@ -106,7 +110,8 @@ class MainWindow(QMainWindow):
         self._dashboard.game_status_changed.connect(self._set_game_status)
         self._dashboard.game_connected.connect(self._report_startup_time)
         self._dashboard._subtabs.currentChanged.connect(self._maybe_capture_preview_from_tabs)
-        self._dashboard._sheet_visual._content_tabs.currentChanged.connect(self._maybe_capture_preview_from_tabs)
+        self._dashboard.sheet_content_tab_changed.connect(self._maybe_capture_preview_from_tabs)
+        self._dashboard.finalize_hot_preattach()
 
         # ── Start monitor thread ──
         self._monitor = MonitorThread(config_path, self._input_bridge)
@@ -135,7 +140,7 @@ class MainWindow(QMainWindow):
         self._init_poll.stop()
         self._set_monitor_status(active=True)
         self._dashboard.set_roots(config.character_sheets_root, config.backup_root)
-        self.statusBar().showMessage("Monitor active")
+        self._set_status_message("Monitor active")
 
         # Settings tab
         self._settings_tab = SettingsTab()
@@ -190,10 +195,11 @@ class MainWindow(QMainWindow):
         self._game_dot.style().polish(self._game_dot)
 
     def _maybe_capture_preview_from_tabs(self, _index: int) -> None:
-        if self._dashboard._subtabs.currentWidget() is not self._dashboard._sheet_visual:
+        sheet_visual = self._dashboard._sheet_visual
+        if sheet_visual is None or self._dashboard._subtabs.currentWidget() is not sheet_visual:
             return
 
-        current_inner = self._dashboard._sheet_visual._content_tabs.currentIndex()
+        current_inner = sheet_visual._content_tabs.currentIndex()
         preview_name = {
             0: "character-sheet-overview",
             1: "inventory-view",
@@ -233,7 +239,7 @@ class MainWindow(QMainWindow):
         self._char_items = updated_items
         self._rebuild_character_menu()
         self._dashboard.refresh_current()
-        self.statusBar().showMessage("Character sheet updated", 4000)
+        self._set_status_message("Character sheet updated", 4000)
 
     def _rebuild_character_menu(self) -> None:
         self._char_menu.clear()
@@ -286,7 +292,7 @@ class MainWindow(QMainWindow):
 
                 has_transmo = self._dashboard._reader.read_has_transmo()
                 schedule_scrying_sync(char, config, has_transmo=has_transmo)
-                self.statusBar().showMessage(f"Sync scheduled for {char.name}", 3000)
+                self._set_status_message(f"Sync scheduled for {char.name}", 3000)
                 return
 
     def _on_config_saved(self, config: object) -> None:
@@ -295,7 +301,7 @@ class MainWindow(QMainWindow):
 
         if isinstance(config, AppConfig):
             save_config(config)
-            self.statusBar().showMessage("Config saved", 3000)
+            self._set_status_message("Config saved", 3000)
 
     def _restore_backup(self, folder_name: str, backup_name: str) -> None:
         config = self._monitor.config
@@ -321,7 +327,7 @@ class MainWindow(QMainWindow):
 
             restore_backup(backup_path, config.save_root, folder_name)
             print(f"[*] {char_name} restored from {backup_name}.")
-            self.statusBar().showMessage(f"Restored {char_name} from {backup_name}", 5000)
+            self._set_status_message(f"Restored {char_name} from {backup_name}", 5000)
         except OSError as exc:
             QMessageBox.critical(self, "Restore Failed", str(exc))
 
@@ -351,7 +357,10 @@ class MainWindow(QMainWindow):
 
         panel = LogPanel()
         self._log_panel = panel
-        self._dashboard._sheet_visual.set_log_panel(panel)
+        if self._dashboard._sheet_visual is not None:
+            self._dashboard._sheet_visual.set_log_panel(panel)
+        else:
+            self._dashboard._pending_log_panel = panel
         for message in self._pending_log_messages:
             panel.append(message)
         self._pending_log_messages.clear()
@@ -369,11 +378,32 @@ class MainWindow(QMainWindow):
         except OSError:
             pass
         write_startup_trace("game_connected_reported", elapsed_s=round(elapsed, 6))
-        self.statusBar().showMessage(f"Connected to game in {elapsed:.2f}s", 5000)
+        self._set_status_message(f"Connected to game in {elapsed:.2f}s", 5000)
+        QTimer.singleShot(750, self._ensure_status_bar)
         QTimer.singleShot(1500, self._ensure_log_panel)
         self._startup_timer_reported = True
 
     # ── Helpers ────────────────────────────────────────────────────────────
+
+    def _set_status_message(self, message: str, timeout_ms: int = 0) -> None:
+        if not self._status_bar_created:
+            self._pending_status_message = (message, timeout_ms)
+            return
+        self.statusBar().showMessage(message, timeout_ms)
+
+    def _ensure_status_bar(self) -> None:
+        if self._status_bar_created:
+            return
+        mark_startup_phase("status_bar_create_start")
+        from PySide6.QtWidgets import QStatusBar
+
+        self.setStatusBar(QStatusBar())
+        self._status_bar_created = True
+        if self._pending_status_message is not None:
+            message, timeout_ms = self._pending_status_message
+            self.statusBar().showMessage(message, timeout_ms)
+            self._pending_status_message = None
+        mark_startup_phase("status_bar_ready")
 
     @staticmethod
     def _char_label(name: str, class_race: str, level: str) -> str:

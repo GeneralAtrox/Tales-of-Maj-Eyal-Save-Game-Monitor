@@ -1,0 +1,11 @@
+long_name = "Codex Practice Runner"
+short_name = "codex-practice-runner"
+for_module = "tome"
+version = {1, 7, 6}
+addon_version = {0, 1, 0}
+weight = 1000
+author = {"OpenAI Codex"}
+description = [[Injects a disposable practice arena for Codex-launched fight rehearsals.]]
+hooks = true
+superload = true
+overload = true

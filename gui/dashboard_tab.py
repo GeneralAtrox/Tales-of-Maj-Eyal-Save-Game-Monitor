@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
-    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 
 from game_data.npc_db import get_npc_db
 from game_data.talent_db import get_talent_db
-from gui.enemy_panel import EnemyPanel, player_stats_to_defenses
 from gui.memory_reader import MemoryReader, is_process_running, take_preattached_reader
 from gui.sheet_view import CharacterSheetView
 from gui.startup_trace import mark_startup_phase, write_startup_trace
@@ -31,14 +30,15 @@ _MONO_FONT = '"Cascadia Code", "Consolas", "Courier New", monospace'
 
 
 class DashboardTab(QWidget):
-    """Main monitor workspace: character sub-tabs | enemies | output log."""
+    """Main monitor workspace: character subtabs and live game integrations."""
 
     analyze_requested = Signal(str, str)  # folder_name, question
     game_status_changed = Signal(bool)  # True = active
     game_connected = Signal()  # emitted after a successful game attach
+    sheet_content_tab_changed = Signal(int)
     _attach_succeeded = Signal()
     _enemies_ready = Signal(list)  # list[EntityInfo] — bg thread → main thread
-    _live_inventory_ready = Signal(object, object, object, object, object, object, object)
+    _live_inventory_ready = Signal(object, object, object, object, object, object, object, object)
 
     def __init__(
         self,
@@ -48,9 +48,12 @@ class DashboardTab(QWidget):
         mark_startup_phase("dashboard_init_start")
         super().__init__(parent)
         self._sheets_root: Path | None = None
+        self._save_root: Path | None = None
         self._current_folder: str | None = None
         self._chars: dict[str, str] = {}  # folder_name → display name
         self._settings_tab: QWidget | None = None
+        self._character_menu: object | None = None
+        self._actions_menu: object | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -71,6 +74,17 @@ class DashboardTab(QWidget):
         self._inventory_poll_pending = False
         self._cache_warm_started = False
         self._shutting_down = False
+        self._latest_entities: list = []
+        self._latest_defenses: Any | None = None
+        self._enemy_panel: QWidget | None = None
+        self._sheet_visual: CharacterSheetView | None = None
+        self._sheet_tab_index = -1
+        self._secondary_tabs_ready = False
+        self._pending_log_panel = log_panel
+        self._sheet_view: QPlainTextEdit | None = None
+        self._analysis_input: QPlainTextEdit | None = None
+        self._analysis_output: QTextEdit | None = None
+        self._analyze_btn: QPushButton | None = None
 
         self._preattach_poll = QTimer(self)
         self._preattach_poll.setInterval(25)
@@ -108,44 +122,18 @@ class DashboardTab(QWidget):
         self._prodigy_poll.start()
         mark_startup_phase("dashboard_timers_ready")
 
-        # ── 2-column splitter ──────────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(1)
-        splitter.setChildrenCollapsible(False)
-
-        # Left — character sub-tabs
         self._subtabs = QTabWidget()
-        mark_startup_phase("sheet_visual_create_start")
-        self._sheet_visual = CharacterSheetView()
-        mark_startup_phase("sheet_visual_create_done")
-        self._subtabs.addTab(self._sheet_visual, "Character Sheet")
-        mark_startup_phase("sheet_plain_tab_create_start")
-        self._subtabs.addTab(self._build_sheet_tab(), "Sheet")
-        mark_startup_phase("sheet_plain_tab_create_done")
-        mark_startup_phase("analysis_tab_create_start")
-        self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
-        mark_startup_phase("analysis_tab_create_done")
-        splitter.addWidget(self._subtabs)
+        mark_startup_phase("sheet_tabs_deferred")
+        root.addWidget(self._subtabs, 1)
 
-        mark_startup_phase("enemy_panel_create_start")
-        self._enemy_panel = EnemyPanel()
-        mark_startup_phase("enemy_panel_create_done")
-        self._sheet_visual.set_enemy_panel(self._enemy_panel)
+        mark_startup_phase("enemy_panel_deferred")
         self._attach_succeeded.connect(self._on_attach_succeeded)
         self._enemies_ready.connect(self._handle_enemies_ready)
         self._live_inventory_ready.connect(self._handle_live_inventory_ready)
-        splitter.addWidget(log_panel)
 
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([1180, 560])
-        root.addWidget(splitter)
-
-        # ── Finalize the memory reader now that _sheet_visual exists ──────
-        # Either (a) pre-attach already located _G → defer the post-attach
-        # flow via the event loop so it fires after __init__ fully returns
-        # and MainWindow has had a chance to register characters, or (b) no
-        # hot reader → fall through to the normal process-detection path.
+        # ── Finalize the memory reader via the event loop ─────────────────
+        # Keep the first UI pass light enough for a hot pre-attach to report
+        # before the full sheet widgets are constructed.
         QTimer.singleShot(0, self._start_background_warmup)
         QTimer.singleShot(0, self._check_preattached_reader)
         QTimer.singleShot(0, self._check_game_process)
@@ -206,10 +194,101 @@ class DashboardTab(QWidget):
         lay.addWidget(self._analysis_output)
         return w
 
+    def _ensure_main_tabs(self) -> None:
+        self._ensure_sheet_visual()
+        self._ensure_secondary_tabs()
+
+    def _ensure_sheet_visual(self) -> CharacterSheetView:
+        if self._sheet_visual is not None:
+            return self._sheet_visual
+
+        mark_startup_phase("sheet_visual_create_start")
+        sheet_visual = CharacterSheetView()
+        mark_startup_phase("sheet_visual_create_done")
+        if self._pending_log_panel.objectName() != "LogPlaceholder":
+            mark_startup_phase("sheet_log_panel_attach_start")
+            sheet_visual.set_log_panel(self._pending_log_panel)
+            mark_startup_phase("sheet_log_panel_attach_done")
+        if self._character_menu is not None:
+            sheet_visual.set_character_menu(self._character_menu)
+        if self._actions_menu is not None:
+            sheet_visual.set_actions_menu(self._actions_menu)
+
+        self._sheet_visual = sheet_visual
+        mark_startup_phase("sheet_visual_tab_add_start")
+        self._sheet_tab_index = self._subtabs.insertTab(0, sheet_visual, "Character Sheet")
+        mark_startup_phase("sheet_visual_tab_add_done")
+        sheet_visual._content_tabs.currentChanged.connect(self._on_sheet_content_tab_changed)
+        return sheet_visual
+
+    def _ensure_secondary_tabs(self) -> None:
+        if self._secondary_tabs_ready:
+            return
+        mark_startup_phase("sheet_plain_tab_create_start")
+        self._subtabs.addTab(self._build_sheet_tab(), "Sheet")
+        mark_startup_phase("sheet_plain_tab_create_done")
+        mark_startup_phase("analysis_tab_create_start")
+        self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
+        mark_startup_phase("analysis_tab_create_done")
+        self._secondary_tabs_ready = True
+
+    def _ensure_enemy_panel(self) -> Any:
+        if self._enemy_panel is not None:
+            return self._enemy_panel
+
+        mark_startup_phase("enemy_panel_create_start")
+        from gui.enemy_panel import EnemyPanel
+
+        panel = EnemyPanel()
+        mark_startup_phase("enemy_panel_create_done")
+        self._enemy_panel = panel
+        sheet_visual = self._ensure_sheet_visual()
+        sheet_visual.set_enemy_panel(panel)
+        panel.simulate_requested.connect(sheet_visual.load_battle_enemy)
+        if self._last_level_id is not None:
+            panel.set_map_name(self._last_level_id)
+        if self._latest_entities:
+            panel.update_enemies(self._latest_entities, self._latest_defenses)
+        return panel
+
+    @staticmethod
+    def _player_stats_to_defenses(stats: Any) -> Any:
+        from gui.enemy_panel import player_stats_to_defenses
+
+        return player_stats_to_defenses(stats)
+
+    def _on_sheet_content_tab_changed(self, index: int) -> None:
+        if self._sheet_visual is not None and index == self._sheet_visual._enemy_tab_index:
+            self._ensure_enemy_panel()
+        self.sheet_content_tab_changed.emit(index)
+
     # ── Public API ─────────────────────────────────────────────────────────
+
+    def set_character_menu(self, menu: object) -> None:
+        self._character_menu = menu
+        if self._sheet_visual is not None:
+            self._sheet_visual.set_character_menu(menu)
+
+    def set_actions_menu(self, menu: object) -> None:
+        self._actions_menu = menu
+        if self._sheet_visual is not None:
+            self._sheet_visual.set_actions_menu(menu)
+
+    def finalize_hot_preattach(self) -> None:
+        """Adopt a completed pre-attach immediately after MainWindow signal wiring."""
+        if self._shutting_down or not self._awaiting_preattach:
+            return
+        mark_startup_phase("preattach_sync_check_start")
+        self._check_preattached_reader()
+        mark_startup_phase(
+            "preattach_sync_check_done",
+            awaiting=self._awaiting_preattach,
+            attached=self._reader.attached,
+        )
 
     def set_roots(self, sheets_root: Path, backups_root: Path) -> None:  # noqa: ARG002
         self._sheets_root = sheets_root
+        self._save_root = sheets_root.parent
 
     def add_character(self, folder_name: str, name: str) -> None:
         self._chars[folder_name] = name
@@ -246,11 +325,15 @@ class DashboardTab(QWidget):
         self._reader.detach()
 
     def set_analysis_result(self, text: str) -> None:
+        self._ensure_secondary_tabs()
+        assert self._analysis_output is not None
+        assert self._analyze_btn is not None
         self._analysis_output.setPlainText(text)
         self._analyze_btn.setEnabled(True)
         self._analyze_btn.setText("Analyze with Claude")
 
     def set_settings_tab(self, tab: QWidget) -> None:
+        self._ensure_main_tabs()
         if self._settings_tab is tab:
             return
         if self._settings_tab is not None:
@@ -265,8 +348,12 @@ class DashboardTab(QWidget):
     def _load_sheet(self, folder_name: str) -> None:
         if not self._sheets_root:
             return
+        self._ensure_main_tabs()
+        assert self._sheet_visual is not None
+        assert self._sheet_view is not None
         mark_startup_phase("sheet_load_start", folder_name=folder_name, game_ready=self._game_session_ready)
         char_name = self._chars.get(folder_name, "")
+        self._sheet_visual.set_save_context(self._save_root, folder_name, char_name)
         if not self._game_session_ready:
             self._sheet_loaded_for_session = False
             self._sheet_view.setPlainText("Connecting to game...\n\nCharacter data will load after a live attach.")
@@ -362,11 +449,14 @@ class DashboardTab(QWidget):
             self._reader.detach()
             self._game_session_ready = False
             self._sheet_loaded_for_session = False
-            self._enemy_panel.set_loading(False)
-            self._sheet_visual.clear_hp()
-            self._sheet_visual.clear_sprite()
-            self._sheet_visual.clear_live_inventory()
-            self._sheet_visual.set_game_connected(False)
+            if self._enemy_panel is not None:
+                self._enemy_panel.set_loading(False)
+            if self._sheet_visual is not None:
+                self._sheet_visual.clear_hp()
+                self._sheet_visual.clear_sprite()
+                self._sheet_visual.clear_live_inventory()
+                self._sheet_visual.set_live_player_defenses(None)
+                self._sheet_visual.set_game_connected(False)
             if self._current_folder:
                 self._load_sheet(self._current_folder)
 
@@ -388,7 +478,8 @@ class DashboardTab(QWidget):
             return
         self._game_session_ready = True
         self._sheet_loaded_for_session = False
-        self._sheet_visual.set_game_connected(True)
+        if self._sheet_visual is not None:
+            self._sheet_visual.set_game_connected(True)
         mark_startup_phase("attach_succeeded")
         self.game_connected.emit()
         QTimer.singleShot(0, self._refresh_after_attach)
@@ -396,6 +487,9 @@ class DashboardTab(QWidget):
     def _refresh_after_attach(self) -> None:
         if self._shutting_down or not self._reader.attached:
             return
+        self._ensure_main_tabs()
+        assert self._sheet_visual is not None
+        self._sheet_visual.set_game_connected(True)
         mark_startup_phase("refresh_after_attach_start")
         if self._current_folder and not self._sheet_loaded_for_session:
             self.refresh_current()
@@ -409,6 +503,8 @@ class DashboardTab(QWidget):
         if self._shutting_down:
             return
         if not self._reader.attached:
+            return
+        if self._sheet_visual is None:
             return
         try:
             hp = self._reader.read_player_hp()
@@ -444,12 +540,15 @@ class DashboardTab(QWidget):
                 self._reader.detach()
                 self._game_session_ready = False
                 self._sheet_loaded_for_session = False
-                self._enemy_panel.set_loading(False)
-                self._sheet_visual.clear_hp()  # also clears mana via clear_hp
-                self._sheet_visual.clear_exp()
-                self._sheet_visual.clear_sprite()
-                self._sheet_visual.clear_live_inventory()
-                self._sheet_visual.set_game_connected(False)
+                if self._enemy_panel is not None:
+                    self._enemy_panel.set_loading(False)
+                if self._sheet_visual is not None:
+                    self._sheet_visual.clear_hp()  # also clears mana via clear_hp
+                    self._sheet_visual.clear_exp()
+                    self._sheet_visual.clear_sprite()
+                    self._sheet_visual.clear_live_inventory()
+                    self._sheet_visual.set_live_player_defenses(None)
+                    self._sheet_visual.set_game_connected(False)
                 if self._current_folder:
                     self._load_sheet(self._current_folder)
                 self._hp_fail_count = 0
@@ -468,8 +567,9 @@ class DashboardTab(QWidget):
             return
         if level_id != self._last_level_id:
             self._last_level_id = level_id
-            self._enemy_panel.set_map_name(level_id)
-            self._enemy_panel.set_loading(True)
+            if self._enemy_panel is not None:
+                self._enemy_panel.set_map_name(level_id)
+                self._enemy_panel.set_loading(True)
             threading.Thread(target=self._scan_entities, daemon=True).start()
 
     def _scan_entities(self) -> None:
@@ -479,20 +579,27 @@ class DashboardTab(QWidget):
         self._enemies_ready.emit(entities)
 
     def _handle_enemies_ready(self, entities: list) -> None:
+        self._ensure_main_tabs()
+        assert self._sheet_visual is not None
+        self._latest_entities = entities
         defenses = None
         if self._reader.attached:
             try:
                 stats = self._reader.read_player_stats()
             except Exception:
                 stats = None
-            defenses = player_stats_to_defenses(stats)
-        self._enemy_panel.update_enemies(entities, defenses)
+            defenses = self._player_stats_to_defenses(stats)
+        self._latest_defenses = defenses
+        self._sheet_visual.set_live_player_defenses(defenses)
+        self._ensure_enemy_panel().update_enemies(entities, defenses)
         write_startup_trace("entities_ready_applied", count=len(entities))
 
     def _poll_progression(self) -> None:
         if self._shutting_down:
             return
         if not self._reader.attached:
+            return
+        if self._sheet_visual is None:
             return
         try:
             visited = self._reader.read_visited_zones()
@@ -508,8 +615,10 @@ class DashboardTab(QWidget):
         if self._shutting_down:
             return
         if not self._reader.attached:
-            self._sheet_visual.clear_live_inventory()
-            self._sheet_visual.set_live_talents(None)
+            if self._sheet_visual is not None:
+                self._sheet_visual.clear_live_inventory()
+                self._sheet_visual.set_live_talents(None)
+                self._sheet_visual.set_live_player_defenses(None)
             return
         if self._inventory_poll_pending:
             return
@@ -521,7 +630,10 @@ class DashboardTab(QWidget):
         if self._shutting_down:
             return
         if not self._reader.attached:
-            self._sheet_visual.set_live_talents(None)
+            if self._sheet_visual is not None:
+                self._sheet_visual.set_live_talents(None)
+            return
+        if self._sheet_visual is None:
             return
         try:
             talents = self._reader.read_player_talents()
@@ -538,6 +650,7 @@ class DashboardTab(QWidget):
             sustains = self._reader.read_sustain_talents()
             effects = self._reader.read_player_effects()
             prodigies = self._reader.read_prodigies()
+            player_stats = self._reader.read_player_stats()
         except Exception:  # noqa: BLE001
             equipment = []
             current = []
@@ -546,6 +659,7 @@ class DashboardTab(QWidget):
             sustains = None
             effects = None
             prodigies = None
+            player_stats = None
         mark_startup_phase(
             "live_inventory_read_done",
             equipment=len(equipment),
@@ -563,12 +677,25 @@ class DashboardTab(QWidget):
             sustains,
             effects,
             prodigies,
+            player_stats,
         )
 
-    def _handle_live_inventory_ready(self, equipment, current, transmog, talents, sustains, effects, prodigies) -> None:
+    def _handle_live_inventory_ready(
+        self,
+        equipment,
+        current,
+        transmog,
+        talents,
+        sustains,
+        effects,
+        prodigies,
+        player_stats,
+    ) -> None:
         self._inventory_poll_pending = False
         if not self._reader.attached:
             return
+        self._ensure_main_tabs()
+        assert self._sheet_visual is not None
         self._sheet_visual.set_live_bundle(
             equipment,
             current,
@@ -578,6 +705,11 @@ class DashboardTab(QWidget):
             effects,
             prodigies if prodigies else None,
         )
+        defenses = self._player_stats_to_defenses(player_stats)
+        self._latest_defenses = defenses
+        self._sheet_visual.set_live_player_defenses(defenses)
+        if self._latest_entities:
+            self._ensure_enemy_panel().update_enemies(self._latest_entities, defenses)
         write_startup_trace(
             "live_inventory_applied",
             equipment=len(equipment),
@@ -590,7 +722,10 @@ class DashboardTab(QWidget):
         if self._shutting_down:
             return
         if not self._reader.attached:
-            self._sheet_visual.set_live_prodigies(None)
+            if self._sheet_visual is not None:
+                self._sheet_visual.set_live_prodigies(None)
+            return
+        if self._sheet_visual is None:
             return
         try:
             available = self._reader.read_prodigies()
@@ -609,6 +744,8 @@ class DashboardTab(QWidget):
 
     def _on_analyze_clicked(self) -> None:
         if not self._current_folder:
+            return
+        if self._analysis_input is None or self._analyze_btn is None:
             return
         question = self._analysis_input.toPlainText().strip()
         self._analyze_btn.setEnabled(False)

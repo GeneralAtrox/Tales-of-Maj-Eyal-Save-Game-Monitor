@@ -1,0 +1,9 @@
+long_name = "Codex Practice Boot Loader"
+short_name = "codex-practice-boot-loader"
+for_module = "boot"
+version = {1, 7, 6}
+addon_version = {0, 1, 0}
+weight = 1000
+author = {"OpenAI Codex"}
+description = [[Loads a requested practice save through the boot module's native save-loading path.]]
+hooks = true
