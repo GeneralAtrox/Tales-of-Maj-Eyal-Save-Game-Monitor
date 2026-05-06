@@ -192,6 +192,52 @@ newTalent{
 
         self.assertEqual(record.crit_family, "physical")
 
+    def test_weapon_damage_uses_strongest_direct_weapon_hit(self) -> None:
+        lua = """
+newTalent{
+    name = "Shield Pummel",
+    action = function(self, t)
+        self:attackTargetWith(target, shield_combat, nil, self:combatTalentWeaponDamage(t, 1, 1.7))
+        self:attackTargetWith(target, shield_combat, nil, self:combatTalentWeaponDamage(t, 1.2, 2.1))
+    end,
+    info = function(self, t)
+        return ([[%d%% and %d%% damage]]):tformat(
+            100 * self:combatTalentWeaponDamage(t, 1, 1.7),
+            100 * self:combatTalentWeaponDamage(t, 1.2, 2.1))
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.scaling_family, "weapon")
+        self.assertEqual(record.damage_low, 1.2)
+        self.assertEqual(record.damage_high, 2.1)
+
+    def test_weapon_damage_ignores_unrelated_bleed_helper(self) -> None:
+        lua = """
+newTalent{
+    name = "Bleeding Edge",
+    action = function(self, t)
+        local hit = self:attackTarget(target, nil, self:combatTalentWeaponDamage(t, 1, 1.7), true)
+        if hit then
+            local dam = self:combatDamage(sw)
+            dam = dam * self:combatTalentWeaponDamage(t, 2, 3.2)
+            target:setEffect(target.EFF_DEEP_WOUND, 7, {src=self, power=dam / 7})
+        end
+    end,
+    info = function(self, t)
+        return ([[%d%% hit, %d%% bleed]]):tformat(
+            100 * self:combatTalentWeaponDamage(t, 1, 1.7),
+            100 * self:combatTalentWeaponDamage(t, 2, 3.2))
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.scaling_family, "weapon")
+        self.assertEqual(record.damage_low, 1.0)
+        self.assertEqual(record.damage_high, 1.7)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,8 +7,9 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v7: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
-from projectile/projector calls, and keeps both name- and id-keyed records.
+Schema v8: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
+multipliers over unrelated helper damage in weapon talents.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 7
+_CACHE_SCHEMA_VERSION = 8
 
 
 @dataclass(slots=True)
@@ -75,6 +76,10 @@ _RE_SCALING = re.compile(
 _RE_STAT_SCALING = re.compile(
     r"self:combatTalentStatDamage"
     r"\s*\(\s*t\s*,\s*[\"'](\w+)[\"']\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*(true|false))?"
+)
+_RE_DIRECT_WEAPON_HIT = re.compile(
+    r"(?:attackTarget(?:With)?|archeryShoot)\s*\([\s\S]{0,420}?self:combatTalentWeaponDamage"
+    r"\s*\(\s*t\s*,\s*([\d.]+)\s*,\s*([\d.]+)"
 )
 _RE_CRIT_WRAPPER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]*:(spellCrit|mindCrit|physicalCrit)\s*\(")
 _RE_TACTICAL_DISABLE = re.compile(r"\btactical\s*=\s*\{[^}]*?\bdisable\s*=\s*\{([^}]*)\}", re.DOTALL)
@@ -282,7 +287,10 @@ def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float]:
     no_dr = False
     low = 0.0
     high = 0.0
-    if m := _RE_SCALING.search(block):
+    if weapon_match := _strongest_direct_weapon_hit(block):
+        family = "weapon"
+        low, high = weapon_match
+    elif m := _RE_SCALING.search(block):
         family = m.group(1).lower()  # spell|mind|physical|weapon
         try:
             low = float(m.group(2))
@@ -301,6 +309,18 @@ def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float]:
     if not dtype:
         dtype = _extract_direct_damage_type(block)
     return dtype, family, stat, no_dr, low, high
+
+
+def _strongest_direct_weapon_hit(block: str) -> tuple[float, float] | None:
+    strongest: tuple[float, float] | None = None
+    for m in _RE_DIRECT_WEAPON_HIT.finditer(block):
+        try:
+            candidate = (float(m.group(1)), float(m.group(2)))
+        except ValueError:
+            continue
+        if strongest is None or candidate[1] > strongest[1]:
+            strongest = candidate
+    return strongest
 
 
 def _extract_direct_damage_type(block: str) -> str:
