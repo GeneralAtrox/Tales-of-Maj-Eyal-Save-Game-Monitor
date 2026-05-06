@@ -110,6 +110,12 @@ class EnemyOffense:
     """Weapon damage type. ToME defaults melee weapons to PHYSICAL."""
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
+    melee_project: dict[str, float] = field(default_factory=dict)
+    """Extra damage projected on every successful melee hit."""
+    burst_on_hit: dict[str, float] = field(default_factory=dict)
+    """Extra radius-1 project damage on every successful melee hit."""
+    burst_on_crit: dict[str, float] = field(default_factory=dict)
+    """Extra radius-2 project damage on successful melee crits."""
     talents: dict[str, float] = field(default_factory=dict)
     talents_cd: dict[str, float] = field(default_factory=dict)
     resources: dict[str, float] = field(default_factory=dict)
@@ -189,6 +195,9 @@ class EnemyOffense:
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
             resists_pen=pen,
+            melee_project=_damage_fields_by_prefixes(all_fields, "combat.melee_project.", "melee_project."),
+            burst_on_hit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_hit."),
+            burst_on_crit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_crit."),
             talents=talents,
             talents_cd=talents_cd,
             resources=resources,
@@ -303,6 +312,20 @@ def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: 
         for key, value in all_fields.items()
         if key.startswith(prefix) and isinstance(value, (int, float)) and not isinstance(value, bool)
     }
+
+
+def _damage_fields_by_prefixes(all_fields: dict[str, str | float | bool], *prefixes: str) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for key, value in all_fields.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        for prefix in prefixes:
+            if not key.startswith(prefix):
+                continue
+            damage_type = cm.normalize_damage_type(key.removeprefix(prefix))
+            out[damage_type] = out.get(damage_type, 0.0) + float(value)
+            break
+    return out
 
 
 def _resource_fields(all_fields: dict[str, str | float | bool]) -> dict[str, float]:
@@ -441,6 +464,54 @@ def weapon_crit_power_multiplier(enemy: EnemyOffense, player: PlayerDefenses) ->
     return crit_power
 
 
+def weapon_proc_damage_multiplier(enemy: EnemyOffense, player: PlayerDefenses) -> float:
+    """Damage multiplier ToME applies to melee projectors for staff accuracy effects."""
+    if enemy.accuracy_effect.lower() == "staff":
+        return 1.0 + _accuracy_effect_bonus(enemy, player, 0.02, 2.0)
+    return 1.0
+
+
+def weapon_project_damage(
+    enemy: EnemyOffense,
+    player: PlayerDefenses,
+    damages: dict[str, float],
+    *,
+    proc_multiplier: float | None = None,
+) -> float:
+    multiplier = weapon_proc_damage_multiplier(enemy, player) if proc_multiplier is None else proc_multiplier
+    total = 0.0
+    for raw_type, raw_damage in damages.items():
+        if raw_damage <= 0.0:
+            continue
+        damage_type = cm.normalize_damage_type(raw_type)
+        resist_mult = cm.resist_multiplier_for_type(
+            player.resists,
+            enemy.resists_pen,
+            player.resists_cap,
+            damage_type,
+        )
+        damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
+        total += raw_damage * multiplier * resist_mult * (1.0 + damage_inc / 100.0)
+    return total
+
+
+def weapon_project_damage_expected_peak(
+    enemy: EnemyOffense,
+    player: PlayerDefenses,
+    crit_used_pct: float,
+    *,
+    burst_hits: int = 1,
+) -> tuple[float, float]:
+    proc_multiplier = weapon_proc_damage_multiplier(enemy, player)
+    on_hit = weapon_project_damage(enemy, player, enemy.melee_project, proc_multiplier=proc_multiplier)
+    on_hit += weapon_project_damage(enemy, player, enemy.burst_on_hit, proc_multiplier=proc_multiplier)
+    on_crit = weapon_project_damage(enemy, player, enemy.burst_on_crit, proc_multiplier=proc_multiplier)
+    expected = on_hit + on_crit * max(0.0, min(100.0, crit_used_pct)) / 100.0
+    peak = on_hit + (on_crit if crit_used_pct > 0.0 else 0.0)
+    hits = max(1, burst_hits)
+    return expected * hits, peak * hits
+
+
 def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     """Compute a single-hit weapon threat report.
 
@@ -465,6 +536,14 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     crit_power = weapon_crit_power_multiplier(enemy, player)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
     weapon_mults = enemy.weapon_multipliers_against(player)
+    burst_hits = max(1, weapon_mults.burst_hits)
+    project_expected, project_peak = weapon_project_damage_expected_peak(enemy, player, crit_doubled)
+    burst_project_expected, burst_project_peak = weapon_project_damage_expected_peak(
+        enemy,
+        player,
+        crit_doubled,
+        burst_hits=burst_hits,
+    )
 
     base_multiplier = after_armor * resist_mult * daminc_mult
     base_peak_multiplier = after_armor_peak * resist_mult * daminc_mult
@@ -472,11 +551,12 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     base_hit_peak = base_peak_multiplier * max(1.0, weapon_mults.max_hit)
     base_burst = base_multiplier * max(1.0, weapon_mults.burst)
     base_burst_peak = base_peak_multiplier * max(1.0, weapon_mults.burst)
-    expected = base_hit * crit_mult
+    expected = base_hit * crit_mult + project_expected
     peak = base_hit_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit_peak
-    burst_expected = base_burst * crit_mult
+    peak += project_peak
+    burst_expected = base_burst * crit_mult + burst_project_expected
     burst_peak = base_burst_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst_peak
-    burst_hits = max(1, weapon_mults.burst_hits)
+    burst_peak += burst_project_peak
 
     threat_damage = max(expected, burst_expected)
     if enemy.rank > RANK_BOSS_THRESHOLD:
@@ -497,6 +577,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     low_roll, high_roll = weapon_damage_rolls_after_accuracy(enemy, player)
     mace_bonus = _accuracy_effect_bonus(enemy, player, 0.002, 0.2) if enemy.accuracy_effect.lower() == "mace" else 0.0
     knife_bonus = _accuracy_effect_bonus(enemy, player, 0.005, 0.5) if enemy.accuracy_effect.lower() == "knife" else 0.0
+    staff_bonus = weapon_proc_damage_multiplier(enemy, player) - 1.0
     if peak >= player.effective_hp:
         notes.append(f"Can one-shot you ({peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)")
     elif burst_peak >= player.effective_hp and burst_hits > 1:
@@ -516,6 +597,10 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         notes.append(f"Mace accuracy bonus: +{mace_bonus * 100.0:.0f}% base damage")
     if knife_bonus > 0.0:
         notes.append(f"Knife accuracy bonus: +{knife_bonus * 100.0:.0f}% armor penetration")
+    if project_expected > 0.0:
+        notes.append(f"On-hit project adds ~{project_expected:.0f} damage")
+    if staff_bonus > 0.0:
+        notes.append(f"Staff accuracy bonus: +{staff_bonus * 100.0:.0f}% project damage")
     if hit >= 75:
         notes.append(f"Very likely to hit ({hit:.0f}%)")
     elif hit < 25:

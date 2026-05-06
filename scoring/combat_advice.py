@@ -26,6 +26,7 @@ from .enemy_threat import (
     weapon_crit_chance_pct,
     weapon_crit_power_multiplier,
     weapon_damage_rolls_after_accuracy,
+    weapon_project_damage_expected_peak,
 )
 
 SURVIVAL_HP_FRACTION: Final[float] = 0.95
@@ -92,7 +93,12 @@ def _peak_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     crit_mult = _crit_multiplier(enemy, player, peak=True)
 
     weapon_mults = enemy.weapon_multipliers_against(player)
-    return after_armor_peak * crit_mult * resist_mult * daminc_mult * max(1.0, weapon_mults.max_hit)
+    _, project_peak = weapon_project_damage_expected_peak(
+        enemy,
+        player,
+        100.0 if weapon_crit_chance_pct(enemy, player) > 0.0 else 0.0,
+    )
+    return after_armor_peak * crit_mult * resist_mult * daminc_mult * max(1.0, weapon_mults.max_hit) + project_peak
 
 
 def survive_one_hit_advice(
@@ -113,6 +119,12 @@ def survive_one_hit_advice(
     _, high_roll_damage = weapon_damage_rolls_after_accuracy(enemy, player)
     weapon_apr = weapon_apr_after_accuracy(enemy, player)
     after_armor = cm.armor_absorb(high_roll_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
+    _, project_peak = weapon_project_damage_expected_peak(
+        enemy,
+        player,
+        100.0 if weapon_crit_chance_pct(enemy, player) > 0.0 else 0.0,
+    )
+    base_target_dam = max(0.0, target_dam - project_peak)
 
     # Crit/inc_damage wrappers that are invariant under the player's armor/resist
     # changes — factor them out so lever math is clean.
@@ -133,11 +145,11 @@ def survive_one_hit_advice(
     all_resist = player.resists.get("all", player.resists.get("ALL", 0.0))
     pen = cm.resist_pen_for_type(enemy.resists_pen, damage_type)
     cap = cm.resist_cap_for_type(player.resists_cap, damage_type)
-    # expected = after_armor * wrapper * (1 - effective/100) <= target_dam
-    # effective >= (1 - target_dam / (after_armor * wrapper)) * 100
+    # expected = after_armor * wrapper * (1 - effective/100) <= base_target_dam
+    # effective >= (1 - base_target_dam / (after_armor * wrapper)) * 100
     denom = after_armor * wrapper
     if denom > 0:
-        needed_effective = (1.0 - target_dam / denom) * 100.0
+        needed_effective = (1.0 - base_target_dam / denom) * 100.0
         pen_factor = 1.0 - min(100.0, max(0.0, pen)) / 100.0
         if needed_effective > 0.0 and pen_factor <= 0.0:
             delta = max(0.0, cap - current_effective)
@@ -192,9 +204,9 @@ def survive_one_hit_advice(
         # Fixed portion (soft damage) can't be armored away.
         soft_dam = high_roll_damage * (1.0 - hard_pct)
         soft_after_resist = soft_dam * resist_mult * wrapper
-        # Need: (hardened_after_armor + soft_dam) * resist_mult * wrapper <= target_dam
-        # hardened_after_armor <= target_dam/(resist_mult*wrapper) - soft_dam
-        budget = target_dam / (resist_mult * wrapper) - soft_dam if resist_mult * wrapper > 0 else -1
+        # Need: (hardened_after_armor + soft_dam) * resist_mult * wrapper <= base_target_dam
+        # hardened_after_armor <= base_target_dam/(resist_mult*wrapper) - soft_dam
+        budget = base_target_dam / (resist_mult * wrapper) - soft_dam if resist_mult * wrapper > 0 else -1
         if budget < 0:
             advice.append(
                 AdviceItem(

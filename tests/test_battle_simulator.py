@@ -704,6 +704,63 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertTrue(report.can_one_shot)
         self.assertTrue(survive_one_hit_advice(enemy, player))
 
+    def test_melee_project_damage_adds_to_weapon_hit(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0, resists={"FIRE": 50})
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            melee_project={"FIRE": 40},
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 120.0)
+        self.assertEqual(report.peak_damage, 120.0)
+        self.assertIn("On-hit project adds ~20 damage", report.notes)
+
+    def test_staff_accuracy_multiplies_melee_project_damage(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            accuracy_effect="staff",
+            melee_project={"FIRE": 40},
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 220.0)
+        self.assertIn("Staff accuracy bonus: +200% project damage", report.notes)
+
+    def test_burst_on_crit_project_damage_uses_crit_probability(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            crit_chance_pct=25,
+            burst_on_crit={"FIRE": 40},
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 145.0)
+        self.assertEqual(report.peak_damage, 190.0)
+
+    def test_on_hit_project_damage_repeats_for_weapon_burst_hits(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            melee_project={"FIRE": 20},
+            talent_burst_weapon_mult=2.0,
+            talent_burst_weapon_hits=2,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 120.0)
+        self.assertEqual(report.burst_expected_damage, 240.0)
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 
@@ -718,6 +775,10 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 "combat.talented": "sword",
                 "combat.accuracy_effect_scale": 0.5,
                 "combat.damrange": 1.4,
+                "combat.melee_project.FIRE": 10.0,
+                "melee_project.COLD": 5.0,
+                "combat.burst_on_hit.BLIGHT": 7.0,
+                "combat.burst_on_crit.LIGHTNING": 9.0,
             },
             "Test",
         )
@@ -732,6 +793,9 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.accuracy_effect, "sword")
         self.assertTrue(offense.accuracy_effect_scale)
         self.assertEqual(offense.damage_range, 1.4)
+        self.assertEqual(offense.melee_project, {"FIRE": 10.0, "COLD": 5.0})
+        self.assertEqual(offense.burst_on_hit, {"BLIGHT": 7.0})
+        self.assertEqual(offense.burst_on_crit, {"LIGHTNING": 9.0})
         self.assertEqual(override.accuracy_effect, "axe")
 
     def test_enemy_offense_defaults_live_weapon_damage_range_like_engine(self) -> None:

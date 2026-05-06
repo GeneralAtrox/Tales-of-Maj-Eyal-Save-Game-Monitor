@@ -737,6 +737,8 @@ _ENTITY_SUBTABLES = (
     "resists_pen",  # penetration values
 )
 _DAMAGE_SUBTABLES = {"resists", "resists_cap", "inc_damage", "resists_pen"}
+_ENTITY_PROJECT_SUBTABLES = ("melee_project",)
+_COMBAT_PROJECT_SUBTABLES = ("melee_project", "burst_on_hit", "burst_on_crit")
 
 
 def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
@@ -870,6 +872,15 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
         dammod_tab = _tab_get_table(h, combat_tab, "dammod")
         if dammod_tab:
             out.update(_tab_dump_flat(h, dammod_tab, prefix="combat.dammod.", allowed_keys=_ENTITY_STAT_FIELDS))
+        for sub in _COMBAT_PROJECT_SUBTABLES:
+            sub_tab = _tab_get_table(h, combat_tab, sub)
+            if sub_tab:
+                out.update(_tab_dump_damage_subtable(h, sub_tab, prefix=f"combat.{sub}."))
+
+    for sub in _ENTITY_PROJECT_SUBTABLES:
+        sub_tab = _tab_get_table(h, actor_ptr, sub)
+        if sub_tab:
+            out.update(_tab_dump_damage_subtable(h, sub_tab, prefix=f"{sub}."))
 
     stats_tab = _tab_get_table(h, actor_ptr, "stats")
     if stats_tab:

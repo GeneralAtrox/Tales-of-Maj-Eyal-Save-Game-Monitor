@@ -109,6 +109,9 @@ class BossTemplateStats:
     stats: dict[str, float] = field(default_factory=dict)
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
+    melee_project: dict[str, float] = field(default_factory=dict)
+    burst_on_hit: dict[str, float] = field(default_factory=dict)
+    burst_on_crit: dict[str, float] = field(default_factory=dict)
     talents: dict[str, int] = field(default_factory=dict)
     has_combat_data: bool = False
 
@@ -335,6 +338,12 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     combat_block = _extract_table_from_blocks(source_blocks, "combat")
     inc_damage = _parse_merged_damage_table(source_blocks, "inc_damage")
     resists_pen = _parse_merged_damage_table(source_blocks, "resists_pen")
+    melee_project = _sum_damage_tables(
+        _parse_merged_top_level_damage_table(source_blocks, "melee_project"),
+        _parse_damage_table(_extract_table(combat_block or "", "melee_project")),
+    )
+    burst_on_hit = _parse_damage_table(_extract_table(combat_block or "", "burst_on_hit"))
+    burst_on_crit = _parse_damage_table(_extract_table(combat_block or "", "burst_on_crit"))
     talents = _parse_merged_talent_table(source_blocks)
     weapon_dam = _combat_value(combat_block, "dam")
     level = _parse_scalar_from_blocks(source_blocks, "level_range", default=_template_level(template.level_label))
@@ -452,6 +461,9 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         stats=dict(stats),
         inc_damage=inc_damage,
         resists_pen=resists_pen,
+        melee_project=melee_project,
+        burst_on_hit=burst_on_hit,
+        burst_on_crit=burst_on_crit,
         talents={talent_id: int(level) for talent_id, level in talents.items() if level > 0.0},
         has_combat_data=has_combat_data,
     )
@@ -591,11 +603,54 @@ def _extract_table_from_blocks(blocks: tuple[str, ...], field_name: str) -> str 
     return None
 
 
+def _extract_top_level_table(block: str, field_name: str) -> str | None:
+    for match in re.finditer(rf"\b{re.escape(field_name)}\s*=", block):
+        if _brace_depth_before(block, match.start()) <= 1:
+            return _extract_table(block[match.start() :], field_name)
+    return None
+
+
+def _brace_depth_before(block: str, index: int) -> int:
+    depth = 0
+    in_string = ""
+    escape = False
+    for char in block[:index]:
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == in_string:
+                in_string = ""
+        elif char in ('"', "'"):
+            in_string = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth = max(0, depth - 1)
+    return depth
+
+
 def _parse_merged_damage_table(blocks: tuple[str, ...], field_name: str) -> dict[str, float]:
     merged: dict[str, float] = {}
     for block in reversed(blocks):
         merged.update(_parse_damage_table(_extract_table(block, field_name)))
     return merged
+
+
+def _parse_merged_top_level_damage_table(blocks: tuple[str, ...], field_name: str) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    for block in reversed(blocks):
+        merged.update(_parse_damage_table(_extract_top_level_table(block, field_name)))
+    return merged
+
+
+def _sum_damage_tables(*tables: dict[str, float]) -> dict[str, float]:
+    summed: dict[str, float] = {}
+    for table in tables:
+        for damage_type, value in table.items():
+            summed[damage_type] = summed.get(damage_type, 0.0) + value
+    return summed
 
 
 def _parse_merged_number_table(blocks: tuple[str, ...], field_name: str) -> dict[str, float]:

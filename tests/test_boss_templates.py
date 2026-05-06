@@ -59,10 +59,14 @@ newEntity{
         physcrit = 5, crit_power = 10, physspeed = 2,
         talented = "sword", accuracy_effect_scale = 0.5, damrange = 1.4,
         damtype = DamageType.BLIGHT,
+        melee_project = { [DamageType.COLD] = 5 },
+        burst_on_hit = { [DamageType.LIGHTNING] = 9 },
+        burst_on_crit = { [DamageType.ARCANE] = 11 },
     },
     resolvers.talents{ [Talents.T_STUNNING_BLOW] = {base = 2, every = 5, max = 5} },
     inc_damage = { [DamageType.BLIGHT] = 25, all = 10 },
     resists_pen = { [DamageType.COLD] = 15 },
+    melee_project = { [DamageType.FIRE] = 7 },
 }
 """
         db = {
@@ -112,6 +116,9 @@ newEntity{
         self.assertEqual(stats.inc_damage["BLIGHT"], 25.0)
         self.assertEqual(stats.inc_damage["ALL"], 10.0)
         self.assertEqual(stats.resists_pen["COLD"], 15.0)
+        self.assertEqual(stats.melee_project, {"FIRE": 7.0, "COLD": 5.0})
+        self.assertEqual(stats.burst_on_hit, {"LIGHTNING": 9.0})
+        self.assertEqual(stats.burst_on_crit, {"ARCANE": 11.0})
         self.assertTrue(stats.has_combat_data)
         self.assertEqual(stats.warning, "")
 
