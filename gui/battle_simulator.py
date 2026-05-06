@@ -35,6 +35,7 @@ from scoring.battle_simulator import (
     BattleSimulatorState,
 )
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses
+from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields
 from tome_practice import (
     AutoPracticeResult,
     PracticeLaunchInfo,
@@ -57,6 +58,7 @@ def battle_enemy_from_entity(entity: EntityInfo) -> BattleEnemySnapshot:
         type_name=entity.type_name,
         subtype=entity.subtype,
         offense=offense,
+        powers=enemy_powers_from_fields(entity.all_fields),
     )
 
 
@@ -88,6 +90,17 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             inc_damage=dict(stats.inc_damage),
             resists_pen=dict(stats.resists_pen),
             talent_max_weapon_mult=stats.talent_max_weapon_mult,
+        ),
+        powers=EnemyPowers(
+            spellpower=stats.spellpower,
+            mindpower=stats.mindpower,
+            physicalpower=stats.physicalpower,
+            atk=stats.atk,
+            dam=stats.dam,
+            apr=stats.apr,
+            inc_damage=dict(stats.inc_damage),
+            resists_pen=dict(stats.resists_pen),
+            talents=dict(stats.talents),
         ),
     )
 
@@ -351,6 +364,7 @@ class BattleSimulatorPanel(QWidget):
             ("threat", "Threat"),
             ("expected", "Expected Damage"),
             ("peak", "Peak Damage"),
+            ("talent", "Talent Threat"),
             ("raw", "Raw Damage"),
             ("hit_rate", "Hit Rate"),
             ("one_shot", "One-Shot"),
@@ -708,6 +722,16 @@ class BattleSimulatorPanel(QWidget):
         self._result_values["threat"].setText(f"{report.weapon_threat_pct:.1f}% of effective HP")
         self._result_values["expected"].setText(f"{report.expected_damage:.1f}")
         self._result_values["peak"].setText(f"{report.peak_damage:.1f}")
+        talent_report = result.talent_report
+        if talent_report is not None and talent_report.max_expected_damage > 0.0:
+            talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
+            damage_type = talent_report.worst_damage_type or "all"
+            self._result_values["talent"].setText(
+                f"{talent_name}: {talent_report.max_expected_damage:.1f} {damage_type} "
+                f"({talent_report.max_threat_pct:.1f}% HP)"
+            )
+        else:
+            self._result_values["talent"].setText("--")
         self._result_values["raw"].setText(f"{report.raw_damage:.1f}")
         self._result_values["hit_rate"].setText(f"{report.hit_rate_pct:.1f}%")
         self._result_values["one_shot"].setText("Yes" if report.can_one_shot else "No")
@@ -722,6 +746,14 @@ class BattleSimulatorPanel(QWidget):
             advice_lines.append(f"- {item.description}{suffix}")
         if report.notes:
             advice_lines.extend(f"- {note}" for note in report.notes)
+        if talent_report is not None and talent_report.max_expected_damage > 0.0:
+            talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
+            advice_lines.append(
+                f"- Strongest known talent: {talent_name} "
+                f"({talent_report.max_expected_damage:.0f} {talent_report.worst_damage_type or 'all'})"
+            )
+        if talent_report is not None and talent_report.cc_tags:
+            advice_lines.append(f"- Known control tags: {', '.join(talent_report.cc_tags)}")
         self._advice_box.setPlainText("\n".join(advice_lines) if advice_lines else "No additional changes needed.")
 
     @staticmethod

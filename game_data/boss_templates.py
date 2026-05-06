@@ -69,8 +69,12 @@ class BossTemplateStats:
     physspeed: float
     damage_type: str
     talent_max_weapon_mult: float
+    spellpower: float
+    mindpower: float
+    physicalpower: float
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
+    talents: dict[str, int] = field(default_factory=dict)
     has_combat_data: bool = False
 
     @property
@@ -277,6 +281,9 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             physspeed=1.0,
             damage_type="PHYSICAL",
             talent_max_weapon_mult=1.0,
+            spellpower=0.0,
+            mindpower=0.0,
+            physicalpower=0.0,
         )
 
     block = boss_block.block
@@ -287,9 +294,10 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     weapon_dam = _combat_value(combat_block, "dam")
     stats = _parse_number_table(_extract_table(block, "stats"))
     dammod = _parse_number_table(_extract_table(combat_block or "", "dammod"))
+    combat_dam = _parse_scalar_field(block, "combat_dam")
     dam = _estimate_template_damage(
         weapon_dam,
-        combat_dam=_parse_scalar_field(block, "combat_dam"),
+        combat_dam=combat_dam,
         stats=stats,
         dammod=dammod,
     )
@@ -345,8 +353,12 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
         talent_max_weapon_mult=weapon_multiplier_for_talents(talents),
+        spellpower=_parse_scalar_field(block, "combat_spellpower"),
+        mindpower=_parse_scalar_field(block, "combat_mindpower"),
+        physicalpower=_template_physical_power(combat_dam, stats),
         inc_damage=inc_damage,
         resists_pen=resists_pen,
+        talents={talent_id: int(level) for talent_id, level in talents.items() if level > 0.0},
         has_combat_data=has_combat_data,
     )
 
@@ -666,6 +678,11 @@ def _estimate_template_damage(
         stats=stats,
         dammod=dammod or None,
     )
+
+
+def _template_physical_power(combat_dam: float, stats: dict[str, float]) -> float:
+    raw = max(0.0, combat_dam + stats.get("str", 0.0))
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
 def _parse_damage_type_expr(expr: str | None, default: str = "PHYSICAL") -> str:

@@ -6,6 +6,7 @@ from scoring import combat_math as cm
 from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, weapon_threat
+from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields
 
 
 class BattleSimulatorStateTests(unittest.TestCase):
@@ -72,6 +73,43 @@ class BattleSimulatorStateTests(unittest.TestCase):
         assert result.report is not None
         self.assertTrue(result.report.can_one_shot)
         self.assertTrue(result.advice)
+
+    def test_compute_surfaces_non_weapon_talent_threat(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Caster",
+                level=25,
+                max_life=500,
+                offense=EnemyOffense(name="Caster", atk=10, dam=5),
+                powers=EnemyPowers(
+                    spellpower=100,
+                    inc_damage={"FIRE": 50},
+                    talents={"T_FLAME": 5},
+                ),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+                tactical_disable=["stun"],
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, 150.0)
+        self.assertEqual(result.talent_report.max_threat_pct, 150.0)
+        self.assertEqual(result.talent_report.worst_talent_name, "Flame")
+        self.assertEqual(result.talent_report.cc_tags, ["stun"])
 
     def test_weapon_threat_uses_actual_damage_type(self) -> None:
         player = PlayerDefenses(
@@ -207,6 +245,30 @@ class BattleSimulatorStateTests(unittest.TestCase):
             )
 
         self.assertEqual(offense.talent_max_weapon_mult, 2.0)
+
+    def test_enemy_powers_reads_live_spell_power_and_talents(self) -> None:
+        powers = enemy_powers_from_fields(
+            {
+                "combat_spellpower": 42.0,
+                "combat_mindpower": 13.0,
+                "combat_dam": 10.0,
+                "stats.str": 30.0,
+                "combat.atk": 20.0,
+                "combat.apr": 3.0,
+                "inc_damage.FIRE": 25.0,
+                "resists_pen.FIRE": 10.0,
+                "talents.flame": 5.0,
+            }
+        )
+
+        self.assertEqual(powers.spellpower, 42.0)
+        self.assertEqual(powers.mindpower, 13.0)
+        self.assertGreater(powers.physicalpower, 0.0)
+        self.assertEqual(powers.atk, 20.0)
+        self.assertEqual(powers.apr, 3.0)
+        self.assertEqual(powers.inc_damage, {"FIRE": 25.0})
+        self.assertEqual(powers.resists_pen, {"FIRE": 10.0})
+        self.assertEqual(powers.talents, {"T_FLAME": 5})
 
 
 if __name__ == "__main__":

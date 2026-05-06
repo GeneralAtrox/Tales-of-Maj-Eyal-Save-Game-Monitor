@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from scoring.combat_advice import AdviceItem, survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, weapon_threat
+from scoring.talent_threat import EnemyPowers, TalentThreatReport, compute_talent_threat
 
 COMMON_DAMAGE_TYPES: tuple[str, ...] = (
     "all",
@@ -41,6 +42,7 @@ class BattleEnemySnapshot:
     template_quest: str = ""
     template_warning: str = ""
     offense: EnemyOffense = field(default_factory=EnemyOffense)
+    powers: EnemyPowers = field(default_factory=EnemyPowers)
 
 
 @dataclass(slots=True)
@@ -49,6 +51,7 @@ class BattleSimulationResult:
     enemy: BattleEnemySnapshot | None
     report: ThreatReport | None
     advice: list[AdviceItem]
+    talent_report: TalentThreatReport | None = None
     status: str = ""
 
 
@@ -73,6 +76,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
     if enemy is None:
         return None
     offense = enemy.offense
+    powers = enemy.powers
     return BattleEnemySnapshot(
         name=enemy.name,
         level=enemy.level,
@@ -100,6 +104,17 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             inc_damage=dict(offense.inc_damage),
             resists_pen=dict(offense.resists_pen),
             talent_max_weapon_mult=offense.talent_max_weapon_mult,
+        ),
+        powers=EnemyPowers(
+            spellpower=powers.spellpower,
+            mindpower=powers.mindpower,
+            physicalpower=powers.physicalpower,
+            atk=powers.atk,
+            dam=powers.dam,
+            apr=powers.apr,
+            inc_damage=dict(powers.inc_damage),
+            resists_pen=dict(powers.resists_pen),
+            talents=dict(powers.talents),
         ),
     )
 
@@ -191,6 +206,11 @@ class BattleSimulatorState:
         for field_name, overrides in self.enemy_dict_overrides.items():
             setattr(enemy.offense, field_name, self._merged_dict(getattr(enemy.offense, field_name), overrides))
         enemy.offense.name = enemy.name
+        enemy.powers.atk = enemy.offense.atk
+        enemy.powers.dam = enemy.offense.dam
+        enemy.powers.apr = enemy.offense.apr
+        enemy.powers.inc_damage = self._merged_dict(enemy.powers.inc_damage, enemy.offense.inc_damage)
+        enemy.powers.resists_pen = self._merged_dict(enemy.powers.resists_pen, enemy.offense.resists_pen)
         return enemy
 
     def compute(self) -> BattleSimulationResult:
@@ -213,12 +233,14 @@ class BattleSimulatorState:
                 status="Select a monster in Enemies and add it to the battle simulator.",
             )
         report = weapon_threat(enemy.offense, player)
+        talent_report = compute_talent_threat(enemy.powers, player)
         advice = survive_one_hit_advice(enemy.offense, player)
         return BattleSimulationResult(
             player=player,
             enemy=enemy,
             report=report,
             advice=advice,
+            talent_report=talent_report,
             status="",
         )
 
