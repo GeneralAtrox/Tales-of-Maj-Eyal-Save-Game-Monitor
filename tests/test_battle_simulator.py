@@ -365,6 +365,28 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(estimate.peak_damage, expected)
         self.assertEqual(estimate.damage_types, ("PHYSICAL", "FIRE"))
 
+    def test_calibration_estimate_includes_weapon_project_damage_types(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Proc Fighter",
+                offense=EnemyOffense(
+                    name="Proc Fighter",
+                    atk=100,
+                    dam=10,
+                    damage_type="PHYSICAL",
+                    melee_project={"FIRE": 20},
+                    burst_on_hit={"COLD": 5},
+                    burst_on_crit={"LIGHTNING": 10},
+                ),
+            )
+        )
+
+        estimate = battle_calibration_estimate(state.compute())
+
+        self.assertEqual(estimate.damage_types, ("PHYSICAL", "FIRE", "COLD", "LIGHTNING"))
+
     def test_compute_applies_talent_crit_wrappers(self) -> None:
         state = BattleSimulatorState()
         state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))

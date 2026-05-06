@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from scoring import combat_math as cm
 from scoring.combat_advice import AdviceItem, survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, weapon_threat
 from scoring.talent_threat import EnemyPowers, TalentThreatReport, compute_talent_threat
@@ -87,6 +88,8 @@ def battle_calibration_estimate(result: BattleSimulationResult) -> BattleCalibra
         _add_damage_candidate(expected_candidates, result.report.expected_damage, result.report.damage_type)
         _add_damage_candidate(peak_candidates, result.report.peak_damage, result.report.damage_type)
         _add_unique_damage_type(damage_types, result.report.damage_type)
+        if result.enemy is not None:
+            _add_project_damage_types(damage_types, result.enemy.offense)
     if result.talent_report is not None:
         talent_entry = result.talent_report.strongest_available_entry()
         if talent_entry is not None and talent_entry.expected_damage > 0.0:
@@ -111,6 +114,13 @@ def _add_unique_damage_type(damage_types: list[str], damage_type: str) -> None:
     normalized = damage_type.strip().upper()
     if normalized and normalized not in damage_types:
         damage_types.append(normalized)
+
+
+def _add_project_damage_types(damage_types: list[str], offense: EnemyOffense) -> None:
+    for table in (offense.melee_project, offense.burst_on_hit, offense.burst_on_crit):
+        for damage_type, damage in table.items():
+            if damage > 0.0:
+                _add_unique_damage_type(damage_types, cm.normalize_damage_type(damage_type))
 
 
 def copy_player_defenses(player: PlayerDefenses | None) -> PlayerDefenses | None:
