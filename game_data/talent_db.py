@@ -7,9 +7,10 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v9: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v10: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
-multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst.
+multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst and
+engine-default activated talent mode.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 9
+_CACHE_SCHEMA_VERSION = 10
 
 
 @dataclass(slots=True)
@@ -218,7 +219,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             icon=_extract_icon(block),
             talent_id=_extract_talent_id(block, name),
             talent_type=_extract_first(block, _RE_TYPE),
-            mode=_extract_first(block, _RE_MODE),
+            mode=_extract_mode(block),
             cooldown=_extract_cooldown(block),
             tactical_disable=_extract_tactical_disable(block),
         )
@@ -263,6 +264,10 @@ def _extract_icon(block: str) -> str:
 def _extract_first(block: str, pattern: re.Pattern[str]) -> str:
     m = pattern.search(block)
     return m.group(1).strip() if m else ""
+
+
+def _extract_mode(block: str) -> str:
+    return _extract_first(block, _RE_MODE) or "activated"
 
 
 def _extract_cooldown(block: str) -> int:

@@ -66,6 +66,31 @@ newTalent{
         self.assertIn("T_STUNNING_BLOW", cached)
         self.assertIn("T_STUNNING_BLOW_ASSAULT", cached)
 
+    def test_mode_defaults_to_engine_activated(self) -> None:
+        lua = """
+newTalent{
+    name = "Default Action",
+    type = {"spell/fire", 1},
+    cooldown = 4,
+    getDamage = function(self, t) return self:combatTalentSpellDamage(t, 10, 100) end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.mode, "activated")
+
+    def test_explicit_mode_is_preserved(self) -> None:
+        lua = """
+newTalent{
+    name = "Passive Action",
+    type = {"spell/fire", 1},
+    mode = "passive",
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.mode, "passive")
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{
