@@ -38,7 +38,13 @@ def weapon_multipliers_for_talents(
     best_burst_hits = 1
     for raw_id, raw_level in talents.items():
         record = records.get(_normalize_talent_id(raw_id))
-        if record is None or not record.npc_usable or record.scaling_family != "weapon" or record.damage_high <= 0.0:
+        if (
+            record is None
+            or not record.npc_usable
+            or record.mode == "passive"
+            or record.scaling_family != "weapon"
+            or record.damage_high <= 0.0
+        ):
             continue
         if resources is not None and not _resource_costs_available(record.resource_costs, resources):
             continue

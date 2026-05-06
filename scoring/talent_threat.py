@@ -324,6 +324,8 @@ def compute_talent_threat(
             continue
         if not record.npc_usable:
             continue
+        if record.mode == "passive":
+            continue
         if record.tactical_disable:
             cc.update(record.tactical_disable)
         if not record.scaling_family or record.scaling_family == "weapon":

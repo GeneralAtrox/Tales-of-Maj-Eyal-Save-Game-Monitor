@@ -164,6 +164,39 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.entries, [])
         self.assertEqual(result.talent_report.cc_tags, [])
 
+    def test_compute_skips_passive_talent_threat(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Passive Caster",
+                level=25,
+                max_life=500,
+                offense=EnemyOffense(name="Passive Caster", atk=10, dam=5),
+                powers=EnemyPowers(spellpower=100, talents={"T_REACTIVE_FLAME": 5}),
+            )
+        )
+        db = {
+            "T_REACTIVE_FLAME": TalentRecord(
+                talent_id="T_REACTIVE_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+                mode="passive",
+                tactical_disable=["stun"],
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, 0.0)
+        self.assertEqual(result.talent_report.entries, [])
+        self.assertEqual(result.talent_report.cc_tags, [])
+
     def test_compute_marks_resource_blocked_talent_unavailable(self) -> None:
         state = BattleSimulatorState()
         state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
@@ -536,6 +569,32 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 {
                     "combat.dam": 50.0,
                     "talents.T_STUNNING_BLOW": 5.0,
+                },
+                "Test",
+            )
+
+        self.assertEqual(offense.talent_max_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_hits, 1)
+
+    def test_enemy_offense_skips_passive_weapon_talent_multiplier(self) -> None:
+        db = {
+            "T_PASSIVE_STRIKE": TalentRecord(
+                talent_id="T_PASSIVE_STRIKE",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=3.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=1,
+                mode="passive",
+            )
+        }
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            offense = EnemyOffense.from_all_fields(
+                {
+                    "combat.dam": 50.0,
+                    "talents.T_PASSIVE_STRIKE": 5.0,
                 },
                 "Test",
             )
