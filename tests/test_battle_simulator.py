@@ -561,6 +561,19 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.atk, 47.0)
 
+    def test_enemy_offense_estimates_engine_accuracy(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat_atk": 10.0,
+                "combat.atk": 12.0,
+                "stats.dex": 30.0,
+                "stats.lck": 55.0,
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.atk, 34.0)
+
     def test_enemy_offense_estimates_engine_melee_damage(self) -> None:
         offense = EnemyOffense.from_all_fields(
             {

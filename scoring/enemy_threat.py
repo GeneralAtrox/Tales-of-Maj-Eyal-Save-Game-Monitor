@@ -154,6 +154,7 @@ class EnemyOffense:
             if k.startswith("resists_pen.") and isinstance(v, (int, float))
         }
         resources = _resource_fields(all_fields)
+        stats = _number_fields_by_prefix(all_fields, "stats.")
         talents = _number_fields_by_prefix(all_fields, "talents.")
         talents_cd = _number_fields_by_prefix(all_fields, "talents_cd.")
         weapon_mults = weapon_multipliers_for_talents(
@@ -165,7 +166,7 @@ class EnemyOffense:
             name=name or str(all_fields.get("name") or ""),
             rank=num("rank", 1.0),
             global_speed=num("global_speed", 1.0) or 1.0,
-            atk=_number_field(all_fields, "combat_precomputed_accuracy", num("combat.atk")),
+            atk=_combat_attack(all_fields, stats, num("combat.atk")),
             dam=_melee_damage(all_fields, num("combat.dam")),
             apr=num("combat.apr"),
             crit_chance_pct=_physical_crit_chance(all_fields),
@@ -207,6 +208,24 @@ def _range_to_target(enemy: EnemyOffense, player: PlayerDefenses) -> float | Non
     if enemy.x is None or enemy.y is None or player.x is None or player.y is None:
         return None
     return max(abs(enemy.x - player.x), abs(enemy.y - player.y))
+
+
+def _combat_attack(
+    all_fields: dict[str, str | float | bool],
+    stats: dict[str, float],
+    weapon_atk: float,
+) -> float:
+    if "combat_precomputed_accuracy" in all_fields:
+        return max(0.0, _number_field(all_fields, "combat_precomputed_accuracy"))
+    raw = max(
+        0.0,
+        4.0
+        + _number_field(all_fields, "combat_atk")
+        + weapon_atk
+        + (stats.get("lck", 50.0) - 50.0) * 0.4
+        + (stats.get("dex", 10.0) - 10.0),
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
 def _physical_crit_chance(all_fields: dict[str, str | float | bool]) -> float:
