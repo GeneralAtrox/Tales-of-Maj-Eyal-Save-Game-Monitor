@@ -98,6 +98,7 @@ class BossTemplateStats:
     spellpower: float
     mindpower: float
     physicalpower: float
+    stats: dict[str, float] = field(default_factory=dict)
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
     talents: dict[str, int] = field(default_factory=dict)
@@ -403,6 +404,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             stats,
             _parse_scalar_from_blocks(source_blocks, "combat_generic_power"),
         ),
+        stats=dict(stats),
         inc_damage=inc_damage,
         resists_pen=resists_pen,
         talents={talent_id: int(level) for talent_id, level in talents.items() if level > 0.0},

@@ -124,6 +124,8 @@ newEntity{
         expected_mindpower = cm.rescale_combat_stats(7 + 3 + (16 + (17 - 1)) * 0.7 + 14 * 0.4)
         self.assertEqual(stats.spellpower, expected_spellpower)
         self.assertEqual(stats.mindpower, expected_mindpower)
+        self.assertEqual(stats.stats["mag"], 57.0)
+        self.assertEqual(stats.stats["wil"], 32.0)
 
     def test_stats_inherit_base_template_fields(self) -> None:
         template = BossTemplate("The Test Boss", "Test Zone", "10+", "Quest: Testing")

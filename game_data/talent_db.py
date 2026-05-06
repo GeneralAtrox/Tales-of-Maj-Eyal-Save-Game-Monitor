@@ -7,8 +7,8 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v5: improves direct damage type extraction from projectile/projector
-calls and keeps both name- and id-keyed records.
+Schema v6: adds stat-scaling metadata, improves direct damage type extraction
+from projectile/projector calls, and keeps both name- and id-keyed records.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 5
+_CACHE_SCHEMA_VERSION = 6
 
 
 @dataclass(slots=True)
@@ -37,7 +37,11 @@ class TalentRecord:
     """Uppercase ToME damage type (``FIRE``, ``PHYSICAL``, ...). Empty if the
     talent does no direct damage or we couldn't parse it."""
     scaling_family: str = ""
-    """One of ``spell``, ``mind``, ``physical``, ``weapon``, ``flat``, or empty."""
+    """One of ``spell``, ``mind``, ``physical``, ``weapon``, ``stat``, ``flat``, or empty."""
+    scaling_stat: str = ""
+    """Stat key for ``combatTalentStatDamage`` records (``str``, ``wil``, ...)."""
+    scaling_no_dr: bool = False
+    """Whether the stat-scaling helper opts out of its old diminishing-return curve."""
     damage_low: float = 0.0
     damage_high: float = 0.0
     cooldown: int = 0
@@ -65,6 +69,10 @@ _RE_DAMAGE_TYPE_TOKEN = re.compile(r"DamageType[.:](\w+)")
 _RE_SCALING = re.compile(
     r"self:combatTalent(Spell|Mind|Physical|Weapon)Damage"
     r"\s*\(\s*t\s*,\s*([\d.]+)\s*,\s*([\d.]+)"
+)
+_RE_STAT_SCALING = re.compile(
+    r"self:combatTalentStatDamage"
+    r"\s*\(\s*t\s*,\s*[\"'](\w+)[\"']\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*(true|false))?"
 )
 _RE_TACTICAL_DISABLE = re.compile(r"\btactical\s*=\s*\{[^}]*?\bdisable\s*=\s*\{([^}]*)\}", re.DOTALL)
 _RE_TACTICAL_KEY = re.compile(r"(\w+)\s*=")
@@ -200,9 +208,11 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             cooldown=_extract_cooldown(block),
             tactical_disable=_extract_tactical_disable(block),
         )
-        dtype, family, low, high = _extract_damage(block)
+        dtype, family, stat, no_dr, low, high = _extract_damage(block)
         record.damage_type = dtype
         record.scaling_family = family
+        record.scaling_stat = stat
+        record.scaling_no_dr = no_dr
         record.damage_low = low
         record.damage_high = high
         results.append((name, record))
@@ -259,11 +269,13 @@ def _extract_talent_id(block: str, name: str) -> str:
     return f"T_{derived}" if derived else ""
 
 
-def _extract_damage(block: str) -> tuple[str, str, float, float]:
+def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float]:
     dtype = ""
     if m := _RE_DAM_DESC.search(block):
         dtype = _normalize_damage_type(m.group(1))
     family = ""
+    stat = ""
+    no_dr = False
     low = 0.0
     high = 0.0
     if m := _RE_SCALING.search(block):
@@ -273,9 +285,18 @@ def _extract_damage(block: str) -> tuple[str, str, float, float]:
             high = float(m.group(3))
         except ValueError:
             low = high = 0.0
+    elif m := _RE_STAT_SCALING.search(block):
+        family = "stat"
+        stat = m.group(1).lower()
+        no_dr = m.group(4) == "true"
+        try:
+            low = float(m.group(2))
+            high = float(m.group(3))
+        except ValueError:
+            low = high = 0.0
     if not dtype:
         dtype = _extract_direct_damage_type(block)
-    return dtype, family, low, high
+    return dtype, family, stat, no_dr, low, high
 
 
 def _extract_direct_damage_type(block: str) -> str:
@@ -390,6 +411,8 @@ def _record_to_cache(record: TalentRecord) -> dict[str, object]:
         "talent_id": record.talent_id,
         "damage_type": record.damage_type,
         "scaling_family": record.scaling_family,
+        "scaling_stat": record.scaling_stat,
+        "scaling_no_dr": record.scaling_no_dr,
         "damage_low": record.damage_low,
         "damage_high": record.damage_high,
         "cooldown": record.cooldown,
@@ -409,6 +432,8 @@ def _record_from_cache(value: object) -> TalentRecord | None:
         talent_id=str(value.get("talent_id", "")),
         damage_type=str(value.get("damage_type", "")),
         scaling_family=str(value.get("scaling_family", "")),
+        scaling_stat=str(value.get("scaling_stat", "")),
+        scaling_no_dr=bool(value.get("scaling_no_dr", False)),
         damage_low=float(value.get("damage_low", 0.0) or 0.0),
         damage_high=float(value.get("damage_high", 0.0) or 0.0),
         cooldown=int(value.get("cooldown", 0) or 0),

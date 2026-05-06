@@ -141,6 +141,41 @@ newTalent{
         self.assertEqual(record.damage_type, "NATURE")
         self.assertEqual(record.scaling_family, "mind")
 
+    def test_stat_damage_scaling_metadata_is_parsed(self) -> None:
+        lua = """
+newTalent{
+    name = "Venom Burst",
+    getDamage = function(self, t) return self:combatTalentStatDamage(t, "wil", 30, 460) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.POISON, {dam=self:mindCrit(t.getDamage(self, t))})
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "NATURE")
+        self.assertEqual(record.scaling_family, "stat")
+        self.assertEqual(record.scaling_stat, "wil")
+        self.assertFalse(record.scaling_no_dr)
+        self.assertEqual(record.damage_low, 30.0)
+        self.assertEqual(record.damage_high, 460.0)
+
+    def test_stat_damage_no_dr_flag_is_parsed(self) -> None:
+        lua = """
+newTalent{
+    name = "Raw Stat Burst",
+    getDamage = function(self, t) return self:combatTalentStatDamage(t, "str", 10, 100, true) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.PHYSICAL, t.getDamage(self, t))
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.scaling_family, "stat")
+        self.assertEqual(record.scaling_stat, "str")
+        self.assertTrue(record.scaling_no_dr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,4 @@
+import math
 import unittest
 from unittest.mock import patch
 
@@ -139,6 +140,38 @@ class BattleSimulatorStateTests(unittest.TestCase):
         assert result.talent_report is not None
         self.assertEqual(result.talent_report.max_expected_damage, 0.0)
         self.assertEqual(result.talent_report.entries, [])
+
+    def test_compute_surfaces_stat_scaled_talent_threat(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Venom Drake",
+                offense=EnemyOffense(name="Venom Drake", atk=10, dam=5),
+                powers=EnemyPowers(stats={"wil": 80.0}, talents={"T_POISON_SPIT": 5}),
+            )
+        )
+        db = {
+            "T_POISON_SPIT": TalentRecord(
+                talent_id="T_POISON_SPIT",
+                damage_type="NATURE",
+                scaling_family="stat",
+                scaling_stat="wil",
+                damage_low=30.0,
+                damage_high=460.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        max_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
+        raw = (30.0 + 80.0) * max_factor * 460.0 / ((30.0 + 100.0) * max_factor)
+        expected = round(raw * (1.0 - math.log10(raw * 2.0) / 7.0), 1)
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, expected)
+        self.assertEqual(result.talent_report.worst_damage_type, "NATURE")
 
     def test_weapon_threat_uses_actual_damage_type(self) -> None:
         player = PlayerDefenses(

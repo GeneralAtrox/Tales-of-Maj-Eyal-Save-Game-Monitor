@@ -37,6 +37,8 @@ class EnemyPowers:
     resists_pen: dict[str, float] = field(default_factory=dict)
     talents: dict[str, int] = field(default_factory=dict)
     """``T_XXX`` → talent level (raw, before mastery)."""
+    stats: dict[str, float] = field(default_factory=dict)
+    """Base stat values used by ``combatTalentStatDamage`` talents."""
 
     @property
     def has_talents(self) -> bool:
@@ -57,6 +59,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         inc_damage=_number_fields_by_prefix(all_fields, "inc_damage."),
         resists_pen=_number_fields_by_prefix(all_fields, "resists_pen."),
         talents=_talent_fields_by_prefix(all_fields, "talents."),
+        stats=stats,
     )
 
 
@@ -83,7 +86,7 @@ class TalentThreatReport:
     enemy's crowd-control toolkit (stun, pin, disarm, ...)."""
 
 
-def _scale(record: TalentRecord, level: int, power: float) -> float:
+def _scale_power_damage(record: TalentRecord, level: int, power: float) -> float:
     """Approximate `combatTalentScaledDamage` for non-weapon families."""
     if record.damage_high <= 0:
         return 0.0
@@ -93,6 +96,26 @@ def _scale(record: TalentRecord, level: int, power: float) -> float:
     max_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
     mod = max_damage / ((base + 100.0) * max_factor)
     return cm.rescale_damage((base + max(0.0, power)) * talent_factor * mod)
+
+
+def _scale_stat_damage(record: TalentRecord, level: int, stat_value: float) -> float:
+    if record.damage_high <= 0:
+        return 0.0
+    base = record.damage_low
+    max_damage = record.damage_high
+    talent_factor = (math.sqrt(max(1, level)) - 1.0) * 0.8 + 1.0
+    max_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
+    mod = max_damage / ((base + 100.0) * max_factor)
+    raw = (base + max(0.0, stat_value)) * talent_factor * mod
+    if raw <= 0.0 or record.scaling_no_dr:
+        return raw
+    return max(0.0, raw * (1.0 - math.log10(raw * 2.0) / 7.0))
+
+
+def _scale(record: TalentRecord, level: int, powers: EnemyPowers) -> float:
+    if record.scaling_family == "stat":
+        return _scale_stat_damage(record, level, powers.stats.get(record.scaling_stat, 0.0))
+    return _scale_power_damage(record, level, _power_for_family(record.scaling_family, powers))
 
 
 def _power_for_family(family: str, powers: EnemyPowers) -> float:
@@ -176,8 +199,7 @@ def compute_talent_threat(
         if record.damage_high <= 0:
             continue
 
-        power = _power_for_family(record.scaling_family, powers)
-        raw = _scale(record, int(level), power)
+        raw = _scale(record, int(level), powers)
         if raw <= 0:
             continue
 

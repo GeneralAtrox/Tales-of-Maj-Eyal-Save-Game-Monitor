@@ -115,6 +115,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             inc_damage=dict(powers.inc_damage),
             resists_pen=dict(powers.resists_pen),
             talents=dict(powers.talents),
+            stats=dict(powers.stats),
         ),
     )
 
