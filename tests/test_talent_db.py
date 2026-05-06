@@ -313,6 +313,21 @@ newTalent{
         self.assertEqual(record.damage_type, "")
         self.assertEqual(record.scaling_family, "spell")
 
+    def test_special_damage_project_payload_uses_base_type(self) -> None:
+        lua = """
+newTalent{
+    name = "Ice Drain",
+    getDamage = function(self, t) return self:combatTalentSpellDamage(t, 10, 100) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.ICE_MIND, {dam=self:spellCrit(t.getDamage(self, t))})
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "COLD")
+        self.assertEqual(record.scaling_family, "spell")
+
     def test_status_projector_with_dam_field_stays_untyped(self) -> None:
         lua = """
 newTalent{

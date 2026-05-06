@@ -25,12 +25,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from game_data.damage_types import BASE_DAMAGE_TYPES, normalize_damage_type as normalize_game_damage_type
+
 _TOME_TEAM = Path(
     r"C:\Program Files (x86)\Steam\steamapps\common\TalesMajEyal"
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 19
+_CACHE_SCHEMA_VERSION = 20
 _RESOURCE_COST_FIELDS = frozenset(
     {
         "mana",
@@ -174,39 +176,6 @@ _RE_SCALAR_DAMAGE_PAYLOAD = re.compile(
     r")",
     re.DOTALL,
 )
-_BASE_DAMAGE_TYPES = {
-    "ACID",
-    "ARCANE",
-    "BLIGHT",
-    "COLD",
-    "DARKNESS",
-    "FIRE",
-    "LIGHT",
-    "LIGHTNING",
-    "MIND",
-    "NATURE",
-    "PHYSICAL",
-    "STEAM",
-    "TEMPORAL",
-}
-_DAMAGE_TYPE_ALIASES = {
-    "BLEED": "PHYSICAL",
-    "BLIGHT_POISON": "BLIGHT",
-    "BOUNCE_SLIME": "NATURE",
-    "CRIPPLING_POISON": "NATURE",
-    "HALLUCINOGENIC_MOSS": "NATURE",
-    "INSIDIOUS_POISON": "NATURE",
-    "MUCUS": "NATURE",
-    "NOURISHING_MOSS": "NATURE",
-    "PHYSICALBLEED": "PHYSICAL",
-    "POISON": "NATURE",
-    "RANDOM_POISON": "NATURE",
-    "SLIME": "NATURE",
-    "SLIPPERY_MOSS": "NATURE",
-    "SPYDRIC_POISON": "NATURE",
-}
-
-
 def get_talent_db() -> dict[str, TalentRecord]:
     """Return a name-keyed map of talent metadata."""
     global _db
@@ -666,36 +635,8 @@ def _extract_crit_family(block: str) -> str:
 
 
 def _normalize_damage_type(raw: str) -> str:
-    damage_type = raw.strip().upper()
-    if damage_type in _BASE_DAMAGE_TYPES:
-        return damage_type
-    if damage_type in _DAMAGE_TYPE_ALIASES:
-        return _DAMAGE_TYPE_ALIASES[damage_type]
-    if damage_type == "ICE" or damage_type.startswith("COLD") or damage_type == "MINDFREEZE":
-        return "COLD"
-    if damage_type.startswith("FIRE"):
-        return "FIRE"
-    if damage_type.startswith("LIGHTNING"):
-        return "LIGHTNING"
-    if damage_type.startswith("ACID"):
-        return "ACID"
-    if damage_type.startswith("MIND"):
-        return "MIND"
-    if damage_type.startswith("PHYSICAL"):
-        return "PHYSICAL"
-    if damage_type.startswith("BLIGHT"):
-        return "BLIGHT"
-    if damage_type.startswith("DARK"):
-        return "DARKNESS"
-    if damage_type.startswith("LIGHT"):
-        return "LIGHT"
-    if damage_type.startswith("TEMPORAL"):
-        return "TEMPORAL"
-    if damage_type.startswith("NATURE"):
-        return "NATURE"
-    if damage_type.startswith("ARCANE"):
-        return "ARCANE"
-    return ""
+    damage_type = normalize_game_damage_type(raw, "")
+    return damage_type if damage_type in BASE_DAMAGE_TYPES else ""
 
 
 def _normalize_description(text: str) -> str:
