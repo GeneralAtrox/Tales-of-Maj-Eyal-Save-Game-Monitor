@@ -541,14 +541,28 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 "combat_physcrit": 4.0,
                 "combat_generic_crit": 1.5,
                 "combat_critical_power": 20.0,
+                "stats.cun": 20.0,
+                "stats.lck": 55.0,
                 "combat.physcrit": 5.0,
                 "combat.crit_power": 10.0,
             },
             "Test",
         )
 
-        self.assertEqual(offense.crit_chance_pct, 10.5)
+        self.assertEqual(offense.crit_chance_pct, 15.0)
         self.assertEqual(offense.crit_power_bonus_pct, 30.0)
+
+    def test_enemy_offense_uses_engine_default_weapon_crit(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat_physcrit": 4.0,
+                "stats.cun": 10.0,
+                "stats.lck": 50.0,
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.crit_chance_pct, 5.0)
 
     def test_enemy_offense_prefers_precomputed_accuracy(self) -> None:
         offense = EnemyOffense.from_all_fields(

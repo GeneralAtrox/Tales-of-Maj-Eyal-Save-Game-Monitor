@@ -169,7 +169,7 @@ class EnemyOffense:
             atk=_combat_attack(all_fields, stats, num("combat.atk")),
             dam=_melee_damage(all_fields, num("combat.dam")),
             apr=_combat_apr(all_fields, num("combat.apr")),
-            crit_chance_pct=_physical_crit_chance(all_fields),
+            crit_chance_pct=_physical_crit_chance(all_fields, stats),
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
             physspeed=num("combat.physspeed", 1.0) or 1.0,
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
@@ -232,10 +232,20 @@ def _combat_apr(all_fields: dict[str, str | float | bool], weapon_apr: float) ->
     return _number_field(all_fields, "combat_apr") + weapon_apr
 
 
-def _physical_crit_chance(all_fields: dict[str, str | float | bool]) -> float:
-    engine_keys = ("combat_physcrit", "combat_generic_crit", "combat.physcrit")
+def _crit_stat_bonus(stats: dict[str, float]) -> float:
+    return (stats.get("cun", 10.0) - 10.0) * 0.3 + (stats.get("lck", 50.0) - 50.0) * 0.3
+
+
+def _physical_crit_chance(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    engine_keys = ("combat_physcrit", "combat_generic_crit", "combat.physcrit", "stats.cun", "stats.lck")
     if any(key in all_fields for key in engine_keys):
-        return sum(_number_field(all_fields, key) for key in engine_keys)
+        return max(
+            0.0,
+            _number_field(all_fields, "combat_physcrit")
+            + _number_field(all_fields, "combat_generic_crit")
+            + _crit_stat_bonus(stats)
+            + _number_field(all_fields, "combat.physcrit", 1.0),
+        )
     return _number_field(all_fields, "combat.crit")
 
 
