@@ -91,6 +91,8 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             inc_damage=dict(stats.inc_damage),
             resists_pen=dict(stats.resists_pen),
             talent_max_weapon_mult=stats.talent_max_weapon_mult,
+            talent_burst_weapon_mult=stats.talent_burst_weapon_mult,
+            talent_burst_weapon_hits=stats.talent_burst_weapon_hits,
         ),
         powers=EnemyPowers(
             spellpower=stats.spellpower,
@@ -370,6 +372,7 @@ class BattleSimulatorPanel(QWidget):
             ("threat", "Threat"),
             ("expected", "Expected Damage"),
             ("peak", "Peak Damage"),
+            ("burst", "Burst Damage"),
             ("talent", "Talent Threat"),
             ("raw", "Raw Damage"),
             ("hit_rate", "Hit Rate"),
@@ -728,6 +731,13 @@ class BattleSimulatorPanel(QWidget):
         self._result_values["threat"].setText(f"{report.weapon_threat_pct:.1f}% of effective HP")
         self._result_values["expected"].setText(f"{report.expected_damage:.1f}")
         self._result_values["peak"].setText(f"{report.peak_damage:.1f}")
+        if report.burst_hits > 1:
+            self._result_values["burst"].setText(
+                f"{report.burst_expected_damage:.1f} expected / {report.burst_peak_damage:.1f} peak "
+                f"({report.burst_hits} hits)"
+            )
+        else:
+            self._result_values["burst"].setText("--")
         talent_report = result.talent_report
         if talent_report is not None and talent_report.max_expected_damage > 0.0:
             talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
@@ -740,7 +750,12 @@ class BattleSimulatorPanel(QWidget):
             self._result_values["talent"].setText("--")
         self._result_values["raw"].setText(f"{report.raw_damage:.1f}")
         self._result_values["hit_rate"].setText(f"{report.hit_rate_pct:.1f}%")
-        self._result_values["one_shot"].setText("Yes" if report.can_one_shot else "No")
+        if report.can_one_shot:
+            self._result_values["one_shot"].setText("Yes")
+        elif report.can_burst_kill:
+            self._result_values["one_shot"].setText("Burst")
+        else:
+            self._result_values["one_shot"].setText("No")
         self._result_values["worst_resist"].setText(
             f"{report.worst_resist_type}  (x{report.worst_resist_multiplier:.2f})"
         )

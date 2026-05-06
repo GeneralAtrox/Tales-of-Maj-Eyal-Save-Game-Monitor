@@ -145,6 +145,8 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             inc_damage=dict(offense.inc_damage),
             resists_pen=dict(offense.resists_pen),
             talent_max_weapon_mult=offense.talent_max_weapon_mult,
+            talent_burst_weapon_mult=offense.talent_burst_weapon_mult,
+            talent_burst_weapon_hits=offense.talent_burst_weapon_hits,
         ),
         powers=EnemyPowers(
             spellpower=powers.spellpower,

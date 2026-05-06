@@ -212,6 +212,9 @@ newTalent{
         self.assertEqual(record.scaling_family, "weapon")
         self.assertEqual(record.damage_low, 1.2)
         self.assertEqual(record.damage_high, 2.1)
+        self.assertEqual(record.weapon_burst_low, 2.2)
+        self.assertEqual(record.weapon_burst_high, 3.8)
+        self.assertEqual(record.weapon_burst_hits, 2)
 
     def test_weapon_damage_ignores_unrelated_bleed_helper(self) -> None:
         lua = """
@@ -237,6 +240,9 @@ newTalent{
         self.assertEqual(record.scaling_family, "weapon")
         self.assertEqual(record.damage_low, 1.0)
         self.assertEqual(record.damage_high, 1.7)
+        self.assertEqual(record.weapon_burst_low, 1.0)
+        self.assertEqual(record.weapon_burst_high, 1.7)
+        self.assertEqual(record.weapon_burst_hits, 1)
 
 
 if __name__ == "__main__":

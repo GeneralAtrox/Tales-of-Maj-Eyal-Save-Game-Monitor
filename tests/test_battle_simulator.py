@@ -392,6 +392,9 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 scaling_family="weapon",
                 damage_low=1.0,
                 damage_high=2.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=2.0,
+                weapon_burst_hits=1,
             )
         }
         with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
@@ -404,6 +407,27 @@ class BattleSimulatorStateTests(unittest.TestCase):
             )
 
         self.assertEqual(offense.talent_max_weapon_mult, 2.0)
+        self.assertEqual(offense.talent_burst_weapon_mult, 2.0)
+        self.assertEqual(offense.talent_burst_weapon_hits, 1)
+
+    def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:
+        player = PlayerDefenses(max_life=100, armor=0, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=40,
+            crit_chance_pct=0,
+            talent_max_weapon_mult=1.5,
+            talent_burst_weapon_mult=3.0,
+            talent_burst_weapon_hits=2,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 60.0)
+        self.assertEqual(report.burst_expected_damage, 120.0)
+        self.assertFalse(report.can_one_shot)
+        self.assertTrue(report.can_burst_kill)
+        self.assertTrue(any("2-hit weapon burst" in note for note in report.notes))
 
     def test_enemy_powers_reads_live_spell_power_and_talents(self) -> None:
         powers = enemy_powers_from_fields(

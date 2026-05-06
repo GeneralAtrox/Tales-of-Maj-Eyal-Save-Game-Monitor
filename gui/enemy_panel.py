@@ -334,6 +334,8 @@ class _EnemyCard(QFrame):
                 f"Threat score: {report.weapon_threat_pct:.0f}% of effective HP\n"
                 f"Expected single-hit damage: {report.expected_damage:.0f}\n"
                 f"Peak single-hit damage: {report.peak_damage:.0f}\n"
+                f"Peak weapon burst: {report.burst_peak_damage:.0f}"
+                f"{f' across {report.burst_hits} hits' if report.burst_hits > 1 else ''}\n"
                 f"Hit rate: {report.hit_rate_pct:.0f}%\n"
                 f"Damage type: {report.damage_type} "
                 f"(x{report.worst_resist_multiplier:.2f})"
@@ -346,9 +348,13 @@ class _EnemyCard(QFrame):
             )
             top.addWidget(danger_badge)
 
-            if report.can_one_shot:
-                oneshot = QLabel(" 1-SHOT ")
-                oneshot.setToolTip("This enemy can remove all your HP in a single hit.")
+            if report.can_one_shot or report.can_burst_kill:
+                oneshot = QLabel(" 1-SHOT " if report.can_one_shot else " BURST ")
+                oneshot.setToolTip(
+                    "This enemy can remove all your HP in a single hit."
+                    if report.can_one_shot
+                    else "This enemy can remove all your HP with a multi-hit weapon talent."
+                )
                 oneshot.setStyleSheet(
                     f"background: {RED}; color: {SURFACE0}; font-size: 10px;"
                     f" font-weight: 800; border-radius: 3px; padding: 1px 6px;"

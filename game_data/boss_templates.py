@@ -9,7 +9,7 @@ from pathlib import Path
 from game_data.lua_extractor import RE_NAME, find_tome_team, iter_balanced_blocks
 from scoring import combat_math as cm
 from scoring.ranks import rank_label
-from scoring.talent_weapon import weapon_multiplier_for_talents
+from scoring.talent_weapon import weapon_multipliers_for_talents
 
 _BASE_TEMPLATE_RE = re.compile(r'define_as\s*=\s*"BASE_')
 _BASE_RE = re.compile(r'\bbase\s*=\s*"([^"]+)"')
@@ -95,6 +95,8 @@ class BossTemplateStats:
     physspeed: float
     damage_type: str
     talent_max_weapon_mult: float
+    talent_burst_weapon_mult: float
+    talent_burst_weapon_hits: int
     spellpower: float
     mindpower: float
     physicalpower: float
@@ -311,6 +313,8 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             physspeed=1.0,
             damage_type="PHYSICAL",
             talent_max_weapon_mult=1.0,
+            talent_burst_weapon_mult=1.0,
+            talent_burst_weapon_hits=1,
             spellpower=0.0,
             mindpower=0.0,
             physicalpower=0.0,
@@ -371,6 +375,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     )
 
     rank = _parse_scalar_from_blocks(source_blocks, "rank", default=4.0)
+    weapon_mults = weapon_multipliers_for_talents(talents)
     return BossTemplateStats(
         template=template,
         name=template.name,
@@ -394,7 +399,9 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         crit_power_bonus_pct=crit_power,
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
-        talent_max_weapon_mult=weapon_multiplier_for_talents(talents),
+        talent_max_weapon_mult=weapon_mults.max_hit,
+        talent_burst_weapon_mult=weapon_mults.burst,
+        talent_burst_weapon_hits=weapon_mults.burst_hits,
         spellpower=_template_spell_power(
             _parse_scalar_from_blocks(source_blocks, "combat_spellpower"),
             stats,

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from . import combat_math as cm
-from .talent_weapon import weapon_multiplier_for_talents
+from .talent_weapon import weapon_multipliers_for_talents
 
 # ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +95,10 @@ class EnemyOffense:
     talent-db analysis; we don't compute it here to keep this module
     pure.
     """
+    talent_burst_weapon_mult: float = 1.0
+    """Largest summed same-action weapon multiplier across visible talents."""
+    talent_burst_weapon_hits: int = 1
+    """Number of direct weapon hits in the strongest same-action burst."""
 
     @classmethod
     def from_all_fields(cls, all_fields: dict[str, str | float | bool], name: str = "") -> EnemyOffense:
@@ -116,6 +120,7 @@ class EnemyOffense:
             for k, v in all_fields.items()
             if k.startswith("resists_pen.") and isinstance(v, (int, float))
         }
+        weapon_mults = weapon_multipliers_for_talents(_number_fields_by_prefix(all_fields, "talents."))
         return cls(
             name=name or str(all_fields.get("name") or ""),
             rank=num("rank", 1.0),
@@ -129,7 +134,9 @@ class EnemyOffense:
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
             resists_pen=pen,
-            talent_max_weapon_mult=weapon_multiplier_for_talents(_number_fields_by_prefix(all_fields, "talents.")),
+            talent_max_weapon_mult=weapon_mults.max_hit,
+            talent_burst_weapon_mult=weapon_mults.burst,
+            talent_burst_weapon_hits=weapon_mults.burst_hits,
         )
 
 
@@ -188,6 +195,14 @@ class ThreatReport:
     peak_damage: float
     """Largest plausible one-hit damage if the weapon crits."""
 
+    burst_expected_damage: float
+    """Expected same-action weapon burst damage, before rank/speed risk scalars."""
+
+    burst_peak_damage: float
+    """Largest plausible same-action weapon burst if all direct weapon hits crit."""
+
+    burst_hits: int
+    can_burst_kill: bool
     raw_damage: float
     crit_chance_pct: float
     crit_used_pct: float
@@ -254,11 +269,16 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
 
-    base_hit = after_armor * resist_mult * daminc_mult * max(1.0, enemy.talent_max_weapon_mult)
+    base_multiplier = after_armor * resist_mult * daminc_mult
+    base_hit = base_multiplier * max(1.0, enemy.talent_max_weapon_mult)
+    base_burst = base_multiplier * max(1.0, enemy.talent_burst_weapon_mult)
     expected = base_hit * crit_mult
     peak = base_hit * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit
+    burst_expected = base_burst * crit_mult
+    burst_peak = base_burst * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst
+    burst_hits = max(1, enemy.talent_burst_weapon_hits)
 
-    threat_damage = expected
+    threat_damage = max(expected, burst_expected)
     if enemy.rank > RANK_BOSS_THRESHOLD:
         threat_damage *= RANK_BOSS_SCALAR
     if enemy.global_speed > 1.0:
@@ -273,8 +293,17 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     notes: list[str] = []
     if peak >= player.effective_hp:
         notes.append(f"Can one-shot you ({peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)")
+    elif burst_peak >= player.effective_hp and burst_hits > 1:
+        notes.append(
+            f"Can kill with a {burst_hits}-hit weapon burst "
+            f"({burst_peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)"
+        )
     elif expected >= player.effective_hp * 0.7:
         notes.append(f"Can remove ~{expected / player.effective_hp * 100:.0f}% HP per hit")
+    elif burst_expected >= player.effective_hp * 0.7 and burst_hits > 1:
+        notes.append(f"Can remove ~{burst_expected / player.effective_hp * 100:.0f}% HP in a weapon burst")
+    if burst_hits > 1:
+        notes.append(f"Strongest weapon talent chains {burst_hits} direct hits")
     if hit >= 75:
         notes.append(f"Very likely to hit ({hit:.0f}%)")
     elif hit < 25:
@@ -289,6 +318,10 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         hit_rate_pct=round(hit, 1),
         expected_damage=round(expected, 1),
         peak_damage=round(peak, 1),
+        burst_expected_damage=round(burst_expected, 1),
+        burst_peak_damage=round(burst_peak, 1),
+        burst_hits=burst_hits,
+        can_burst_kill=burst_peak >= player.effective_hp and burst_hits > 1,
         raw_damage=round(enemy.dam, 1),
         crit_chance_pct=enemy.crit_chance_pct,
         crit_used_pct=crit_doubled,

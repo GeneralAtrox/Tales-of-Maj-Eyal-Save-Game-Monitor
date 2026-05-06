@@ -7,9 +7,9 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v8: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v9: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
-multipliers over unrelated helper damage in weapon talents.
+multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 8
+_CACHE_SCHEMA_VERSION = 9
 
 
 @dataclass(slots=True)
@@ -47,6 +47,12 @@ class TalentRecord:
     """One of ``spell``, ``mind``, ``physical`` when damage is wrapped in a crit helper."""
     damage_low: float = 0.0
     damage_high: float = 0.0
+    weapon_burst_low: float = 0.0
+    """Sum of direct same-action weapon hit low multipliers. Zero for non-weapon talents."""
+    weapon_burst_high: float = 0.0
+    """Sum of direct same-action weapon hit high multipliers. Zero for non-weapon talents."""
+    weapon_burst_hits: int = 0
+    """Number of direct weapon hit calls seen in one activation."""
     cooldown: int = 0
     tactical_disable: list[str] = field(default_factory=list)
     """Raw tactical-disable tags (``stun``, ``pin``, ``disarm``, ...)."""
@@ -216,7 +222,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             cooldown=_extract_cooldown(block),
             tactical_disable=_extract_tactical_disable(block),
         )
-        dtype, family, stat, no_dr, low, high = _extract_damage(block)
+        dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits = _extract_damage(block)
         record.damage_type = dtype
         record.scaling_family = family
         record.scaling_stat = stat
@@ -224,6 +230,9 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
         record.crit_family = _extract_crit_family(block)
         record.damage_low = low
         record.damage_high = high
+        record.weapon_burst_low = burst_low
+        record.weapon_burst_high = burst_high
+        record.weapon_burst_hits = burst_hits
         results.append((name, record))
     return results
 
@@ -278,7 +287,7 @@ def _extract_talent_id(block: str, name: str) -> str:
     return f"T_{derived}" if derived else ""
 
 
-def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float]:
+def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float, float, float, int]:
     dtype = ""
     if m := _RE_DAM_DESC.search(block):
         dtype = _normalize_damage_type(m.group(1))
@@ -287,9 +296,15 @@ def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float]:
     no_dr = False
     low = 0.0
     high = 0.0
-    if weapon_match := _strongest_direct_weapon_hit(block):
+    burst_low = 0.0
+    burst_high = 0.0
+    burst_hits = 0
+    if weapon_hits := _direct_weapon_hits(block):
         family = "weapon"
-        low, high = weapon_match
+        low, high = max(weapon_hits, key=lambda hit: hit[1])
+        burst_low = sum(hit[0] for hit in weapon_hits)
+        burst_high = sum(hit[1] for hit in weapon_hits)
+        burst_hits = len(weapon_hits)
     elif m := _RE_SCALING.search(block):
         family = m.group(1).lower()  # spell|mind|physical|weapon
         try:
@@ -306,21 +321,23 @@ def _extract_damage(block: str) -> tuple[str, str, str, bool, float, float]:
             high = float(m.group(3))
         except ValueError:
             low = high = 0.0
+    if family == "weapon" and high > 0.0 and burst_high <= 0.0:
+        burst_low = low
+        burst_high = high
+        burst_hits = 1
     if not dtype:
         dtype = _extract_direct_damage_type(block)
-    return dtype, family, stat, no_dr, low, high
+    return dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits
 
 
-def _strongest_direct_weapon_hit(block: str) -> tuple[float, float] | None:
-    strongest: tuple[float, float] | None = None
+def _direct_weapon_hits(block: str) -> list[tuple[float, float]]:
+    hits: list[tuple[float, float]] = []
     for m in _RE_DIRECT_WEAPON_HIT.finditer(block):
         try:
-            candidate = (float(m.group(1)), float(m.group(2)))
+            hits.append((float(m.group(1)), float(m.group(2))))
         except ValueError:
             continue
-        if strongest is None or candidate[1] > strongest[1]:
-            strongest = candidate
-    return strongest
+    return hits
 
 
 def _extract_direct_damage_type(block: str) -> str:
@@ -453,6 +470,9 @@ def _record_to_cache(record: TalentRecord) -> dict[str, object]:
         "crit_family": record.crit_family,
         "damage_low": record.damage_low,
         "damage_high": record.damage_high,
+        "weapon_burst_low": record.weapon_burst_low,
+        "weapon_burst_high": record.weapon_burst_high,
+        "weapon_burst_hits": record.weapon_burst_hits,
         "cooldown": record.cooldown,
         "tactical_disable": record.tactical_disable,
         "talent_type": record.talent_type,
@@ -475,6 +495,9 @@ def _record_from_cache(value: object) -> TalentRecord | None:
         crit_family=str(value.get("crit_family", "")),
         damage_low=float(value.get("damage_low", 0.0) or 0.0),
         damage_high=float(value.get("damage_high", 0.0) or 0.0),
+        weapon_burst_low=float(value.get("weapon_burst_low", 0.0) or 0.0),
+        weapon_burst_high=float(value.get("weapon_burst_high", 0.0) or 0.0),
+        weapon_burst_hits=int(value.get("weapon_burst_hits", 0) or 0),
         cooldown=int(value.get("cooldown", 0) or 0),
         tactical_disable=[str(x) for x in td] if isinstance(td, list) else [],
         talent_type=str(value.get("talent_type", "")),

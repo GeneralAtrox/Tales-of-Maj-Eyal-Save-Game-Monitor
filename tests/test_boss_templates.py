@@ -70,6 +70,9 @@ newEntity{
                 scaling_family="weapon",
                 damage_low=1.0,
                 damage_high=2.0,
+                weapon_burst_low=1.5,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=2,
             )
         }
         with (
@@ -97,6 +100,8 @@ newEntity{
         self.assertEqual(stats.physspeed, 2.0)
         self.assertEqual(stats.damage_type, "BLIGHT")
         self.assertEqual(stats.talent_max_weapon_mult, 2.0)
+        self.assertEqual(stats.talent_burst_weapon_mult, 3.0)
+        self.assertEqual(stats.talent_burst_weapon_hits, 2)
         self.assertEqual(stats.spell_crit_pct, 8.0)
         self.assertEqual(stats.mind_crit_pct, 10.0)
         self.assertEqual(stats.physical_crit_pct, 10.0)
