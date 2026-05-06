@@ -87,6 +87,7 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             damage_type=stats.damage_type,
             inc_damage=dict(stats.inc_damage),
             resists_pen=dict(stats.resists_pen),
+            talent_max_weapon_mult=stats.talent_max_weapon_mult,
         ),
     )
 

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from . import combat_math as cm
+from .talent_weapon import weapon_multiplier_for_talents
 
 # ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ class EnemyOffense:
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
             resists_pen=pen,
+            talent_max_weapon_mult=weapon_multiplier_for_talents(_number_fields_by_prefix(all_fields, "talents.")),
         )
 
 

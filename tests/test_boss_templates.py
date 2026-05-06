@@ -2,13 +2,14 @@ import unittest
 from unittest.mock import patch
 
 from game_data.boss_templates import (
-    BossTemplate,
     BossActorRef,
+    BossTemplate,
     _BossBlock,
     _boss_actor_refs,
     _boss_template_stats,
     get_boss_templates,
 )
+from game_data.talent_db import TalentRecord
 
 
 class BossTemplateTests(unittest.TestCase):
@@ -53,13 +54,25 @@ newEntity{
         physcrit = 5, crit_power = 10, physspeed = 2,
         damtype = DamageType.BLIGHT,
     },
+    resolvers.talents{ [Talents.T_STUNNING_BLOW] = {base = 2, every = 5, max = 5} },
     inc_damage = { [DamageType.BLIGHT] = 25, all = 10 },
     resists_pen = { [DamageType.COLD] = 15 },
 }
 """
-        with patch(
-            "game_data.boss_templates._resolve_boss_block",
-            return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+        db = {
+            "T_STUNNING_BLOW": TalentRecord(
+                talent_id="T_STUNNING_BLOW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=2.0,
+            )
+        }
+        with (
+            patch(
+                "game_data.boss_templates._resolve_boss_block",
+                return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+            ),
+            patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db),
         ):
             stats = _boss_template_stats(template)
 
@@ -78,6 +91,7 @@ newEntity{
         self.assertEqual(stats.crit_power_bonus_pct, 30.0)
         self.assertEqual(stats.physspeed, 2.0)
         self.assertEqual(stats.damage_type, "BLIGHT")
+        self.assertEqual(stats.talent_max_weapon_mult, 2.0)
         self.assertEqual(stats.inc_damage["BLIGHT"], 25.0)
         self.assertEqual(stats.inc_damage["ALL"], 10.0)
         self.assertEqual(stats.resists_pen["COLD"], 15.0)

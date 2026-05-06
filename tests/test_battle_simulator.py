@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+from game_data.talent_db import TalentRecord
 from scoring import combat_math as cm
 from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState
 from scoring.combat_advice import survive_one_hit_advice
@@ -185,6 +187,26 @@ class BattleSimulatorStateTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(offense.dam, 39.1, places=1)
+
+    def test_enemy_offense_reads_live_weapon_talent_multiplier(self) -> None:
+        db = {
+            "T_STUNNING_BLOW": TalentRecord(
+                talent_id="T_STUNNING_BLOW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=2.0,
+            )
+        }
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            offense = EnemyOffense.from_all_fields(
+                {
+                    "combat.dam": 50.0,
+                    "talents.T_STUNNING_BLOW": 5.0,
+                },
+                "Test",
+            )
+
+        self.assertEqual(offense.talent_max_weapon_mult, 2.0)
 
 
 if __name__ == "__main__":

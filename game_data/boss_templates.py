@@ -9,6 +9,7 @@ from pathlib import Path
 from game_data.lua_extractor import RE_NAME, find_tome_team, iter_balanced_blocks
 from scoring import combat_math as cm
 from scoring.ranks import rank_label
+from scoring.talent_weapon import weapon_multiplier_for_talents
 
 _BASE_TEMPLATE_RE = re.compile(r'define_as\s*=\s*"BASE_')
 _DEFINE_AS_RE = re.compile(r'\bdefine_as\s*=\s*"([^"]+)"')
@@ -16,6 +17,9 @@ _TYPE_RE = re.compile(r'\btype\s*=\s*"([^"]+)"')
 _SUBTYPE_RE = re.compile(r'\bsubtype\s*=\s*"([^"]+)"')
 _FACTION_RE = re.compile(r'\bfaction\s*=\s*"([^"]+)"')
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_TALENT_ENTRY_RE = re.compile(
+    r"\[\s*(?:(?:ActorTalents|Talents)\.)?(T_[A-Z0-9_]+)\s*\]\s*=\s*(\{[^}]*\}|[^,\n}]+)"
+)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _VENDORED_DATA_ROOT = _REPO_ROOT / "tools" / "t-engine4-master" / "game" / "modules" / "tome" / "data"
 
@@ -64,6 +68,7 @@ class BossTemplateStats:
     crit_power_bonus_pct: float
     physspeed: float
     damage_type: str
+    talent_max_weapon_mult: float
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
     has_combat_data: bool = False
@@ -271,12 +276,14 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             crit_power_bonus_pct=0.0,
             physspeed=1.0,
             damage_type="PHYSICAL",
+            talent_max_weapon_mult=1.0,
         )
 
     block = boss_block.block
     combat_block = _extract_table(block, "combat")
     inc_damage = _parse_damage_table(_extract_table(block, "inc_damage"))
     resists_pen = _parse_damage_table(_extract_table(block, "resists_pen"))
+    talents = _parse_talent_table(block)
     weapon_dam = _combat_value(combat_block, "dam")
     stats = _parse_number_table(_extract_table(block, "stats"))
     dammod = _parse_number_table(_extract_table(combat_block or "", "dammod"))
@@ -337,6 +344,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         crit_power_bonus_pct=crit_power,
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
+        talent_max_weapon_mult=weapon_multiplier_for_talents(talents),
         inc_damage=inc_damage,
         resists_pen=resists_pen,
         has_combat_data=has_combat_data,
@@ -621,6 +629,26 @@ def _parse_number_table(table_block: str | None) -> dict[str, float]:
     for match in entry_re.finditer(table_block):
         values[match.group(1).lower()] = _parse_number_expr(match.group(2))
     return values
+
+
+def _parse_talent_table(block: str) -> dict[str, float]:
+    talents: dict[str, float] = {}
+    for match in _TALENT_ENTRY_RE.finditer(block):
+        talent_id = match.group(1).strip().upper()
+        talents[talent_id] = _parse_talent_level(match.group(2))
+    return talents
+
+
+def _parse_talent_level(expr: str) -> float:
+    cleaned = expr.strip()
+    if cleaned.startswith("{"):
+        max_level = _parse_scalar_field(cleaned, "max")
+        if max_level > 0.0:
+            return max_level
+        base_level = _parse_scalar_field(cleaned, "base")
+        if base_level > 0.0:
+            return base_level
+    return _parse_number_expr(cleaned)
 
 
 def _estimate_template_damage(
