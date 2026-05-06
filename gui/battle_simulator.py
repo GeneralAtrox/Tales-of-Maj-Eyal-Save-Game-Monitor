@@ -88,6 +88,8 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             apr=stats.apr,
             crit_chance_pct=stats.crit_chance_pct,
             crit_power_bonus_pct=stats.crit_power_bonus_pct,
+            accuracy_effect=stats.accuracy_effect,
+            accuracy_effect_scale=stats.accuracy_effect_scale,
             physspeed=stats.physspeed,
             damage_type=stats.damage_type,
             inc_damage=dict(stats.inc_damage),

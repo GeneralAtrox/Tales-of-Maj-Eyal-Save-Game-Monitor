@@ -92,6 +92,8 @@ class BossTemplateStats:
     apr: float
     crit_chance_pct: float
     crit_power_bonus_pct: float
+    accuracy_effect: str
+    accuracy_effect_scale: bool
     physspeed: float
     damage_type: str
     talent_max_weapon_mult: float
@@ -310,6 +312,8 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             apr=0.0,
             crit_chance_pct=0.0,
             crit_power_bonus_pct=0.0,
+            accuracy_effect="",
+            accuracy_effect_scale=False,
             physspeed=1.0,
             damage_type="PHYSICAL",
             talent_max_weapon_mult=1.0,
@@ -360,6 +364,8 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     crit_power = _parse_scalar_from_blocks(source_blocks, "combat_critical_power") + _combat_value(
         combat_block, "crit_power"
     )
+    accuracy_effect = _combat_string(combat_block, "accuracy_effect") or _combat_string(combat_block, "talented")
+    accuracy_effect_scale = _combat_truthy(combat_block, "accuracy_effect_scale")
     physspeed = _template_physical_speed(
         _combat_value(combat_block, "physspeed", default=1.0),
         _parse_scalar_from_blocks(source_blocks, "combat_physspeed", default=1.0),
@@ -401,6 +407,8 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         apr=apr,
         crit_chance_pct=crit,
         crit_power_bonus_pct=crit_power,
+        accuracy_effect=accuracy_effect,
+        accuracy_effect_scale=accuracy_effect_scale,
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
         talent_max_weapon_mult=weapon_mults.max_hit,
@@ -614,6 +622,34 @@ def _combat_value(combat_block: str | None, field_name: str, default: float = 0.
     if expr is None:
         return default
     return _parse_number_expr(expr)
+
+
+def _combat_string(combat_block: str | None, field_name: str) -> str:
+    if not combat_block:
+        return ""
+    expr = _extract_value_expr(combat_block, field_name)
+    if expr is None:
+        return ""
+    return _parse_string_expr(expr)
+
+
+def _combat_truthy(combat_block: str | None, field_name: str) -> bool:
+    if not combat_block:
+        return False
+    expr = _extract_value_expr(combat_block, field_name)
+    if expr is None:
+        return False
+    cleaned = expr.strip().lower()
+    if cleaned in {"", "nil", "false", "0"}:
+        return False
+    return bool(_parse_number_expr(cleaned, default=1.0))
+
+
+def _parse_string_expr(expr: str) -> str:
+    cleaned = expr.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+        return cleaned[1:-1].strip()
+    return ""
 
 
 def _parse_number_expr(expr: str, default: float = 0.0) -> float:

@@ -17,7 +17,13 @@ from dataclasses import dataclass
 from typing import Final
 
 from . import combat_math as cm
-from .enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport
+from .enemy_threat import (
+    EnemyOffense,
+    PlayerDefenses,
+    ThreatReport,
+    weapon_crit_chance_pct,
+    weapon_crit_power_multiplier,
+)
 
 SURVIVAL_HP_FRACTION: Final[float] = 0.95
 """Target: drop expected damage to ≤95% of effective HP (a little room
@@ -43,12 +49,8 @@ class AdviceItem:
 
 
 def _crit_multiplier(enemy: EnemyOffense, player: PlayerDefenses, *, peak: bool = False) -> float:
-    crit_chance = max(0.0, min(100.0, enemy.crit_chance_pct))
-    crit_chance = max(0.0, crit_chance - max(0.0, player.combat_crit_reduction_pct))
-    crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
-    if player.ignore_direct_crits_pct > 0:
-        ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
-        crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
+    crit_chance = weapon_crit_chance_pct(enemy, player)
+    crit_power = weapon_crit_power_multiplier(enemy, player)
     if peak:
         return crit_power if crit_chance > 0.0 and crit_power > 1.0 else 1.0
     crit_doubled = min(100.0, crit_chance * 2.0)

@@ -250,6 +250,8 @@ _ENTITY_ROOT_FIELDS = {
 }
 
 _ENTITY_COMBAT_FIELDS = {
+    "accuracy_effect",
+    "accuracy_effect_scale",
     "apr",
     "atk",
     "crit",
@@ -259,6 +261,7 @@ _ENTITY_COMBAT_FIELDS = {
     "physcrit",
     "physspeed",
     "range",
+    "talented",
 }
 
 _ENTITY_STAT_FIELDS = {"str", "dex", "con", "mag", "wil", "cun", "lck"}

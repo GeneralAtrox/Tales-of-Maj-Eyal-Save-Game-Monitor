@@ -98,6 +98,10 @@ class EnemyOffense:
     crit_chance_pct: float = 0.0
     crit_power_bonus_pct: float = 0.0
     """`combat_critical_power` plus weapon crit power, as a percent bonus above the 1.5 base."""
+    accuracy_effect: str = ""
+    """Weapon accuracy effect kind (`accuracy_effect` or `talented` in ToME combat tables)."""
+    accuracy_effect_scale: bool = False
+    """ToME treats a truthy `accuracy_effect_scale` as a half-strength accuracy effect."""
     physspeed: float = 1.0
     weapon_range: float = 0.0
     damage_type: str = cm.DEFAULT_DAMAGE_TYPE
@@ -175,6 +179,8 @@ class EnemyOffense:
             apr=_combat_apr(all_fields, num("combat.apr")),
             crit_chance_pct=_physical_crit_chance(all_fields, stats),
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
+            accuracy_effect=_accuracy_effect_from_fields(all_fields),
+            accuracy_effect_scale=_truthy_field(all_fields, "combat.accuracy_effect_scale"),
             physspeed=num("combat.physspeed", 1.0) or 1.0,
             weapon_range=num("combat.range"),
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
@@ -256,6 +262,26 @@ def _physical_crit_chance(all_fields: dict[str, str | float | bool], stats: dict
 
 def _physical_crit_power_bonus(all_fields: dict[str, str | float | bool]) -> float:
     return _number_field(all_fields, "combat_critical_power") + _number_field(all_fields, "combat.crit_power")
+
+
+def _string_field(all_fields: dict[str, str | float | bool], key: str) -> str:
+    value = all_fields.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _truthy_field(all_fields: dict[str, str | float | bool], key: str) -> bool:
+    value = all_fields.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0.0
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "nil"}
+    return False
+
+
+def _accuracy_effect_from_fields(all_fields: dict[str, str | float | bool]) -> str:
+    return _string_field(all_fields, "combat.accuracy_effect") or _string_field(all_fields, "combat.talented")
 
 
 def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: str) -> dict[str, float]:
@@ -348,6 +374,30 @@ rate is doubled before scaling — high-damage enemies deserve worry
 even if their nominal hit rate is modest."""
 
 
+def _accuracy_effect_bonus(enemy: EnemyOffense, player: PlayerDefenses, scale: float, cap: float) -> float:
+    scale_factor = 0.5 if enemy.accuracy_effect_scale else 1.0
+    return min(cap, max(0.0, enemy.atk - player.defense) * scale * scale_factor)
+
+
+def weapon_crit_chance_pct(enemy: EnemyOffense, player: PlayerDefenses) -> float:
+    """Engine-style physical weapon crit chance after player reduction and axe accuracy bonus."""
+    chance = enemy.crit_chance_pct - max(0.0, player.combat_crit_reduction_pct)
+    if enemy.accuracy_effect.lower() == "axe":
+        chance += _accuracy_effect_bonus(enemy, player, 0.25, 25.0)
+    return max(0.0, min(100.0, chance))
+
+
+def weapon_crit_power_multiplier(enemy: EnemyOffense, player: PlayerDefenses) -> float:
+    """Engine-style physical weapon crit multiplier, including sword accuracy bonus."""
+    crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
+    if enemy.accuracy_effect.lower() == "sword":
+        crit_power += _accuracy_effect_bonus(enemy, player, 0.004, 0.4)
+    if player.ignore_direct_crits_pct > 0:
+        ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
+        crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
+    return crit_power
+
+
 def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     """Compute a single-hit weapon threat report.
 
@@ -367,13 +417,9 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
     daminc_mult = 1.0 + damage_inc / 100.0
 
-    crit_chance = max(0.0, min(100.0, enemy.crit_chance_pct))
-    crit_chance = max(0.0, crit_chance - max(0.0, player.combat_crit_reduction_pct))
+    crit_chance = weapon_crit_chance_pct(enemy, player)
     crit_doubled = min(100.0, crit_chance * 2.0)
-    crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
-    if player.ignore_direct_crits_pct > 0:
-        ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
-        crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
+    crit_power = weapon_crit_power_multiplier(enemy, player)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
     weapon_mults = enemy.weapon_multipliers_against(player)
 

@@ -588,6 +588,52 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertFalse(report.can_one_shot)
         self.assertFalse(survive_one_hit_advice(enemy, player))
 
+    def test_axe_accuracy_effect_adds_weapon_crit_after_player_reduction(self) -> None:
+        player = PlayerDefenses(max_life=200, defense=0, combat_crit_reduction_pct=20)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            crit_chance_pct=20,
+            accuracy_effect="axe",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.crit_chance_pct, 25.0)
+        self.assertEqual(report.crit_used_pct, 50.0)
+        self.assertEqual(report.expected_damage, 125.0)
+        self.assertEqual(report.peak_damage, 150.0)
+
+    def test_sword_accuracy_effect_adds_weapon_crit_power(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            crit_chance_pct=100,
+            accuracy_effect="sword",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 190.0)
+        self.assertEqual(report.peak_damage, 190.0)
+
+    def test_accuracy_effect_scale_halves_weapon_accuracy_bonus(self) -> None:
+        player = PlayerDefenses(max_life=200, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            crit_chance_pct=0,
+            accuracy_effect="axe",
+            accuracy_effect_scale=True,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.crit_chance_pct, 12.5)
+        self.assertEqual(report.crit_used_pct, 25.0)
+        self.assertEqual(report.expected_damage, 112.5)
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 
@@ -595,6 +641,26 @@ class BattleSimulatorStateTests(unittest.TestCase):
         offense = EnemyOffense.from_all_fields({"combat.damtype": "fire"}, "Test")
 
         self.assertEqual(offense.damage_type, "FIRE")
+
+    def test_enemy_offense_reads_accuracy_effect_from_live_combat_table(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.talented": "sword",
+                "combat.accuracy_effect_scale": 0.5,
+            },
+            "Test",
+        )
+        override = EnemyOffense.from_all_fields(
+            {
+                "combat.talented": "bow",
+                "combat.accuracy_effect": "axe",
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.accuracy_effect, "sword")
+        self.assertTrue(offense.accuracy_effect_scale)
+        self.assertEqual(override.accuracy_effect, "axe")
 
     def test_enemy_offense_reads_engine_crit_fields(self) -> None:
         offense = EnemyOffense.from_all_fields(
