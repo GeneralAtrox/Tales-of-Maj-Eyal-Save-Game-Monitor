@@ -280,8 +280,12 @@ class BattleSimulatorStateTests(unittest.TestCase):
             {
                 "combat_spellpower": 42.0,
                 "combat_mindpower": 13.0,
+                "combat_generic_power": 5.0,
                 "combat_dam": 10.0,
                 "stats.str": 30.0,
+                "stats.mag": 18.0,
+                "stats.wil": 20.0,
+                "stats.cun": 10.0,
                 "combat.atk": 20.0,
                 "combat.apr": 3.0,
                 "inc_damage.FIRE": 25.0,
@@ -290,14 +294,34 @@ class BattleSimulatorStateTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(powers.spellpower, 42.0)
-        self.assertEqual(powers.mindpower, 13.0)
-        self.assertGreater(powers.physicalpower, 0.0)
+        self.assertEqual(powers.spellpower, cm.rescale_combat_stats(42.0 + 5.0 + 18.0))
+        self.assertEqual(powers.mindpower, cm.rescale_combat_stats(13.0 + 5.0 + 20.0 * 0.7 + 10.0 * 0.4))
+        self.assertEqual(powers.physicalpower, cm.rescale_combat_stats(10.0 + 5.0 + 30.0))
         self.assertEqual(powers.atk, 20.0)
         self.assertEqual(powers.apr, 3.0)
         self.assertEqual(powers.inc_damage, {"FIRE": 25.0})
         self.assertEqual(powers.resists_pen, {"FIRE": 10.0})
         self.assertEqual(powers.talents, {"T_FLAME": 5})
+
+    def test_enemy_powers_respect_precomputed_engine_power_fields(self) -> None:
+        powers = enemy_powers_from_fields(
+            {
+                "combat_spellpower": 200.0,
+                "combat_mindpower": 200.0,
+                "combat_dam": 200.0,
+                "stats.str": 200.0,
+                "stats.mag": 200.0,
+                "stats.wil": 200.0,
+                "stats.cun": 200.0,
+                "combat_precomputed_spellpower": 50.0,
+                "combat_precomputed_mindpower": 40.0,
+                "combat_precomputed_physpower": 30.0,
+            }
+        )
+
+        self.assertEqual(powers.spellpower, cm.rescale_combat_stats(50.0))
+        self.assertEqual(powers.mindpower, cm.rescale_combat_stats(40.0))
+        self.assertEqual(powers.physicalpower, cm.rescale_combat_stats(30.0))
 
 
 if __name__ == "__main__":

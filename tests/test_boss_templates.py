@@ -110,6 +110,7 @@ newEntity{
     stats = { mag = 25, wil = 16, cun = 14 },
     combat_spellpower = 5,
     combat_mindpower = 7,
+    combat_generic_power = 3,
     autolevel = "caster",
 }
 """
@@ -119,8 +120,8 @@ newEntity{
         ):
             stats = _boss_template_stats(template)
 
-        expected_spellpower = cm.rescale_combat_stats(5 + 25 + (17 - 1) * 2)
-        expected_mindpower = cm.rescale_combat_stats(7 + (16 + (17 - 1)) * 0.7 + 14 * 0.4)
+        expected_spellpower = cm.rescale_combat_stats(5 + 3 + 25 + (17 - 1) * 2)
+        expected_mindpower = cm.rescale_combat_stats(7 + 3 + (16 + (17 - 1)) * 0.7 + 14 * 0.4)
         self.assertEqual(stats.spellpower, expected_spellpower)
         self.assertEqual(stats.mindpower, expected_mindpower)
 

@@ -388,9 +388,21 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
         talent_max_weapon_mult=weapon_multiplier_for_talents(talents),
-        spellpower=_template_spell_power(_parse_scalar_from_blocks(source_blocks, "combat_spellpower"), stats),
-        mindpower=_template_mind_power(_parse_scalar_from_blocks(source_blocks, "combat_mindpower"), stats),
-        physicalpower=_template_physical_power(combat_dam, stats),
+        spellpower=_template_spell_power(
+            _parse_scalar_from_blocks(source_blocks, "combat_spellpower"),
+            stats,
+            _parse_scalar_from_blocks(source_blocks, "combat_generic_power"),
+        ),
+        mindpower=_template_mind_power(
+            _parse_scalar_from_blocks(source_blocks, "combat_mindpower"),
+            stats,
+            _parse_scalar_from_blocks(source_blocks, "combat_generic_power"),
+        ),
+        physicalpower=_template_physical_power(
+            combat_dam,
+            stats,
+            _parse_scalar_from_blocks(source_blocks, "combat_generic_power"),
+        ),
         inc_damage=inc_damage,
         resists_pen=resists_pen,
         talents={talent_id: int(level) for talent_id, level in talents.items() if level > 0.0},
@@ -787,18 +799,21 @@ def _autoleveled_stats(stats: dict[str, float], autolevel: str, level: float) ->
     return leveled
 
 
-def _template_spell_power(combat_spellpower: float, stats: dict[str, float]) -> float:
-    raw = max(0.0, combat_spellpower + stats.get("mag", 0.0))
+def _template_spell_power(combat_spellpower: float, stats: dict[str, float], generic_power: float = 0.0) -> float:
+    raw = max(0.0, combat_spellpower + generic_power + stats.get("mag", 0.0))
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
-def _template_mind_power(combat_mindpower: float, stats: dict[str, float]) -> float:
-    raw = max(0.0, combat_mindpower + stats.get("wil", 0.0) * 0.7 + stats.get("cun", 0.0) * 0.4)
+def _template_mind_power(combat_mindpower: float, stats: dict[str, float], generic_power: float = 0.0) -> float:
+    raw = max(
+        0.0,
+        combat_mindpower + generic_power + stats.get("wil", 0.0) * 0.7 + stats.get("cun", 0.0) * 0.4,
+    )
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
-def _template_physical_power(combat_dam: float, stats: dict[str, float]) -> float:
-    raw = max(0.0, combat_dam + stats.get("str", 0.0))
+def _template_physical_power(combat_dam: float, stats: dict[str, float], generic_power: float = 0.0) -> float:
+    raw = max(0.0, combat_dam + generic_power + stats.get("str", 0.0))
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 

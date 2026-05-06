@@ -22,6 +22,7 @@ from game_data.talent_db import TalentRecord, get_talent_db_by_id
 from . import combat_math as cm
 from .enemy_threat import PlayerDefenses
 
+
 @dataclass(slots=True)
 class EnemyPowers:
     """Power stats read from the enemy's combat table."""
@@ -46,12 +47,10 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
     """Build talent-threat inputs from `EntityInfo.all_fields`."""
 
     stats = _number_fields_by_prefix(all_fields, "stats.")
-    physical_raw = _number_field(all_fields, "combat_dam") + stats.get("str", 0.0)
-    physicalpower = cm.rescale_combat_stats(max(0.0, physical_raw)) if physical_raw > 0.0 else 0.0
     return EnemyPowers(
-        spellpower=_number_field(all_fields, "combat_spellpower"),
-        mindpower=_number_field(all_fields, "combat_mindpower"),
-        physicalpower=physicalpower,
+        spellpower=_spell_power(all_fields, stats),
+        mindpower=_mind_power(all_fields, stats),
+        physicalpower=_physical_power(all_fields, stats),
         atk=_number_field(all_fields, "combat.atk"),
         dam=_number_field(all_fields, "combat.dam"),
         apr=_number_field(all_fields, "combat.apr"),
@@ -104,6 +103,50 @@ def _power_for_family(family: str, powers: EnemyPowers) -> float:
     if family == "physical":
         return powers.physicalpower or powers.atk
     return 0.0
+
+
+def _precomputed_or_raw(
+    all_fields: dict[str, str | float | bool],
+    precomputed_key: str,
+    raw: float,
+) -> float:
+    if precomputed_key in all_fields:
+        return max(0.0, _number_field(all_fields, precomputed_key))
+    return max(0.0, raw)
+
+
+def _spell_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    raw = _precomputed_or_raw(
+        all_fields,
+        "combat_precomputed_spellpower",
+        _number_field(all_fields, "combat_spellpower")
+        + _number_field(all_fields, "combat_generic_power")
+        + stats.get("mag", 0.0),
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _mind_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    raw = _precomputed_or_raw(
+        all_fields,
+        "combat_precomputed_mindpower",
+        _number_field(all_fields, "combat_mindpower")
+        + _number_field(all_fields, "combat_generic_power")
+        + stats.get("wil", 0.0) * 0.7
+        + stats.get("cun", 0.0) * 0.4,
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _physical_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    raw = _precomputed_or_raw(
+        all_fields,
+        "combat_precomputed_physpower",
+        _number_field(all_fields, "combat_dam")
+        + _number_field(all_fields, "combat_generic_power")
+        + stats.get("str", 0.0),
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
 def compute_talent_threat(
