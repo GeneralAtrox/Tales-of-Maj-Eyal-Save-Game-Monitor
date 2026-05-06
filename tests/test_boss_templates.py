@@ -50,6 +50,8 @@ newEntity{
     rank = 5,
     global_speed_base = 1.2,
     combat_physcrit = 4,
+    combat_spellcrit = 6,
+    combat_mindcrit = 8,
     combat_generic_crit = 1,
     combat_critical_power = 20,
     combat = {
@@ -95,6 +97,9 @@ newEntity{
         self.assertEqual(stats.physspeed, 2.0)
         self.assertEqual(stats.damage_type, "BLIGHT")
         self.assertEqual(stats.talent_max_weapon_mult, 2.0)
+        self.assertEqual(stats.spell_crit_pct, 8.0)
+        self.assertEqual(stats.mind_crit_pct, 10.0)
+        self.assertEqual(stats.physical_crit_pct, 10.0)
         self.assertEqual(stats.inc_damage["BLIGHT"], 25.0)
         self.assertEqual(stats.inc_damage["ALL"], 10.0)
         self.assertEqual(stats.resists_pen["COLD"], 15.0)

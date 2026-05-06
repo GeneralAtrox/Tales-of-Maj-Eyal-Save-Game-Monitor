@@ -80,6 +80,7 @@ newTalent{
 
         self.assertEqual(record.damage_type, "FIRE")
         self.assertEqual(record.scaling_family, "spell")
+        self.assertEqual(record.crit_family, "spell")
 
     def test_non_damage_project_payload_stays_untyped(self) -> None:
         lua = """
@@ -140,6 +141,7 @@ newTalent{
 
         self.assertEqual(record.damage_type, "NATURE")
         self.assertEqual(record.scaling_family, "mind")
+        self.assertEqual(record.crit_family, "mind")
 
     def test_stat_damage_scaling_metadata_is_parsed(self) -> None:
         lua = """
@@ -175,6 +177,20 @@ newTalent{
         self.assertEqual(record.scaling_family, "stat")
         self.assertEqual(record.scaling_stat, "str")
         self.assertTrue(record.scaling_no_dr)
+
+    def test_physical_crit_metadata_is_parsed(self) -> None:
+        lua = """
+newTalent{
+    name = "Warcry",
+    getDamage = function(self, t) return self:combatTalentPhysicalDamage(t, 10, 100) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.PHYSICAL, self:physicalCrit(t.getDamage(self, t)))
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.crit_family, "physical")
 
 
 if __name__ == "__main__":

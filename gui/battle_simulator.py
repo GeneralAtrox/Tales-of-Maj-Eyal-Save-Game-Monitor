@@ -102,6 +102,10 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             resists_pen=dict(stats.resists_pen),
             talents=dict(stats.talents),
             stats=dict(stats.stats),
+            spell_crit_pct=stats.spell_crit_pct,
+            mind_crit_pct=stats.mind_crit_pct,
+            physical_crit_pct=stats.physical_crit_pct,
+            crit_power_bonus_pct=stats.crit_power_bonus_pct,
         ),
     )
 

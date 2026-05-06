@@ -98,6 +98,9 @@ class BossTemplateStats:
     spellpower: float
     mindpower: float
     physicalpower: float
+    spell_crit_pct: float
+    mind_crit_pct: float
+    physical_crit_pct: float
     stats: dict[str, float] = field(default_factory=dict)
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
@@ -311,6 +314,9 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             spellpower=0.0,
             mindpower=0.0,
             physicalpower=0.0,
+            spell_crit_pct=0.0,
+            mind_crit_pct=0.0,
+            physical_crit_pct=0.0,
         )
 
     block = boss_block.block
@@ -403,6 +409,22 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             combat_dam,
             stats,
             _parse_scalar_from_blocks(source_blocks, "combat_generic_power"),
+        ),
+        spell_crit_pct=_template_spell_crit(
+            _parse_scalar_from_blocks(source_blocks, "combat_spellcrit"),
+            stats,
+            _parse_scalar_from_blocks(source_blocks, "combat_generic_crit"),
+        ),
+        mind_crit_pct=_template_mind_crit(
+            _parse_scalar_from_blocks(source_blocks, "combat_mindcrit"),
+            stats,
+            _parse_scalar_from_blocks(source_blocks, "combat_generic_crit"),
+        ),
+        physical_crit_pct=_template_physical_crit(
+            _parse_scalar_from_blocks(source_blocks, "combat_physcrit"),
+            stats,
+            _parse_scalar_from_blocks(source_blocks, "combat_generic_crit"),
+            _combat_value(combat_block, "physcrit"),
         ),
         stats=dict(stats),
         inc_damage=inc_damage,
@@ -817,6 +839,27 @@ def _template_mind_power(combat_mindpower: float, stats: dict[str, float], gener
 def _template_physical_power(combat_dam: float, stats: dict[str, float], generic_power: float = 0.0) -> float:
     raw = max(0.0, combat_dam + generic_power + stats.get("str", 0.0))
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _template_crit_stat_bonus(stats: dict[str, float]) -> float:
+    return (stats.get("cun", 10.0) - 10.0) * 0.3 + (stats.get("lck", 50.0) - 50.0) * 0.3
+
+
+def _template_spell_crit(combat_spellcrit: float, stats: dict[str, float], generic_crit: float = 0.0) -> float:
+    return max(0.0, min(100.0, combat_spellcrit + generic_crit + _template_crit_stat_bonus(stats) + 1.0))
+
+
+def _template_mind_crit(combat_mindcrit: float, stats: dict[str, float], generic_crit: float = 0.0) -> float:
+    return max(0.0, min(100.0, combat_mindcrit + generic_crit + _template_crit_stat_bonus(stats) + 1.0))
+
+
+def _template_physical_crit(
+    combat_physcrit: float,
+    stats: dict[str, float],
+    generic_crit: float = 0.0,
+    weapon_crit: float = 0.0,
+) -> float:
+    return max(0.0, min(100.0, combat_physcrit + generic_crit + _template_crit_stat_bonus(stats) + weapon_crit))
 
 
 def _parse_damage_type_expr(expr: str | None, default: str = "PHYSICAL") -> str:

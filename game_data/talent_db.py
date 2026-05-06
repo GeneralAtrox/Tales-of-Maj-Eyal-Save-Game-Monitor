@@ -7,7 +7,7 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v6: adds stat-scaling metadata, improves direct damage type extraction
+Schema v7: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, and keeps both name- and id-keyed records.
 """
 
@@ -24,7 +24,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 6
+_CACHE_SCHEMA_VERSION = 7
 
 
 @dataclass(slots=True)
@@ -42,6 +42,8 @@ class TalentRecord:
     """Stat key for ``combatTalentStatDamage`` records (``str``, ``wil``, ...)."""
     scaling_no_dr: bool = False
     """Whether the stat-scaling helper opts out of its old diminishing-return curve."""
+    crit_family: str = ""
+    """One of ``spell``, ``mind``, ``physical`` when damage is wrapped in a crit helper."""
     damage_low: float = 0.0
     damage_high: float = 0.0
     cooldown: int = 0
@@ -74,6 +76,7 @@ _RE_STAT_SCALING = re.compile(
     r"self:combatTalentStatDamage"
     r"\s*\(\s*t\s*,\s*[\"'](\w+)[\"']\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*(true|false))?"
 )
+_RE_CRIT_WRAPPER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]*:(spellCrit|mindCrit|physicalCrit)\s*\(")
 _RE_TACTICAL_DISABLE = re.compile(r"\btactical\s*=\s*\{[^}]*?\bdisable\s*=\s*\{([^}]*)\}", re.DOTALL)
 _RE_TACTICAL_KEY = re.compile(r"(\w+)\s*=")
 _RE_TABLE_DAMAGE_PAYLOAD = re.compile(r",\s*\{[^}]*\bdam\s*=", re.DOTALL)
@@ -213,6 +216,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
         record.scaling_family = family
         record.scaling_stat = stat
         record.scaling_no_dr = no_dr
+        record.crit_family = _extract_crit_family(block)
         record.damage_low = low
         record.damage_high = high
         results.append((name, record))
@@ -309,6 +313,19 @@ def _extract_direct_damage_type(block: str) -> str:
             continue
         if _RE_TABLE_DAMAGE_PAYLOAD.search(after) or _RE_SCALAR_DAMAGE_PAYLOAD.search(after):
             return _normalize_damage_type(match.group(1))
+    return ""
+
+
+def _extract_crit_family(block: str) -> str:
+    if not (match := _RE_CRIT_WRAPPER.search(block)):
+        return ""
+    wrapper = match.group(1)
+    if wrapper == "spellCrit":
+        return "spell"
+    if wrapper == "mindCrit":
+        return "mind"
+    if wrapper == "physicalCrit":
+        return "physical"
     return ""
 
 
@@ -413,6 +430,7 @@ def _record_to_cache(record: TalentRecord) -> dict[str, object]:
         "scaling_family": record.scaling_family,
         "scaling_stat": record.scaling_stat,
         "scaling_no_dr": record.scaling_no_dr,
+        "crit_family": record.crit_family,
         "damage_low": record.damage_low,
         "damage_high": record.damage_high,
         "cooldown": record.cooldown,
@@ -434,6 +452,7 @@ def _record_from_cache(value: object) -> TalentRecord | None:
         scaling_family=str(value.get("scaling_family", "")),
         scaling_stat=str(value.get("scaling_stat", "")),
         scaling_no_dr=bool(value.get("scaling_no_dr", False)),
+        crit_family=str(value.get("crit_family", "")),
         damage_low=float(value.get("damage_low", 0.0) or 0.0),
         damage_high=float(value.get("damage_high", 0.0) or 0.0),
         cooldown=int(value.get("cooldown", 0) or 0),

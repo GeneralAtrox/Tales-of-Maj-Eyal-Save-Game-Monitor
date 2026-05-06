@@ -116,6 +116,10 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             resists_pen=dict(powers.resists_pen),
             talents=dict(powers.talents),
             stats=dict(powers.stats),
+            spell_crit_pct=powers.spell_crit_pct,
+            mind_crit_pct=powers.mind_crit_pct,
+            physical_crit_pct=powers.physical_crit_pct,
+            crit_power_bonus_pct=powers.crit_power_bonus_pct,
         ),
     )
 

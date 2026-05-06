@@ -39,6 +39,10 @@ class EnemyPowers:
     """``T_XXX`` → talent level (raw, before mastery)."""
     stats: dict[str, float] = field(default_factory=dict)
     """Base stat values used by ``combatTalentStatDamage`` talents."""
+    spell_crit_pct: float = 0.0
+    mind_crit_pct: float = 0.0
+    physical_crit_pct: float = 0.0
+    crit_power_bonus_pct: float = 0.0
 
     @property
     def has_talents(self) -> bool:
@@ -60,6 +64,10 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         resists_pen=_number_fields_by_prefix(all_fields, "resists_pen."),
         talents=_talent_fields_by_prefix(all_fields, "talents."),
         stats=stats,
+        spell_crit_pct=_spell_crit(all_fields, stats),
+        mind_crit_pct=_mind_crit(all_fields, stats),
+        physical_crit_pct=_physical_crit(all_fields, stats),
+        crit_power_bonus_pct=_number_field(all_fields, "combat_critical_power"),
     )
 
 
@@ -172,6 +180,71 @@ def _physical_power(all_fields: dict[str, str | float | bool], stats: dict[str, 
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
+def _crit_stat_bonus(stats: dict[str, float]) -> float:
+    return (stats.get("cun", 10.0) - 10.0) * 0.3 + (stats.get("lck", 50.0) - 50.0) * 0.3
+
+
+def _spell_crit(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    return min(
+        100.0,
+        max(
+            0.0,
+            _number_field(all_fields, "combat_spellcrit")
+            + _number_field(all_fields, "combat_generic_crit")
+            + _crit_stat_bonus(stats)
+            + 1.0,
+        ),
+    )
+
+
+def _mind_crit(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    return min(
+        100.0,
+        max(
+            0.0,
+            _number_field(all_fields, "combat_mindcrit")
+            + _number_field(all_fields, "combat_generic_crit")
+            + _crit_stat_bonus(stats)
+            + 1.0,
+        ),
+    )
+
+
+def _physical_crit(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    weapon_crit = _number_field(all_fields, "combat.physcrit", 1.0)
+    return min(
+        100.0,
+        max(
+            0.0,
+            _number_field(all_fields, "combat_physcrit")
+            + _number_field(all_fields, "combat_generic_crit")
+            + _crit_stat_bonus(stats)
+            + weapon_crit,
+        ),
+    )
+
+
+def _crit_chance_for_record(record: TalentRecord, powers: EnemyPowers) -> float:
+    if record.crit_family == "spell":
+        return powers.spell_crit_pct
+    if record.crit_family == "mind":
+        return powers.mind_crit_pct
+    if record.crit_family == "physical":
+        return powers.physical_crit_pct
+    return 0.0
+
+
+def _crit_multiplier(record: TalentRecord, powers: EnemyPowers, player: PlayerDefenses) -> float:
+    crit_chance = _crit_chance_for_record(record, powers)
+    if crit_chance <= 0.0:
+        return 1.0
+    crit_power = cm.DEFAULT_CRIT_POWER + powers.crit_power_bonus_pct / 100.0
+    if player.ignore_direct_crits_pct > 0.0:
+        ignore = min(1.0, max(0.0, player.ignore_direct_crits_pct / 100.0))
+        crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
+    return cm.crit_expected_multiplier(crit_chance, crit_power)
+
+
 def compute_talent_threat(
     powers: EnemyPowers,
     player: PlayerDefenses,
@@ -221,7 +294,7 @@ def compute_talent_threat(
                 raw, player.armor, player.armor_hardiness_pct, powers.apr
             )
         daminc_mult = 1.0 + cm.damage_increase_for_type(powers.inc_damage, dtype or "all") / 100.0
-        expected = after * mult * daminc_mult
+        expected = after * mult * daminc_mult * _crit_multiplier(record, powers, player)
         threat_pct = (expected / player.effective_hp) * 100.0
 
         entry = TalentThreatEntry(

@@ -113,6 +113,73 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
 
+    def test_compute_applies_talent_crit_wrappers(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Caster",
+                offense=EnemyOffense(name="Caster", atk=10, dam=5),
+                powers=EnemyPowers(
+                    spellpower=100,
+                    spell_crit_pct=50,
+                    crit_power_bonus_pct=50,
+                    talents={"T_FLAME": 5},
+                ),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                crit_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        expected = round(cm.rescale_damage(100.0) * 1.5, 1)
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, expected)
+
+    def test_player_ignore_direct_crits_reduces_talent_crit_power(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}, ignore_direct_crits_pct=100))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Caster",
+                offense=EnemyOffense(name="Caster", atk=10, dam=5),
+                powers=EnemyPowers(
+                    spellpower=100,
+                    spell_crit_pct=100,
+                    crit_power_bonus_pct=100,
+                    talents={"T_FLAME": 5},
+                ),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                crit_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, round(cm.rescale_damage(100.0), 1))
+
     def test_compute_ignores_untyped_non_weapon_scaling_helpers(self) -> None:
         state = BattleSimulatorState()
         state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
@@ -314,13 +381,20 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 "combat_spellpower": 42.0,
                 "combat_mindpower": 13.0,
                 "combat_generic_power": 5.0,
+                "combat_generic_crit": 2.0,
                 "combat_dam": 10.0,
                 "stats.str": 30.0,
                 "stats.mag": 18.0,
                 "stats.wil": 20.0,
                 "stats.cun": 10.0,
+                "stats.lck": 50.0,
                 "combat.atk": 20.0,
                 "combat.apr": 3.0,
+                "combat_spellcrit": 7.0,
+                "combat_mindcrit": 11.0,
+                "combat_physcrit": 13.0,
+                "combat.crit_power": 15.0,
+                "combat_critical_power": 20.0,
                 "inc_damage.FIRE": 25.0,
                 "resists_pen.FIRE": 10.0,
                 "talents.flame": 5.0,
@@ -330,6 +404,10 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(powers.spellpower, cm.rescale_combat_stats(42.0 + 5.0 + 18.0))
         self.assertEqual(powers.mindpower, cm.rescale_combat_stats(13.0 + 5.0 + 20.0 * 0.7 + 10.0 * 0.4))
         self.assertEqual(powers.physicalpower, cm.rescale_combat_stats(10.0 + 5.0 + 30.0))
+        self.assertEqual(powers.spell_crit_pct, 10.0)
+        self.assertEqual(powers.mind_crit_pct, 14.0)
+        self.assertEqual(powers.physical_crit_pct, 16.0)
+        self.assertEqual(powers.crit_power_bonus_pct, 20.0)
         self.assertEqual(powers.atk, 20.0)
         self.assertEqual(powers.apr, 3.0)
         self.assertEqual(powers.inc_damage, {"FIRE": 25.0})
