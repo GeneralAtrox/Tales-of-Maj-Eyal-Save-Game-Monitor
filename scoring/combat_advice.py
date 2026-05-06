@@ -44,6 +44,7 @@ class AdviceItem:
 
 def _crit_multiplier(enemy: EnemyOffense, player: PlayerDefenses, *, peak: bool = False) -> float:
     crit_chance = max(0.0, min(100.0, enemy.crit_chance_pct))
+    crit_chance = max(0.0, crit_chance - max(0.0, player.combat_crit_reduction_pct))
     crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
     if player.ignore_direct_crits_pct > 0:
         ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))

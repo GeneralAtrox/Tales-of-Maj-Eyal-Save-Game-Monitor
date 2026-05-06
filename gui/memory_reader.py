@@ -196,6 +196,7 @@ _ENTITY_ROOT_FIELDS = {
     "combat_armor",
     "combat_apr",
     "combat_atk",
+    "combat_crit_reduction",
     "combat_critical_power",
     "combat_dam",
     "combat_def",
@@ -1232,6 +1233,7 @@ class PlayerStats:
     armor_hardiness: float = 0.0
     evasion: float = 0.0
     ignore_direct_crits: float = 0.0
+    combat_crit_reduction: float = 0.0
     x: float | None = None
     y: float | None = None
     resists: dict[str, float] = field(default_factory=dict)
@@ -1620,6 +1622,7 @@ class MemoryReader:
             armor_hardiness=_engine_armor_hardiness(_tab_get_number(h, pt, "combat_armor_hardiness")),
             evasion=_tab_get_number(h, pt, "evasion") or 0.0,
             ignore_direct_crits=_tab_get_number(h, pt, "ignore_direct_crits") or 0.0,
+            combat_crit_reduction=_tab_get_number(h, pt, "combat_crit_reduction") or 0.0,
             x=_tab_get_number(h, pt, "x"),
             y=_tab_get_number(h, pt, "y"),
             resists=raw_resists,

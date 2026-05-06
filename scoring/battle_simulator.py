@@ -127,6 +127,7 @@ def copy_player_defenses(player: PlayerDefenses | None) -> PlayerDefenses | None
         resists_pen=dict(player.resists_pen),
         resists_cap=dict(player.resists_cap),
         ignore_direct_crits_pct=player.ignore_direct_crits_pct,
+        combat_crit_reduction_pct=player.combat_crit_reduction_pct,
         x=player.x,
         y=player.y,
     )

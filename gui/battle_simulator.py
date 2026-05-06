@@ -270,6 +270,7 @@ class BattleSimulatorPanel(QWidget):
                 ("defense", "Defense", 0.0, 5000.0),
                 ("evasion_pct", "Evasion %", 0.0, 100.0),
                 ("ignore_direct_crits_pct", "Ignore Crits %", 0.0, 100.0),
+                ("combat_crit_reduction_pct", "Crit Reduction %", 0.0, 100.0),
             ),
             self._player_spins,
             self._on_player_scalar_changed,
@@ -681,6 +682,7 @@ class BattleSimulatorPanel(QWidget):
                 "defense",
                 "evasion_pct",
                 "ignore_direct_crits_pct",
+                "combat_crit_reduction_pct",
             ))
             self._set_damage_values(self._player_damage_spins, player)
 

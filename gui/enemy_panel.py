@@ -139,6 +139,7 @@ def player_stats_to_defenses(stats: PlayerStats | None) -> PlayerDefenses | None
         resists_pen=dict(stats.resists_pen),
         resists_cap=dict(stats.resists_cap),
         ignore_direct_crits_pct=stats.ignore_direct_crits,
+        combat_crit_reduction_pct=stats.combat_crit_reduction,
         x=stats.x,
         y=stats.y,
     )

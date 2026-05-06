@@ -32,15 +32,18 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 defense=18,
                 resists={"PHYSICAL": 15},
                 resists_cap={"all": 70},
+                combat_crit_reduction_pct=10,
             )
         )
 
         state.set_player_scalar("armor", 30)
+        state.set_player_scalar("combat_crit_reduction_pct", 20)
         state.set_player_damage_value("resists", "FIRE", 25)
 
         player = state.resolved_player()
         assert player is not None
         self.assertEqual(player.armor, 30)
+        self.assertEqual(player.combat_crit_reduction_pct, 20)
         self.assertEqual(player.resists["PHYSICAL"], 15)
         self.assertEqual(player.resists["FIRE"], 25)
         self.assertEqual(player.resists_cap["all"], 70)
@@ -566,6 +569,24 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertTrue(report.can_one_shot)
         self.assertIn("Can one-shot you (140 peak damage vs 100 effective HP)", report.notes)
         self.assertTrue(survive_one_hit_advice(enemy, player))
+
+    def test_player_crit_reduction_lowers_weapon_crit_chance(self) -> None:
+        player = PlayerDefenses(max_life=100, combat_crit_reduction_pct=20)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=70,
+            crit_chance_pct=20,
+            crit_power_bonus_pct=50,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.crit_chance_pct, 0.0)
+        self.assertEqual(report.crit_used_pct, 0.0)
+        self.assertEqual(report.expected_damage, 70.0)
+        self.assertEqual(report.peak_damage, 70.0)
+        self.assertFalse(report.can_one_shot)
+        self.assertFalse(survive_one_hit_advice(enemy, player))
 
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)

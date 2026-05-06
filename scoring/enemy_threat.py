@@ -75,6 +75,8 @@ class PlayerDefenses:
     resists_cap: dict[str, float] = field(default_factory=dict)
     ignore_direct_crits_pct: float = 0.0
     """Chance (0..100) that a crit is ignored — the 'ignore_direct_crits' attr."""
+    combat_crit_reduction_pct: float = 0.0
+    """Flat physical weapon crit chance reduction from ``combat_crit_reduction``."""
     x: float | None = None
     y: float | None = None
 
@@ -366,6 +368,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     daminc_mult = 1.0 + damage_inc / 100.0
 
     crit_chance = max(0.0, min(100.0, enemy.crit_chance_pct))
+    crit_chance = max(0.0, crit_chance - max(0.0, player.combat_crit_reduction_pct))
     crit_doubled = min(100.0, crit_chance * 2.0)
     crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
     if player.ignore_direct_crits_pct > 0:
@@ -433,7 +436,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         burst_hits=burst_hits,
         can_burst_kill=burst_peak >= player.effective_hp and burst_hits > 1,
         raw_damage=round(enemy.dam, 1),
-        crit_chance_pct=enemy.crit_chance_pct,
+        crit_chance_pct=round(crit_chance, 1),
         crit_used_pct=crit_doubled,
         can_one_shot=peak >= player.effective_hp,
         damage_type=damage_type,
