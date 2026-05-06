@@ -345,21 +345,25 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         stats=stats,
         dammod=dammod,
     )
-    atk = _combat_value(combat_block, "atk")
-    apr = _combat_value(combat_block, "apr")
-    crit = (
-        _parse_scalar_from_blocks(source_blocks, "combat_physcrit")
-        + _parse_scalar_from_blocks(source_blocks, "combat_generic_crit")
-        + _combat_value(combat_block, "physcrit")
+    weapon_atk = _combat_value(combat_block, "atk")
+    weapon_physcrit = _combat_value(combat_block, "physcrit", default=1.0 if combat_block is not None else 0.0)
+    atk = _template_attack(_parse_scalar_from_blocks(source_blocks, "combat_atk"), weapon_atk, stats)
+    apr = _parse_scalar_from_blocks(source_blocks, "combat_apr") + _combat_value(combat_block, "apr")
+    crit = _template_physical_crit(
+        _parse_scalar_from_blocks(source_blocks, "combat_physcrit"),
+        stats,
+        _parse_scalar_from_blocks(source_blocks, "combat_generic_crit"),
+        weapon_physcrit,
     )
     if crit == 0.0:
         crit = _combat_value(combat_block, "crit")
     crit_power = _parse_scalar_from_blocks(source_blocks, "combat_critical_power") + _combat_value(
         combat_block, "crit_power"
     )
-    physspeed = _combat_value(combat_block, "physspeed")
-    if physspeed == 0.0:
-        physspeed = _parse_scalar_from_blocks(source_blocks, "combat_physspeed", default=1.0)
+    physspeed = _template_physical_speed(
+        _combat_value(combat_block, "physspeed", default=1.0),
+        _parse_scalar_from_blocks(source_blocks, "combat_physspeed", default=1.0),
+    )
     damage_type = _parse_damage_type_expr(_extract_value_expr(combat_block or "", "damtype"))
 
     has_combat_data = any(
@@ -431,7 +435,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             _parse_scalar_from_blocks(source_blocks, "combat_physcrit"),
             stats,
             _parse_scalar_from_blocks(source_blocks, "combat_generic_crit"),
-            _combat_value(combat_block, "physcrit"),
+            weapon_physcrit,
         ),
         stats=dict(stats),
         inc_damage=inc_damage,
@@ -603,12 +607,12 @@ def _parse_scalar_field(block: str, field_name: str, default: float = 0.0) -> fl
     return _parse_number_expr(expr, default=default)
 
 
-def _combat_value(combat_block: str | None, field_name: str) -> float:
+def _combat_value(combat_block: str | None, field_name: str, default: float = 0.0) -> float:
     if not combat_block:
-        return 0.0
+        return default
     expr = _extract_value_expr(combat_block, field_name)
     if expr is None:
-        return 0.0
+        return default
     return _parse_number_expr(expr)
 
 
@@ -819,6 +823,22 @@ def _estimate_template_damage(
     )
 
 
+def _template_attack(combat_atk: float, weapon_atk: float, stats: dict[str, float]) -> float:
+    raw = max(
+        0.0,
+        4.0
+        + combat_atk
+        + weapon_atk
+        + (stats.get("lck", 50.0) - 50.0) * 0.4
+        + (stats.get("dex", 10.0) - 10.0),
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _template_physical_speed(weapon_physspeed: float, combat_physspeed: float) -> float:
+    return (weapon_physspeed or 1.0) / max(combat_physspeed, 0.4)
+
+
 def _autoleveled_stats(stats: dict[str, float], autolevel: str, level: float) -> dict[str, float]:
     gains = _AUTOLEVEL_STAT_GAINS.get(autolevel)
     if not gains or level <= 1.0:
@@ -864,7 +884,7 @@ def _template_physical_crit(
     combat_physcrit: float,
     stats: dict[str, float],
     generic_crit: float = 0.0,
-    weapon_crit: float = 0.0,
+    weapon_crit: float = 1.0,
 ) -> float:
     return max(0.0, min(100.0, combat_physcrit + generic_crit + _template_crit_stat_bonus(stats) + weapon_crit))
 

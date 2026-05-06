@@ -93,7 +93,7 @@ newEntity{
         self.assertEqual(stats.subtype, "vampire")
         self.assertEqual(stats.global_speed, 1.2)
         self.assertEqual(stats.dam, 50.0)
-        self.assertEqual(stats.atk, 35.0)
+        self.assertEqual(stats.atk, cm.rescale_combat_stats(39.0))
         self.assertEqual(stats.apr, 12.0)
         self.assertEqual(stats.crit_chance_pct, 10.0)
         self.assertEqual(stats.crit_power_bonus_pct, 30.0)
@@ -110,6 +110,30 @@ newEntity{
         self.assertEqual(stats.resists_pen["COLD"], 15.0)
         self.assertTrue(stats.has_combat_data)
         self.assertEqual(stats.warning, "")
+
+    def test_stats_apply_engine_attack_apr_speed_and_crit_defaults(self) -> None:
+        template = BossTemplate("The Test Boss", "Test Zone", "1+", "Quest: Testing")
+        block = """
+newEntity{
+    name = "The Test Boss",
+    level_range = {1, nil},
+    stats = { dex=30, cun=20, lck=55 },
+    combat_atk = 10,
+    combat_apr = 4,
+    combat_physspeed = 2,
+    combat = { dam = 10, atk = 12, apr = 3 },
+}
+"""
+        with patch(
+            "game_data.boss_templates._resolve_boss_block",
+            return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+        ):
+            stats = _boss_template_stats(template)
+
+        self.assertEqual(stats.atk, cm.rescale_combat_stats(48.0))
+        self.assertEqual(stats.apr, 7.0)
+        self.assertEqual(stats.crit_chance_pct, 5.5)
+        self.assertEqual(stats.physspeed, 0.5)
 
     def test_stats_estimate_caster_powers_from_autoleveled_stats(self) -> None:
         template = BossTemplate("The Test Boss", "Test Zone", "17+", "Quest: Testing")
