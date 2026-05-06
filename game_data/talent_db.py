@@ -7,8 +7,8 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v4: stores both name- and id-keyed records so duplicate display names
-do not drop engine ids used by NPC and boss talent tables.
+Schema v5: improves direct damage type extraction from projectile/projector
+calls and keeps both name- and id-keyed records.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 4
+_CACHE_SCHEMA_VERSION = 5
 
 
 @dataclass(slots=True)
@@ -61,12 +61,56 @@ _RE_TYPE = re.compile(r'\btype\s*=\s*\{\s*"([^"]+)"')
 _RE_MODE = re.compile(r'\bmode\s*=\s*"([^"]+)"')
 _RE_COOLDOWN = re.compile(r"\bcooldown\s*=\s*(\d+)\b")
 _RE_DAM_DESC = re.compile(r"damDesc\s*\(\s*[^,]+,\s*DamageType[.:](\w+)")
+_RE_DAMAGE_TYPE_TOKEN = re.compile(r"DamageType[.:](\w+)")
 _RE_SCALING = re.compile(
     r"self:combatTalent(Spell|Mind|Physical|Weapon)Damage"
     r"\s*\(\s*t\s*,\s*([\d.]+)\s*,\s*([\d.]+)"
 )
 _RE_TACTICAL_DISABLE = re.compile(r"\btactical\s*=\s*\{[^}]*?\bdisable\s*=\s*\{([^}]*)\}", re.DOTALL)
 _RE_TACTICAL_KEY = re.compile(r"(\w+)\s*=")
+_RE_TABLE_DAMAGE_PAYLOAD = re.compile(r",\s*\{[^}]*\bdam\s*=", re.DOTALL)
+_RE_SCALAR_DAMAGE_PAYLOAD = re.compile(
+    r",\s*(?:"
+    r"(?:self:)?(?:spellCrit|mindCrit|physicalCrit)\s*\("
+    r"|rng\.avg\s*\("
+    r"|t\.get(?:Damage|Dam)\s*\("
+    r"|self:combatTalent(?:Spell|Mind|Physical)Damage\s*\("
+    r"|\bdam\b"
+    r"|\bdamage\b"
+    r")",
+    re.DOTALL,
+)
+_BASE_DAMAGE_TYPES = {
+    "ACID",
+    "ARCANE",
+    "BLIGHT",
+    "COLD",
+    "DARKNESS",
+    "FIRE",
+    "LIGHT",
+    "LIGHTNING",
+    "MIND",
+    "NATURE",
+    "PHYSICAL",
+    "STEAM",
+    "TEMPORAL",
+}
+_DAMAGE_TYPE_ALIASES = {
+    "BLEED": "PHYSICAL",
+    "BLIGHT_POISON": "BLIGHT",
+    "BOUNCE_SLIME": "NATURE",
+    "CRIPPLING_POISON": "NATURE",
+    "HALLUCINOGENIC_MOSS": "NATURE",
+    "INSIDIOUS_POISON": "NATURE",
+    "MUCUS": "NATURE",
+    "NOURISHING_MOSS": "NATURE",
+    "PHYSICALBLEED": "PHYSICAL",
+    "POISON": "NATURE",
+    "RANDOM_POISON": "NATURE",
+    "SLIME": "NATURE",
+    "SLIPPERY_MOSS": "NATURE",
+    "SPYDRIC_POISON": "NATURE",
+}
 
 
 def get_talent_db() -> dict[str, TalentRecord]:
@@ -218,7 +262,7 @@ def _extract_talent_id(block: str, name: str) -> str:
 def _extract_damage(block: str) -> tuple[str, str, float, float]:
     dtype = ""
     if m := _RE_DAM_DESC.search(block):
-        dtype = m.group(1).upper()
+        dtype = _normalize_damage_type(m.group(1))
     family = ""
     low = 0.0
     high = 0.0
@@ -229,7 +273,55 @@ def _extract_damage(block: str) -> tuple[str, str, float, float]:
             high = float(m.group(3))
         except ValueError:
             low = high = 0.0
+    if not dtype:
+        dtype = _extract_direct_damage_type(block)
     return dtype, family, low, high
+
+
+def _extract_direct_damage_type(block: str) -> str:
+    for match in _RE_DAMAGE_TYPE_TOKEN.finditer(block):
+        before = block[max(0, match.start() - 90) : match.start()]
+        after = block[match.end() : match.end() + 240]
+        if "damDesc" in before:
+            continue
+        if "project" not in before and "project" not in after[:90]:
+            continue
+        if _RE_TABLE_DAMAGE_PAYLOAD.search(after) or _RE_SCALAR_DAMAGE_PAYLOAD.search(after):
+            return _normalize_damage_type(match.group(1))
+    return ""
+
+
+def _normalize_damage_type(raw: str) -> str:
+    damage_type = raw.strip().upper()
+    if damage_type in _BASE_DAMAGE_TYPES:
+        return damage_type
+    if damage_type in _DAMAGE_TYPE_ALIASES:
+        return _DAMAGE_TYPE_ALIASES[damage_type]
+    if damage_type == "ICE" or damage_type.startswith("COLD") or damage_type == "MINDFREEZE":
+        return "COLD"
+    if damage_type.startswith("FIRE"):
+        return "FIRE"
+    if damage_type.startswith("LIGHTNING"):
+        return "LIGHTNING"
+    if damage_type.startswith("ACID"):
+        return "ACID"
+    if damage_type.startswith("MIND"):
+        return "MIND"
+    if damage_type.startswith("PHYSICAL"):
+        return "PHYSICAL"
+    if damage_type.startswith("BLIGHT"):
+        return "BLIGHT"
+    if damage_type.startswith("DARK"):
+        return "DARKNESS"
+    if damage_type.startswith("LIGHT"):
+        return "LIGHT"
+    if damage_type.startswith("TEMPORAL"):
+        return "TEMPORAL"
+    if damage_type.startswith("NATURE"):
+        return "NATURE"
+    if damage_type.startswith("ARCANE"):
+        return "ARCANE"
+    return ""
 
 
 def _normalize_description(text: str) -> str:

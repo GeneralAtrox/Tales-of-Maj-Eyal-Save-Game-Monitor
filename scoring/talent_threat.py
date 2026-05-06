@@ -141,7 +141,9 @@ def compute_talent_threat(
         # Apply the same downstream multipliers as weapon_threat, but
         # skip armor (talents typically bypass it) unless this is a
         # physical-scaling talent that does PHYSICAL damage.
-        dtype = cm.normalize_damage_type(record.damage_type, "all") if record.damage_type else "all"
+        if not record.damage_type:
+            continue
+        dtype = cm.normalize_damage_type(record.damage_type, "all")
         mult = cm.resist_multiplier_for_type(
             player.resists,
             powers.resists_pen,

@@ -112,6 +112,34 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
 
+    def test_compute_ignores_untyped_non_weapon_scaling_helpers(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Time Mage",
+                offense=EnemyOffense(name="Time Mage", atk=10, dam=5),
+                powers=EnemyPowers(spellpower=100, talents={"T_CONGEAL_TIME": 5}),
+            )
+        )
+        db = {
+            "T_CONGEAL_TIME": TalentRecord(
+                talent_id="T_CONGEAL_TIME",
+                damage_type="",
+                scaling_family="spell",
+                damage_low=5.0,
+                damage_high=700.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, 0.0)
+        self.assertEqual(result.talent_report.entries, [])
+
     def test_weapon_threat_uses_actual_damage_type(self) -> None:
         player = PlayerDefenses(
             max_life=100,

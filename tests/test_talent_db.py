@@ -66,6 +66,81 @@ newTalent{
         self.assertIn("T_STUNNING_BLOW", cached)
         self.assertIn("T_STUNNING_BLOW_ASSAULT", cached)
 
+    def test_damage_type_can_come_from_direct_project_payload(self) -> None:
+        lua = """
+newTalent{
+    name = "Fire Burst",
+    getDamage = function(self, t) return self:combatTalentSpellDamage(t, 10, 100) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.FIREKNOCKBACK, {dist=3, dam=self:spellCrit(t.getDamage(self, t))})
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "FIRE")
+        self.assertEqual(record.scaling_family, "spell")
+
+    def test_non_damage_project_payload_stays_untyped(self) -> None:
+        lua = """
+newTalent{
+    name = "Congeal Time",
+    getProj = function(self, t) return self:combatTalentSpellDamage(t, 5, 700) end,
+    action = function(self, t)
+        self:projectile(tg, x, y, DamageType.CONGEAL_TIME, {slow=t.getSlow(self, t), proj=t.getProj(self, t)})
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "")
+        self.assertEqual(record.scaling_family, "spell")
+
+    def test_status_projector_with_dam_field_stays_untyped(self) -> None:
+        lua = """
+newTalent{
+    name = "Confuse",
+    getConfusion = function(self, t) return self:combatTalentSpellDamage(t, 10, 80) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.CONFUSION, {dur=4, dam=t.getConfusion(self, t)})
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "")
+        self.assertEqual(record.scaling_family, "spell")
+
+    def test_heal_projector_stays_untyped(self) -> None:
+        lua = """
+newTalent{
+    name = "Heal",
+    getHeal = function(self, t) return self:combatTalentSpellDamage(t, 10, 80) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.HEALING_POWER, self:spellCrit(t.getHeal(self, t)))
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "")
+        self.assertEqual(record.scaling_family, "spell")
+
+    def test_poison_projector_maps_to_nature_damage(self) -> None:
+        lua = """
+newTalent{
+    name = "Poison Spit",
+    getDamage = function(self, t) return self:combatTalentMindDamage(t, 10, 100) end,
+    action = function(self, t)
+        self:project(tg, x, y, DamageType.POISON, {dam=self:mindCrit(t.getDamage(self, t))})
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.damage_type, "NATURE")
+        self.assertEqual(record.scaling_family, "mind")
+
 
 if __name__ == "__main__":
     unittest.main()
