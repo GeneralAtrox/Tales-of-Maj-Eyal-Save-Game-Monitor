@@ -144,6 +144,9 @@ class ThreatReport:
     expected_damage: float
     """Expected damage for one connecting hit, before rank/speed risk scalars."""
 
+    peak_damage: float
+    """Largest plausible one-hit damage if the weapon crits."""
+
     raw_damage: float
     crit_chance_pct: float
     crit_used_pct: float
@@ -202,14 +205,17 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
     daminc_mult = 1.0 + damage_inc / 100.0
 
-    crit_doubled = min(100.0, enemy.crit_chance_pct * 2.0)
+    crit_chance = max(0.0, min(100.0, enemy.crit_chance_pct))
+    crit_doubled = min(100.0, crit_chance * 2.0)
     crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
     if player.ignore_direct_crits_pct > 0:
         ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
         crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
 
-    expected = after_armor * crit_mult * resist_mult * daminc_mult * max(1.0, enemy.talent_max_weapon_mult)
+    base_hit = after_armor * resist_mult * daminc_mult * max(1.0, enemy.talent_max_weapon_mult)
+    expected = base_hit * crit_mult
+    peak = base_hit * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit
 
     threat_damage = expected
     if enemy.rank > RANK_BOSS_THRESHOLD:
@@ -224,10 +230,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         threat_pct *= min(100.0, hit * 2.0) / 100.0
 
     notes: list[str] = []
-    if expected >= player.effective_hp:
-        notes.append(
-            f"Can one-shot you ({expected:.0f} damage vs {player.effective_hp:.0f} effective HP)"
-        )
+    if peak >= player.effective_hp:
+        notes.append(f"Can one-shot you ({peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)")
     elif expected >= player.effective_hp * 0.7:
         notes.append(f"Can remove ~{expected / player.effective_hp * 100:.0f}% HP per hit")
     if hit >= 75:
@@ -243,10 +247,11 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         weapon_threat_pct=round(threat_pct, 1),
         hit_rate_pct=round(hit, 1),
         expected_damage=round(expected, 1),
+        peak_damage=round(peak, 1),
         raw_damage=round(enemy.dam, 1),
         crit_chance_pct=enemy.crit_chance_pct,
         crit_used_pct=crit_doubled,
-        can_one_shot=expected >= player.effective_hp,
+        can_one_shot=peak >= player.effective_hp,
         damage_type=damage_type,
         worst_resist_type=damage_type,
         worst_resist_multiplier=round(resist_mult, 3),

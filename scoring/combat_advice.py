@@ -42,12 +42,15 @@ class AdviceItem:
     """False when the lever hits its cap before reaching survival."""
 
 
-def _crit_multiplier(enemy: EnemyOffense, player: PlayerDefenses) -> float:
-    crit_doubled = min(100.0, enemy.crit_chance_pct * 2.0)
+def _crit_multiplier(enemy: EnemyOffense, player: PlayerDefenses, *, peak: bool = False) -> float:
+    crit_chance = max(0.0, min(100.0, enemy.crit_chance_pct))
     crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
     if player.ignore_direct_crits_pct > 0:
         ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
         crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
+    if peak:
+        return crit_power if crit_chance > 0.0 and crit_power > 1.0 else 1.0
+    crit_doubled = min(100.0, crit_chance * 2.0)
     return cm.crit_expected_multiplier(crit_doubled, crit_power)
 
 
@@ -64,11 +67,11 @@ def _raw_resist_for_effective(
     return needed_factor * 100.0
 
 
-def _expected_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
-    """Replay the core of `weapon_threat` to get a raw expected damage
-    number — without the hit-rate and rank/speed wrappers. This is the
-    number we need to bring below effective HP; hit rate and rank only
-    affect the *tier label*, not whether a single connecting hit kills.
+def _peak_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
+    """Replay the core of `weapon_threat` to get peak one-hit damage.
+
+    Hit rate and rank/speed affect the danger tier, not whether one
+    connecting crit can kill the player.
     """
     after_armor = cm.armor_absorb(
         enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr
@@ -82,7 +85,7 @@ def _expected_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     )
     damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
     daminc_mult = 1.0 + damage_inc / 100.0
-    crit_mult = _crit_multiplier(enemy, player)
+    crit_mult = _crit_multiplier(enemy, player, peak=True)
 
     return after_armor * crit_mult * resist_mult * daminc_mult * max(1.0, enemy.talent_max_weapon_mult)
 
@@ -96,7 +99,7 @@ def survive_one_hit_advice(
 
     Sorted by `delta` (smallest first). Empty list means already safe.
     """
-    current = _expected_hit(enemy, player)
+    current = _peak_hit(enemy, player)
     target_dam = player.effective_hp * target_fraction
     if current <= target_dam:
         return []
@@ -109,7 +112,7 @@ def survive_one_hit_advice(
     # Crit/inc_damage wrappers that are invariant under the player's armor/resist
     # changes — factor them out so lever math is clean.
     damage_type = cm.normalize_damage_type(enemy.damage_type)
-    crit_mult = _crit_multiplier(enemy, player)
+    crit_mult = _crit_multiplier(enemy, player, peak=True)
     damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
     daminc_mult = 1.0 + damage_inc / 100.0
     tal_mult = max(1.0, enemy.talent_max_weapon_mult)

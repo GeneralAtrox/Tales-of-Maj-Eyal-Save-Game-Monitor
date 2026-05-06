@@ -1,7 +1,8 @@
 import unittest
 
-from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState
 from scoring import combat_math as cm
+from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState
+from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, weapon_threat
 
 
@@ -124,10 +125,28 @@ class BattleSimulatorStateTests(unittest.TestCase):
         report = weapon_threat(enemy, player)
 
         self.assertEqual(report.expected_damage, 90.0)
+        self.assertEqual(report.peak_damage, 90.0)
         self.assertEqual(report.weapon_threat_pct, 216.0)
         self.assertFalse(report.can_one_shot)
         self.assertIn("Can remove ~90% HP per hit", report.notes)
         self.assertIn("Acts 2.0x per turn", report.notes)
+
+    def test_peak_crit_controls_one_shot_flag_and_advice(self) -> None:
+        player = PlayerDefenses(max_life=100)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=70,
+            crit_chance_pct=5,
+            crit_power_bonus_pct=50,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 77.0)
+        self.assertEqual(report.peak_damage, 140.0)
+        self.assertTrue(report.can_one_shot)
+        self.assertIn("Can one-shot you (140 peak damage vs 100 effective HP)", report.notes)
+        self.assertTrue(survive_one_hit_advice(enemy, player))
 
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)

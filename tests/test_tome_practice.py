@@ -179,6 +179,31 @@ class TomePracticeTests(unittest.TestCase):
         self.assertEqual(lines[5], "Top incoming hits:")
         self.assertIn("Urkis", lines[6])
 
+    def test_damage_calibration_uses_peak_for_underestimate_warning(self) -> None:
+        events = (
+            tome_practice.PracticeDamageEvent(
+                turn=1,
+                source="Critter",
+                source_role="enemy",
+                target="Player",
+                target_role="player",
+                amount=100.0,
+                damage_type="PHYSICAL",
+                message="100 physical",
+            ),
+        )
+
+        lines = summarize_damage_calibration(
+            events,
+            quick_expected_damage=60.0,
+            quick_peak_damage=110.0,
+            quick_damage_type="PHYSICAL",
+        )
+
+        self.assertIn("Quick estimate: 60.0 (0.60x engine max)", lines)
+        self.assertIn("Quick peak: 110.0 (1.10x engine max)", lines)
+        self.assertFalse(any(line.startswith("Warning:") for line in lines))
+
     def test_prepare_practice_home_merges_addons_into_engine_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

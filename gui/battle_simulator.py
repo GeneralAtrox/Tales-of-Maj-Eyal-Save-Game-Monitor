@@ -349,6 +349,7 @@ class BattleSimulatorPanel(QWidget):
             ("tier", "Tier"),
             ("threat", "Threat"),
             ("expected", "Expected Damage"),
+            ("peak", "Peak Damage"),
             ("raw", "Raw Damage"),
             ("hit_rate", "Hit Rate"),
             ("one_shot", "One-Shot"),
@@ -705,6 +706,7 @@ class BattleSimulatorPanel(QWidget):
         )
         self._result_values["threat"].setText(f"{report.weapon_threat_pct:.1f}% of effective HP")
         self._result_values["expected"].setText(f"{report.expected_damage:.1f}")
+        self._result_values["peak"].setText(f"{report.peak_damage:.1f}")
         self._result_values["raw"].setText(f"{report.raw_damage:.1f}")
         self._result_values["hit_rate"].setText(f"{report.hit_rate_pct:.1f}%")
         self._result_values["one_shot"].setText("Yes" if report.can_one_shot else "No")
@@ -870,10 +872,12 @@ class BattleSimulatorPanel(QWidget):
         ]
         quick_report = self._state.compute().report
         quick_expected_damage = quick_report.expected_damage if quick_report is not None else None
+        quick_peak_damage = quick_report.peak_damage if quick_report is not None else None
         lines.extend(
             summarize_damage_calibration(
                 result.damage_events,
                 quick_expected_damage=quick_expected_damage,
+                quick_peak_damage=quick_peak_damage,
                 quick_damage_type=quick_report.damage_type if quick_report is not None else "",
             )
         )

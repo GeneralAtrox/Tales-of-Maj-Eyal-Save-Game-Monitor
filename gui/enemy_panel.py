@@ -333,6 +333,7 @@ class _EnemyCard(QFrame):
             tooltip = (
                 f"Threat score: {report.weapon_threat_pct:.0f}% of effective HP\n"
                 f"Expected single-hit damage: {report.expected_damage:.0f}\n"
+                f"Peak single-hit damage: {report.peak_damage:.0f}\n"
                 f"Hit rate: {report.hit_rate_pct:.0f}%\n"
                 f"Damage type: {report.damage_type} "
                 f"(x{report.worst_resist_multiplier:.2f})"

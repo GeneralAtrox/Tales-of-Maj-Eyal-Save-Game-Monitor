@@ -86,6 +86,7 @@ def summarize_damage_calibration(
     damage_events: tuple[PracticeDamageEvent, ...],
     *,
     quick_expected_damage: float | None = None,
+    quick_peak_damage: float | None = None,
     quick_damage_type: str = "",
     limit: int = 3,
 ) -> tuple[str, ...]:
@@ -110,16 +111,26 @@ def summarize_damage_calibration(
     by_type = _incoming_damage_by_type(incoming_hits)
     if by_type:
         lines.append("Engine incoming by type: " + ", ".join(by_type))
+    warning_damage: float | None = None
+    warning_label = "quick estimate"
     if quick_expected_damage is not None and max_hit.amount > 0:
         ratio = quick_expected_damage / max_hit.amount
         lines.append(f"Quick estimate: {quick_expected_damage:.1f} ({ratio:.2f}x engine max)")
+        warning_damage = quick_expected_damage
+    if quick_peak_damage is not None and max_hit.amount > 0:
+        ratio = quick_peak_damage / max_hit.amount
+        lines.append(f"Quick peak: {quick_peak_damage:.1f} ({ratio:.2f}x engine max)")
+        warning_damage = quick_peak_damage
+        warning_label = "quick peak"
+    if warning_damage is not None and max_hit.amount > 0:
+        ratio = warning_damage / max_hit.amount
         if ratio < _QUICK_ESTIMATE_UNDER_RATIO:
             shortfall = (1.0 - ratio) * 100.0
-            lines.append(f"Warning: quick estimate is {shortfall:.0f}% below the engine max hit")
-        if max_hit.damage_type and quick_damage_type:
-            normalized_quick_type = quick_damage_type.strip().upper()
-            if max_hit.damage_type != normalized_quick_type:
-                lines.append(f"Damage type mismatch: engine {max_hit.damage_type}, quick {normalized_quick_type}")
+            lines.append(f"Warning: {warning_label} is {shortfall:.0f}% below the engine max hit")
+    if max_hit.damage_type and quick_damage_type:
+        normalized_quick_type = quick_damage_type.strip().upper()
+        if max_hit.damage_type != normalized_quick_type:
+            lines.append(f"Damage type mismatch: engine {max_hit.damage_type}, quick {normalized_quick_type}")
 
     lines.append("Top incoming hits:")
     for event in incoming_hits[: max(1, limit)]:
