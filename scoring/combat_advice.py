@@ -21,8 +21,10 @@ from .enemy_threat import (
     EnemyOffense,
     PlayerDefenses,
     ThreatReport,
+    weapon_apr_after_accuracy,
     weapon_crit_chance_pct,
     weapon_crit_power_multiplier,
+    weapon_damage_after_accuracy,
 )
 
 SURVIVAL_HP_FRACTION: Final[float] = 0.95
@@ -76,9 +78,9 @@ def _peak_hit(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     Hit rate and rank/speed affect the danger tier, not whether one
     connecting crit can kill the player.
     """
-    after_armor = cm.armor_absorb(
-        enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr
-    )
+    weapon_damage = weapon_damage_after_accuracy(enemy, player)
+    weapon_apr = weapon_apr_after_accuracy(enemy, player)
+    after_armor = cm.armor_absorb(weapon_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
     damage_type = cm.normalize_damage_type(enemy.damage_type)
     resist_mult = cm.resist_multiplier_for_type(
         player.resists,
@@ -109,9 +111,9 @@ def survive_one_hit_advice(
         return []
 
     advice: list[AdviceItem] = []
-    after_armor = cm.armor_absorb(
-        enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr
-    )
+    weapon_damage = weapon_damage_after_accuracy(enemy, player)
+    weapon_apr = weapon_apr_after_accuracy(enemy, player)
+    after_armor = cm.armor_absorb(weapon_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
 
     # Crit/inc_damage wrappers that are invariant under the player's armor/resist
     # changes — factor them out so lever math is clean.
@@ -189,7 +191,7 @@ def survive_one_hit_advice(
             damage_type,
         )
         # Fixed portion (soft damage) can't be armored away.
-        soft_dam = enemy.dam * (1.0 - hard_pct)
+        soft_dam = weapon_damage * (1.0 - hard_pct)
         soft_after_resist = soft_dam * resist_mult * wrapper
         # Need: (hardened_after_armor + soft_dam) * resist_mult * wrapper <= target_dam
         # hardened_after_armor <= target_dam/(resist_mult*wrapper) - soft_dam
@@ -207,7 +209,7 @@ def survive_one_hit_advice(
         else:
             # hardened_after_armor = max(raw*H - (A-apr), 0)
             # for it to be <= budget: A >= raw*H - budget + apr, floored at current
-            needed_armor = enemy.dam * hard_pct - budget + enemy.apr
+            needed_armor = weapon_damage * hard_pct - budget + weapon_apr
             needed_armor = max(0.0, needed_armor)
             armor_delta = max(0.0, needed_armor - player.armor)
             if armor_delta > 0 and soft_after_resist <= target_dam:

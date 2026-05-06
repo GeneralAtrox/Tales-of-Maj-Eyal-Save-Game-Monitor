@@ -379,6 +379,20 @@ def _accuracy_effect_bonus(enemy: EnemyOffense, player: PlayerDefenses, scale: f
     return min(cap, max(0.0, enemy.atk - player.defense) * scale * scale_factor)
 
 
+def weapon_damage_after_accuracy(enemy: EnemyOffense, player: PlayerDefenses) -> float:
+    """Weapon base damage after ToME's mace accuracy bonus."""
+    if enemy.accuracy_effect.lower() == "mace":
+        return enemy.dam * (1.0 + _accuracy_effect_bonus(enemy, player, 0.002, 0.2))
+    return enemy.dam
+
+
+def weapon_apr_after_accuracy(enemy: EnemyOffense, player: PlayerDefenses) -> float:
+    """Weapon armor penetration after ToME's knife accuracy bonus."""
+    if enemy.accuracy_effect.lower() == "knife":
+        return enemy.apr * (1.0 + _accuracy_effect_bonus(enemy, player, 0.005, 0.5))
+    return enemy.apr
+
+
 def weapon_crit_chance_pct(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     """Engine-style physical weapon crit chance after player reduction and axe accuracy bonus."""
     chance = enemy.crit_chance_pct - max(0.0, player.combat_crit_reduction_pct)
@@ -407,7 +421,9 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     """
     damage_type = cm.normalize_damage_type(enemy.damage_type)
     hit = cm.hit_rate(enemy.atk, player.defense, player.evasion_pct)
-    after_armor = cm.armor_absorb(enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr)
+    weapon_damage = weapon_damage_after_accuracy(enemy, player)
+    weapon_apr = weapon_apr_after_accuracy(enemy, player)
+    after_armor = cm.armor_absorb(weapon_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
     resist_mult = cm.resist_multiplier_for_type(
         player.resists,
         enemy.resists_pen,
@@ -448,6 +464,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         threat_pct *= min(100.0, hit * 2.0) / 100.0
 
     notes: list[str] = []
+    mace_bonus = _accuracy_effect_bonus(enemy, player, 0.002, 0.2) if enemy.accuracy_effect.lower() == "mace" else 0.0
+    knife_bonus = _accuracy_effect_bonus(enemy, player, 0.005, 0.5) if enemy.accuracy_effect.lower() == "knife" else 0.0
     if peak >= player.effective_hp:
         notes.append(f"Can one-shot you ({peak:.0f} peak damage vs {player.effective_hp:.0f} effective HP)")
     elif burst_peak >= player.effective_hp and burst_hits > 1:
@@ -461,6 +479,10 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         notes.append(f"Can remove ~{burst_expected / player.effective_hp * 100:.0f}% HP in a weapon burst")
     if burst_hits > 1:
         notes.append(f"Strongest weapon talent chains {burst_hits} direct hits")
+    if mace_bonus > 0.0:
+        notes.append(f"Mace accuracy bonus: +{mace_bonus * 100.0:.0f}% base damage")
+    if knife_bonus > 0.0:
+        notes.append(f"Knife accuracy bonus: +{knife_bonus * 100.0:.0f}% armor penetration")
     if hit >= 75:
         notes.append(f"Very likely to hit ({hit:.0f}%)")
     elif hit < 25:

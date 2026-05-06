@@ -634,6 +634,47 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(report.crit_used_pct, 25.0)
         self.assertEqual(report.expected_damage, 112.5)
 
+    def test_mace_accuracy_effect_increases_weapon_damage_before_armor(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0, armor=20, armor_hardiness_pct=100)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            accuracy_effect="mace",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 100.0)
+        self.assertIn("Mace accuracy bonus: +20% base damage", report.notes)
+
+    def test_knife_accuracy_effect_increases_apr_before_armor(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0, armor=60, armor_hardiness_pct=100)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            apr=40,
+            accuracy_effect="knife",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 100.0)
+        self.assertIn("Knife accuracy bonus: +50% armor penetration", report.notes)
+
+    def test_accuracy_damage_bonus_feeds_survival_advice(self) -> None:
+        player = PlayerDefenses(max_life=100, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=90,
+            accuracy_effect="mace",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.peak_damage, 108.0)
+        self.assertTrue(report.can_one_shot)
+        self.assertTrue(survive_one_hit_advice(enemy, player))
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 
