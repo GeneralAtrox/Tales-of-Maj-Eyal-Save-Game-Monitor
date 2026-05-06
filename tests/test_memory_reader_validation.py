@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 import unittest
 from unittest.mock import patch
 
@@ -164,17 +165,13 @@ class MemoryReaderValidationTests(unittest.TestCase):
         )
 
     def test_tab_dump_damage_subtable_reads_numeric_damage_type_keys(self) -> None:
-        indexed_values = {
-            memory_reader._BASE_DAMAGE_TYPE_IDS["FIRE"]: 25.0,
-            memory_reader._BASE_DAMAGE_TYPE_IDS["COLD"]: 10.0,
-        }
-
-        def fake_index(_handle: int, _table: int, idx: int) -> float | None:
-            return indexed_values.get(idx)
-
         with (
             patch.object(memory_reader, "_tab_dump_flat", return_value={"inc_damage.all": 5.0}),
-            patch.object(memory_reader, "_tab_get_number_by_index", side_effect=fake_index),
+            patch.object(
+                memory_reader,
+                "_tab_dump_indexed_numbers",
+                return_value={"inc_damage.FIRE": 25.0, "inc_damage.COLD": 10.0},
+            ),
         ):
             values = memory_reader._tab_dump_damage_subtable(1, 0x20000000, prefix="inc_damage.")
 
@@ -186,6 +183,36 @@ class MemoryReaderValidationTests(unittest.TestCase):
                 "inc_damage.COLD": 10.0,
             },
         )
+
+    def test_tab_dump_indexed_numbers_reads_array_part_once(self) -> None:
+        table_ptr = 0x10000000
+        array_ptr = 0x20000000
+        array = struct.pack("<d", 12.0) + struct.pack("<d", 25.0) + struct.pack("<d", 0.0)
+
+        def fake_ru32(_handle: int, addr: int) -> int | None:
+            if addr == table_ptr + 24:
+                return 3
+            if addr == table_ptr + 8:
+                return array_ptr
+            if addr == table_ptr + 20:
+                return 0
+            if addr == table_ptr + 28:
+                return None
+            return None
+
+        with (
+            patch.object(memory_reader, "_ru32", side_effect=fake_ru32),
+            patch.object(memory_reader, "_is_heap", return_value=True),
+            patch.object(memory_reader, "_rpm", return_value=array) as rpm,
+        ):
+            values = memory_reader._tab_dump_indexed_numbers(
+                1,
+                table_ptr,
+                {1: "PHYSICAL", 2: "ARCANE", 3: "FIRE"},
+            )
+
+        self.assertEqual(values, {"PHYSICAL": 12.0, "ARCANE": 25.0, "FIRE": 0.0})
+        rpm.assert_called_once_with(1, array_ptr, 24)
 
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()

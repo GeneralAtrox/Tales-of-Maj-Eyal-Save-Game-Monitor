@@ -755,13 +755,74 @@ def _tab_dump_damage_subtable(h: int, tab_ptr: int, prefix: str = "") -> dict[st
         for key, value in _tab_dump_flat(h, tab_ptr, prefix=prefix).items()
         if isinstance(value, (int, float))
     }
-    for damage_type, index in _BASE_DAMAGE_TYPE_IDS.items():
-        key = f"{prefix}{damage_type}"
-        if key in out:
+    indexed = _tab_dump_indexed_numbers(
+        h,
+        tab_ptr,
+        {index: f"{prefix}{damage_type}" for damage_type, index in _BASE_DAMAGE_TYPE_IDS.items()},
+    )
+    for key, value in indexed.items():
+        out.setdefault(key, value)
+    return out
+
+
+def _tab_dump_indexed_numbers(h: int, tab_ptr: int, index_to_key: dict[int, str]) -> dict[str, float]:
+    if not index_to_key:
+        return {}
+
+    out: dict[str, float] = {}
+    max_index = max(index_to_key)
+
+    asize = _ru32(h, tab_ptr + 24)
+    array_ptr = _ru32(h, tab_ptr + 8)
+    if asize and array_ptr and _is_heap(array_ptr):
+        count = min(asize, max_index)
+        bulk = _rpm(h, array_ptr, count * 8)
+        if bulk:
+            for idx in range(1, count + 1):
+                key = index_to_key.get(idx)
+                if key is None:
+                    continue
+                off = (idx - 1) * 8
+                itype = struct.unpack_from("<I", bulk, off + 4)[0]
+                if itype >= _LJ_TNUMX:
+                    continue
+                try:
+                    out[key] = struct.unpack_from("<d", bulk, off)[0]
+                except struct.error:
+                    continue
+
+    node_ptr = _ru32(h, tab_ptr + 20)
+    hmask = _ru32(h, tab_ptr + 28)
+    if not node_ptr or hmask is None or not _is_heap(node_ptr):
+        return out
+    total = (hmask + 1) * _NODE_SIZE
+    if total > 4 * 1024 * 1024:
+        return out
+    bulk = _rpm(h, node_ptr, total)
+    if not bulk:
+        return out
+
+    for i in range(hmask + 1):
+        off = i * _NODE_SIZE
+        val_it = struct.unpack_from("<I", bulk, off + 4)[0]
+        if val_it >= _LJ_TNUMX:
             continue
-        value = _tab_get_number_by_index(h, tab_ptr, index)
-        if isinstance(value, (int, float)):
-            out[key] = float(value)
+        key_hi = struct.unpack_from("<I", bulk, off + 12)[0]
+        if key_hi >= _LJ_TNUMX:
+            continue
+        try:
+            key_f = struct.unpack_from("<d", bulk, off + 8)[0]
+        except struct.error:
+            continue
+        if key_f != int(key_f):
+            continue
+        key = index_to_key.get(int(key_f))
+        if key is None:
+            continue
+        try:
+            out[key] = struct.unpack_from("<d", bulk, off)[0]
+        except struct.error:
+            continue
     return out
 
 
