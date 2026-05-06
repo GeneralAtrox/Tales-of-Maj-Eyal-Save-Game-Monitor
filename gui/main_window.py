@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 
 from gui.bridge import InputBridge, LogBridge, MonitorThread
 from gui.dashboard_tab import DashboardTab
-from gui.log_panel import LogPanel
 from gui.preview_capture import capture_current_preview
 from gui.settings_tab import SettingsTab
 from gui.startup_trace import mark_startup_phase, startup_trace_path, write_startup_trace
@@ -49,10 +48,10 @@ class MainWindow(QMainWindow):
         self._input_bridge = InputBridge(self)
         self._input_bridge.input_needed.connect(self._handle_input_request)
 
-        # ── Log panel (parented into dashboard's splitter) ──
-        mark_startup_phase("log_panel_create_start")
-        self._log_panel = LogPanel()
-        mark_startup_phase("log_panel_create_done")
+        mark_startup_phase("log_panel_deferred")
+        self._log_panel: QWidget | None = None
+        self._pending_log_messages: list[str] = []
+        self._log_placeholder = QWidget()
 
         # ── Top bar: status dots ─────────────────────────────────────────────
         mark_startup_phase("top_bar_create_start")
@@ -85,7 +84,7 @@ class MainWindow(QMainWindow):
 
         # ── Dashboard (log panel parented inside it) ──
         mark_startup_phase("dashboard_create_start")
-        self._dashboard = DashboardTab(log_panel=self._log_panel)
+        self._dashboard = DashboardTab(log_panel=self._log_placeholder)
         mark_startup_phase("dashboard_create_done")
         central_lay.addWidget(self._dashboard, 1)
         self.setCentralWidget(central)
@@ -102,7 +101,7 @@ class MainWindow(QMainWindow):
         self._captured_preview_tabs: set[str] = set()
 
         # ── Wire signals ──
-        self._log_bridge.message_ready.connect(self._log_panel.append)
+        self._log_bridge.message_ready.connect(self._append_log_message)
         self._dashboard.analyze_requested.connect(self._run_analysis)
         self._dashboard.game_status_changed.connect(self._set_game_status)
         self._dashboard.game_connected.connect(self._report_startup_time)
@@ -338,6 +337,26 @@ class MainWindow(QMainWindow):
         text, ok = QInputDialog.getText(self, "Input Required", prompt)
         self._input_bridge.provide(text if ok else "")
 
+    def _append_log_message(self, message: str) -> None:
+        if self._log_panel is None:
+            self._pending_log_messages.append(message)
+            return
+        self._log_panel.append(message)  # type: ignore[attr-defined]
+
+    def _ensure_log_panel(self) -> None:
+        if self._log_panel is not None:
+            return
+        mark_startup_phase("log_panel_create_start")
+        from gui.log_panel import LogPanel
+
+        panel = LogPanel()
+        self._log_panel = panel
+        self._dashboard._sheet_visual.set_log_panel(panel)
+        for message in self._pending_log_messages:
+            panel.append(message)
+        self._pending_log_messages.clear()
+        mark_startup_phase("log_panel_create_done")
+
     def _report_startup_time(self) -> None:
         if self._startup_timer_reported or self._startup_started_at is None:
             return
@@ -351,6 +370,7 @@ class MainWindow(QMainWindow):
             pass
         write_startup_trace("game_connected_reported", elapsed_s=round(elapsed, 6))
         self.statusBar().showMessage(f"Connected to game in {elapsed:.2f}s", 5000)
+        QTimer.singleShot(1500, self._ensure_log_panel)
         self._startup_timer_reported = True
 
     # ── Helpers ────────────────────────────────────────────────────────────

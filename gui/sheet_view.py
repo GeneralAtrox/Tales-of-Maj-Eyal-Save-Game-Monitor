@@ -2006,9 +2006,10 @@ class CharacterSheetView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}QWidget {{ background: {BG}; }}")
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG}; }}")
         self._talents_scroll = scroll
         self._left = QWidget()
+        self._left.setStyleSheet(f"background: {BG};")
         self._left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._left_lay = QVBoxLayout(self._left)
         self._left_lay.setContentsMargins(12, 12, 12, 24)
