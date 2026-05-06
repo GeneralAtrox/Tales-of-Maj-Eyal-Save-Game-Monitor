@@ -42,6 +42,7 @@ class EnemyPowers:
     spellpower: float = 0.0
     mindpower: float = 0.0
     physicalpower: float = 0.0
+    global_speed: float = 1.0
     atk: float = 0.0
     dam: float = 0.0
     apr: float = 0.0
@@ -77,6 +78,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         spellpower=_spell_power(all_fields, stats),
         mindpower=_mind_power(all_fields, stats),
         physicalpower=_physical_power(all_fields, stats),
+        global_speed=_number_field(all_fields, "global_speed", 1.0) or 1.0,
         atk=_number_field(all_fields, "combat.atk"),
         dam=_number_field(all_fields, "combat.dam"),
         apr=_number_field(all_fields, "combat_apr") + _number_field(all_fields, "combat.apr"),
@@ -374,7 +376,7 @@ def compute_talent_threat(
             )
         daminc_mult = 1.0 + cm.damage_increase_for_type(powers.inc_damage, dtype or "all") / 100.0
         expected = after * mult * daminc_mult * _crit_multiplier(record, powers, player)
-        threat_pct = (expected / player.effective_hp) * 100.0
+        threat_pct = (expected / player.effective_hp) * 100.0 * _speed_threat_scalar(powers)
         range_to_target, range_limit = _range_check(record, powers, player)
 
         entry = TalentThreatEntry(
@@ -412,6 +414,10 @@ def compute_talent_threat(
     report.max_available_expected_damage = round(report.max_available_expected_damage, 1)
     report.max_available_threat_pct = round(report.max_available_threat_pct, 1)
     return report
+
+
+def _speed_threat_scalar(powers: EnemyPowers) -> float:
+    return max(1.0, powers.global_speed or 1.0)
 
 
 def _name_for(tid: str, records: dict[str, TalentRecord]) -> str:

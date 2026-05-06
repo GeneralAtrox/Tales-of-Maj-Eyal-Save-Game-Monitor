@@ -164,6 +164,35 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.entries, [])
         self.assertEqual(result.talent_report.cc_tags, [])
 
+    def test_compute_scales_talent_threat_by_global_speed(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Fast Caster",
+                offense=EnemyOffense(name="Fast Caster", global_speed=2.0),
+                powers=EnemyPowers(spellpower=100, talents={"T_FLAME": 5}),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=50.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        expected = round(cm.rescale_damage(50.0), 1)
+        self.assertEqual(result.talent_report.max_expected_damage, expected)
+        self.assertEqual(result.talent_report.max_available_threat_pct, round(cm.rescale_damage(50.0) * 2.0, 1))
+
     def test_compute_skips_passive_talent_threat(self) -> None:
         state = BattleSimulatorState()
         state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))

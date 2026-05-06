@@ -177,6 +177,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             spellpower=powers.spellpower,
             mindpower=powers.mindpower,
             physicalpower=powers.physicalpower,
+            global_speed=powers.global_speed,
             atk=powers.atk,
             dam=powers.dam,
             apr=powers.apr,
@@ -284,6 +285,7 @@ class BattleSimulatorState:
         for field_name, overrides in self.enemy_dict_overrides.items():
             setattr(enemy.offense, field_name, self._merged_dict(getattr(enemy.offense, field_name), overrides))
         enemy.offense.name = enemy.name
+        enemy.powers.global_speed = enemy.offense.global_speed
         enemy.powers.atk = enemy.offense.atk
         enemy.powers.dam = enemy.offense.dam
         enemy.powers.apr = enemy.offense.apr

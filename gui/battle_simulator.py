@@ -98,6 +98,7 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             spellpower=stats.spellpower,
             mindpower=stats.mindpower,
             physicalpower=stats.physicalpower,
+            global_speed=stats.global_speed,
             atk=stats.atk,
             dam=stats.dam,
             apr=stats.apr,
