@@ -106,6 +106,7 @@ class DashboardTab(QWidget):
         self._prodigy_poll.setInterval(5000)
         self._prodigy_poll.timeout.connect(self._poll_prodigies)
         self._prodigy_poll.start()
+        mark_startup_phase("dashboard_timers_ready")
 
         # ── 2-column splitter ──────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -114,13 +115,21 @@ class DashboardTab(QWidget):
 
         # Left — character sub-tabs
         self._subtabs = QTabWidget()
+        mark_startup_phase("sheet_visual_create_start")
         self._sheet_visual = CharacterSheetView()
+        mark_startup_phase("sheet_visual_create_done")
         self._subtabs.addTab(self._sheet_visual, "Character Sheet")
+        mark_startup_phase("sheet_plain_tab_create_start")
         self._subtabs.addTab(self._build_sheet_tab(), "Sheet")
+        mark_startup_phase("sheet_plain_tab_create_done")
+        mark_startup_phase("analysis_tab_create_start")
         self._subtabs.addTab(self._build_analysis_tab(), "Analysis")
+        mark_startup_phase("analysis_tab_create_done")
         splitter.addWidget(self._subtabs)
 
+        mark_startup_phase("enemy_panel_create_start")
         self._enemy_panel = EnemyPanel()
+        mark_startup_phase("enemy_panel_create_done")
         self._sheet_visual.set_enemy_panel(self._enemy_panel)
         self._attach_succeeded.connect(self._on_attach_succeeded)
         self._enemies_ready.connect(self._handle_enemies_ready)

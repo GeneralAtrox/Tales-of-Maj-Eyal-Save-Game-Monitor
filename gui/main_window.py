@@ -24,7 +24,7 @@ from gui.dashboard_tab import DashboardTab
 from gui.log_panel import LogPanel
 from gui.preview_capture import capture_current_preview
 from gui.settings_tab import SettingsTab
-from gui.startup_trace import mark_startup_phase, write_startup_trace
+from gui.startup_trace import mark_startup_phase, startup_trace_path, write_startup_trace
 from gui.theme import TEXT
 from runtime_output import console_print
 
@@ -50,9 +50,12 @@ class MainWindow(QMainWindow):
         self._input_bridge.input_needed.connect(self._handle_input_request)
 
         # ── Log panel (parented into dashboard's splitter) ──
+        mark_startup_phase("log_panel_create_start")
         self._log_panel = LogPanel()
+        mark_startup_phase("log_panel_create_done")
 
         # ── Top bar: status dots ─────────────────────────────────────────────
+        mark_startup_phase("top_bar_create_start")
         top_bar = QWidget()
         top_bar_lay = QHBoxLayout(top_bar)
         top_bar_lay.setContentsMargins(8, 6, 8, 6)
@@ -66,6 +69,7 @@ class MainWindow(QMainWindow):
         self._game_dot = QLabel("\u25cf Game Inactive")
         self._game_dot.setProperty("status", "error")
         top_bar_lay.addWidget(self._game_dot)
+        mark_startup_phase("top_bar_create_done")
 
         # ── Main content ──────────────────────────────────────────────────────
         central = QWidget()
@@ -77,9 +81,12 @@ class MainWindow(QMainWindow):
         # ── Status bar ──
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("Starting\u2026")
+        mark_startup_phase("status_bar_ready")
 
         # ── Dashboard (log panel parented inside it) ──
+        mark_startup_phase("dashboard_create_start")
         self._dashboard = DashboardTab(log_panel=self._log_panel)
+        mark_startup_phase("dashboard_create_done")
         central_lay.addWidget(self._dashboard, 1)
         self.setCentralWidget(central)
         mark_startup_phase("dashboard_ready")
@@ -336,6 +343,8 @@ class MainWindow(QMainWindow):
             return
         elapsed = time.perf_counter() - self._startup_started_at
         console_print(f"[*] Startup time to game connection: {elapsed:.2f}s")
+        if trace_path := startup_trace_path():
+            console_print(f"[*] Startup trace: {trace_path}")
         try:
             self._startup_metrics_path.write_text(f"{elapsed:.6f}\n", encoding="utf-8")
         except OSError:

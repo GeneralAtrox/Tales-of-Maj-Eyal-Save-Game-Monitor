@@ -9,17 +9,20 @@ from typing import Any
 
 _DISABLED_VALUES = {"0", "false", "False", "no", "No"}
 _ENABLED = os.environ.get("TOME_STARTUP_TRACE", "1") not in _DISABLED_VALUES
+_FINAL_PHASES = {"live_inventory_applied"}
 _LOCK = threading.Lock()
 _STARTED_AT: float | None = None
 _TRACE_PATH: Path | None = None
 _MARKS: list[dict[str, Any]] = []
+_FINALIZED = False
 
 
 def configure_startup_trace(started_at: float | None, trace_path: Path) -> None:
     if not _ENABLED:
         return
-    global _STARTED_AT, _TRACE_PATH
+    global _FINALIZED, _STARTED_AT, _TRACE_PATH
     with _LOCK:
+        _FINALIZED = False
         _STARTED_AT = started_at if started_at is not None else time.perf_counter()
         _TRACE_PATH = trace_path
         _MARKS.clear()
@@ -31,35 +34,54 @@ def mark_startup_phase(name: str, **data: object) -> None:
         return
     now = time.perf_counter()
     with _LOCK:
-        started_at = _STARTED_AT if _STARTED_AT is not None else now
-        mark: dict[str, Any] = {
-            "name": name,
-            "elapsed_s": round(now - started_at, 6),
-        }
-        if data:
-            mark["data"] = _json_safe(data)
-        _MARKS.append(mark)
+        if _FINALIZED:
+            return
+        _MARKS.append(_make_mark(name, now, data))
 
 
 def write_startup_trace(final_name: str | None = None, **data: object) -> None:
     if not _ENABLED:
         return
-    if final_name is not None:
-        mark_startup_phase(final_name, **data)
     now = time.perf_counter()
+    finalizing = final_name in _FINAL_PHASES
     with _LOCK:
+        global _FINALIZED
+        if _FINALIZED:
+            return
         if _TRACE_PATH is None:
             return
+        if final_name is not None:
+            _MARKS.append(_make_mark(final_name, now, data))
         started_at = _STARTED_AT if _STARTED_AT is not None else now
         payload = {
             "total_s": round(now - started_at, 6),
             "marks": list(_MARKS),
         }
         trace_path = _TRACE_PATH
+        if finalizing:
+            _FINALIZED = True
     try:
         trace_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError:
         pass
+
+
+def startup_trace_path() -> Path | None:
+    if not _ENABLED:
+        return None
+    with _LOCK:
+        return _TRACE_PATH
+
+
+def _make_mark(name: str, now: float, data: object) -> dict[str, Any]:
+    started_at = _STARTED_AT if _STARTED_AT is not None else now
+    mark: dict[str, Any] = {
+        "name": name,
+        "elapsed_s": round(now - started_at, 6),
+    }
+    if data:
+        mark["data"] = _json_safe(data)
+    return mark
 
 
 def _json_safe(value: object) -> object:
