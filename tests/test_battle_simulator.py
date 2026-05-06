@@ -112,6 +112,23 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(report.best_inc_pct, 35.0)
         self.assertEqual(report.expected_damage, 108.5)
 
+    def test_rank_and_speed_scale_threat_not_single_hit_damage(self) -> None:
+        player = PlayerDefenses(max_life=100)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=90,
+            rank=4.0,
+            global_speed=2.0,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 90.0)
+        self.assertEqual(report.weapon_threat_pct, 216.0)
+        self.assertFalse(report.can_one_shot)
+        self.assertIn("Can remove ~90% HP per hit", report.notes)
+        self.assertIn("Acts 2.0x per turn", report.notes)
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 

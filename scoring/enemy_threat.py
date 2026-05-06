@@ -6,8 +6,9 @@ addon (yutio888, 2019). Inputs are typed snapshots — the caller (e.g.
 memory reader.
 
 The key output is `weapon_threat_pct`: percent of player effective HP
-(`max_life - die_at`) the enemy can remove per hit. Anything at or
-above 100 means they can one-shot you.
+(`max_life - die_at`) represented by the enemy's current weapon danger.
+It starts from single-hit damage, then applies hit-rate and pacing risk
+scalars.
 """
 
 from __future__ import annotations
@@ -136,11 +137,13 @@ class EnemyOffense:
 @dataclass(slots=True)
 class ThreatReport:
     weapon_threat_pct: float
-    """Final threat score: percent of effective HP per hit, after
-    hit-rate and rank/speed scalars. ≥100 = can one-shot."""
+    """Final threat score: percent of effective HP after hit-rate and
+    rank/speed risk scalars."""
 
     hit_rate_pct: float
     expected_damage: float
+    """Expected damage for one connecting hit, before rank/speed risk scalars."""
+
     raw_damage: float
     crit_chance_pct: float
     crit_used_pct: float
@@ -206,15 +209,15 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
 
-    expected = after_armor * crit_mult * resist_mult * daminc_mult
-    expected *= max(1.0, enemy.talent_max_weapon_mult)
+    expected = after_armor * crit_mult * resist_mult * daminc_mult * max(1.0, enemy.talent_max_weapon_mult)
 
+    threat_damage = expected
     if enemy.rank > RANK_BOSS_THRESHOLD:
-        expected *= RANK_BOSS_SCALAR
+        threat_damage *= RANK_BOSS_SCALAR
     if enemy.global_speed > 1.0:
-        expected *= enemy.global_speed
+        threat_damage *= enemy.global_speed
 
-    threat_pct = (expected / player.effective_hp) * 100.0
+    threat_pct = (threat_damage / player.effective_hp) * 100.0
     if threat_pct < HIGH_THREAT_DOUBLE_HITRATE_PIVOT:
         threat_pct *= hit / 100.0
     else:
