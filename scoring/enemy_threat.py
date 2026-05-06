@@ -81,7 +81,7 @@ class EnemyOffense:
     apr: float = 0.0
     crit_chance_pct: float = 0.0
     crit_power_bonus_pct: float = 0.0
-    """`combat.crit_power` — a percent bonus added on top of the 1.5 base."""
+    """`combat_critical_power` plus weapon crit power, as a percent bonus above the 1.5 base."""
     physspeed: float = 1.0
     damage_type: str = cm.DEFAULT_DAMAGE_TYPE
     """Weapon damage type. ToME defaults melee weapons to PHYSICAL."""
@@ -122,8 +122,8 @@ class EnemyOffense:
             atk=num("combat.atk"),
             dam=num("combat.dam"),
             apr=num("combat.apr"),
-            crit_chance_pct=num("combat.crit"),
-            crit_power_bonus_pct=num("combat.crit_power"),
+            crit_chance_pct=_physical_crit_chance(all_fields),
+            crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
             physspeed=num("combat.physspeed", 1.0) or 1.0,
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
@@ -132,6 +132,24 @@ class EnemyOffense:
 
 
 # ── Output ──────────────────────────────────────────────────────────────────
+
+
+def _number_field(all_fields: dict[str, str | float | bool], key: str, default: float = 0.0) -> float:
+    value = all_fields.get(key, default)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return default
+
+
+def _physical_crit_chance(all_fields: dict[str, str | float | bool]) -> float:
+    engine_keys = ("combat_physcrit", "combat_generic_crit", "combat.physcrit")
+    if any(key in all_fields for key in engine_keys):
+        return sum(_number_field(all_fields, key) for key in engine_keys)
+    return _number_field(all_fields, "combat.crit")
+
+
+def _physical_crit_power_bonus(all_fields: dict[str, str | float | bool]) -> float:
+    return _number_field(all_fields, "combat_critical_power") + _number_field(all_fields, "combat.crit_power")
 
 
 @dataclass(slots=True)

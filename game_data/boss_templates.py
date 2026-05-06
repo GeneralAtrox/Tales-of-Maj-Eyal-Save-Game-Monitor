@@ -279,10 +279,14 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     dam = _combat_value(combat_block, "dam")
     atk = _combat_value(combat_block, "atk")
     apr = _combat_value(combat_block, "apr")
-    crit = _combat_value(combat_block, "crit")
+    crit = (
+        _parse_scalar_field(block, "combat_physcrit")
+        + _parse_scalar_field(block, "combat_generic_crit")
+        + _combat_value(combat_block, "physcrit")
+    )
     if crit == 0.0:
-        crit = _combat_value(combat_block, "physcrit")
-    crit_power = _combat_value(combat_block, "crit_power")
+        crit = _combat_value(combat_block, "crit")
+    crit_power = _parse_scalar_field(block, "combat_critical_power") + _combat_value(combat_block, "crit_power")
     physspeed = _combat_value(combat_block, "physspeed")
     if physspeed == 0.0:
         physspeed = _parse_scalar_field(block, "combat_physspeed", default=1.0)

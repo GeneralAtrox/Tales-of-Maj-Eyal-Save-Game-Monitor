@@ -156,6 +156,21 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.damage_type, "FIRE")
 
+    def test_enemy_offense_reads_engine_crit_fields(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat_physcrit": 4.0,
+                "combat_generic_crit": 1.5,
+                "combat_critical_power": 20.0,
+                "combat.physcrit": 5.0,
+                "combat.crit_power": 10.0,
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.crit_chance_pct, 10.5)
+        self.assertEqual(offense.crit_power_bonus_pct, 30.0)
+
 
 if __name__ == "__main__":
     unittest.main()

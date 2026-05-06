@@ -45,9 +45,12 @@ newEntity{
     max_life = resolvers.rngavg(300, 500),
     rank = 5,
     global_speed_base = 1.2,
+    combat_physcrit = 4,
+    combat_generic_crit = 1,
+    combat_critical_power = 20,
     combat = {
         dam = resolvers.rngavg(40, 60), atk = 35, apr = 12,
-        crit = 10, crit_power = 30, physspeed = 2,
+        physcrit = 5, crit_power = 10, physspeed = 2,
         damtype = DamageType.BLIGHT,
     },
     inc_damage = { [DamageType.BLIGHT] = 25, all = 10 },

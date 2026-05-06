@@ -193,8 +193,11 @@ _RE_REQ_INSCRIPTION = re.compile(r"inscription_(restrictions|forbids)\['([^']+)'
 _ENTITY_ROOT_FIELDS = {
     "attachement_spots",
     "combat_armor",
+    "combat_critical_power",
     "combat_def",
+    "combat_generic_crit",
     "combat_mentalresist",
+    "combat_physcrit",
     "combat_physresist",
     "combat_spellresist",
     "faction",
@@ -220,6 +223,7 @@ _ENTITY_COMBAT_FIELDS = {
     "crit_power",
     "dam",
     "damtype",
+    "physcrit",
     "physspeed",
 }
 
