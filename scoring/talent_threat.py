@@ -79,7 +79,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         physicalpower=_physical_power(all_fields, stats),
         atk=_number_field(all_fields, "combat.atk"),
         dam=_number_field(all_fields, "combat.dam"),
-        apr=_number_field(all_fields, "combat.apr"),
+        apr=_number_field(all_fields, "combat_apr") + _number_field(all_fields, "combat.apr"),
         inc_damage=_number_fields_by_prefix(all_fields, "inc_damage."),
         resists_pen=_number_fields_by_prefix(all_fields, "resists_pen."),
         talents=_talent_fields_by_prefix(all_fields, "talents."),

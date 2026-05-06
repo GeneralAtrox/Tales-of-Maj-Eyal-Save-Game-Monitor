@@ -168,7 +168,7 @@ class EnemyOffense:
             global_speed=num("global_speed", 1.0) or 1.0,
             atk=_combat_attack(all_fields, stats, num("combat.atk")),
             dam=_melee_damage(all_fields, num("combat.dam")),
-            apr=num("combat.apr"),
+            apr=_combat_apr(all_fields, num("combat.apr")),
             crit_chance_pct=_physical_crit_chance(all_fields),
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
             physspeed=num("combat.physspeed", 1.0) or 1.0,
@@ -226,6 +226,10 @@ def _combat_attack(
         + (stats.get("dex", 10.0) - 10.0),
     )
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _combat_apr(all_fields: dict[str, str | float | bool], weapon_apr: float) -> float:
+    return _number_field(all_fields, "combat_apr") + weapon_apr
 
 
 def _physical_crit_chance(all_fields: dict[str, str | float | bool]) -> float:

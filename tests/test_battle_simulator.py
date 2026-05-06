@@ -574,6 +574,17 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.atk, 34.0)
 
+    def test_enemy_offense_estimates_engine_apr(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat_apr": 4.0,
+                "combat.apr": 3.0,
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.apr, 7.0)
+
     def test_enemy_offense_estimates_engine_melee_damage(self) -> None:
         offense = EnemyOffense.from_all_fields(
             {
@@ -787,6 +798,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 "stats.cun": 10.0,
                 "stats.lck": 50.0,
                 "combat.atk": 20.0,
+                "combat_apr": 4.0,
                 "combat.apr": 3.0,
                 "combat_spellcrit": 7.0,
                 "combat_mindcrit": 11.0,
@@ -809,7 +821,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(powers.physical_crit_pct, 16.0)
         self.assertEqual(powers.crit_power_bonus_pct, 20.0)
         self.assertEqual(powers.atk, 20.0)
-        self.assertEqual(powers.apr, 3.0)
+        self.assertEqual(powers.apr, 7.0)
         self.assertEqual(powers.inc_damage, {"FIRE": 25.0})
         self.assertEqual(powers.resists_pen, {"FIRE": 10.0})
         self.assertEqual(powers.talents, {"T_FLAME": 5})
