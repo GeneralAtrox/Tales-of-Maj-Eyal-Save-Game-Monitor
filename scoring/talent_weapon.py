@@ -37,7 +37,7 @@ def weapon_multipliers_for_talents(
     best_burst_hits = 1
     for raw_id, raw_level in talents.items():
         record = records.get(_normalize_talent_id(raw_id))
-        if record is None or record.scaling_family != "weapon" or record.damage_high <= 0.0:
+        if record is None or not record.npc_usable or record.scaling_family != "weapon" or record.damage_high <= 0.0:
             continue
         hit = _weapon_multiplier(record.damage_low, record.damage_high, raw_level)
         burst_low = record.weapon_burst_low if record.weapon_burst_high > 0.0 else record.damage_low

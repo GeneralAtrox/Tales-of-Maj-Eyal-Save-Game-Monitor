@@ -294,6 +294,8 @@ def compute_talent_threat(
         record = records.get(tid)
         if record is None:
             continue
+        if not record.npc_usable:
+            continue
         if record.tactical_disable:
             cc.update(record.tactical_disable)
         if not record.scaling_family or record.scaling_family == "weapon":

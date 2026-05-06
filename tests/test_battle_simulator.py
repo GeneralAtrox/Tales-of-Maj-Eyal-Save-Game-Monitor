@@ -129,6 +129,39 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertIsNone(result.talent_report.strongest_available_entry())
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
 
+    def test_compute_skips_no_npc_use_talent_threat(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Caster",
+                level=25,
+                max_life=500,
+                offense=EnemyOffense(name="Caster", atk=10, dam=5),
+                powers=EnemyPowers(spellpower=100, talents={"T_FLAME": 5}),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+                npc_usable=False,
+                tactical_disable=["stun"],
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.max_expected_damage, 0.0)
+        self.assertEqual(result.talent_report.entries, [])
+        self.assertEqual(result.talent_report.cc_tags, [])
+
     def test_talent_timing_label_includes_mode_and_cooldown(self) -> None:
         self.assertEqual(talent_timing_label("activated", 4), "activated, cd 4")
         self.assertEqual(talent_timing_label("activated", 4, 2), "activated, cd 4, cooling 2")
@@ -438,6 +471,32 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.talent_max_weapon_mult, 2.0)
         self.assertEqual(offense.talent_burst_weapon_mult, 2.0)
+        self.assertEqual(offense.talent_burst_weapon_hits, 1)
+
+    def test_enemy_offense_skips_no_npc_use_weapon_talent_multiplier(self) -> None:
+        db = {
+            "T_STUNNING_BLOW": TalentRecord(
+                talent_id="T_STUNNING_BLOW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=3.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=1,
+                npc_usable=False,
+            )
+        }
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            offense = EnemyOffense.from_all_fields(
+                {
+                    "combat.dam": 50.0,
+                    "talents.T_STUNNING_BLOW": 5.0,
+                },
+                "Test",
+            )
+
+        self.assertEqual(offense.talent_max_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
         self.assertEqual(offense.talent_burst_weapon_hits, 1)
 
     def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:

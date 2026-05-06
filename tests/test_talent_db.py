@@ -91,6 +91,27 @@ newTalent{
 
         self.assertEqual(record.mode, "passive")
 
+    def test_no_npc_use_is_preserved(self) -> None:
+        lua = """
+newTalent{
+    name = "Forbidden Action",
+    no_npc_use = true,
+}
+newTalent{
+    name = "Commented Action",
+    -- no_npc_use = true,
+}
+newTalent{
+    name = "Explicitly Allowed Action",
+    no_npc_use = false,
+}
+"""
+        records = dict(talent_db._parse_lua(lua))
+
+        self.assertFalse(records["Forbidden Action"].npc_usable)
+        self.assertTrue(records["Commented Action"].npc_usable)
+        self.assertTrue(records["Explicitly Allowed Action"].npc_usable)
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{
