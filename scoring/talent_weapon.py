@@ -42,12 +42,12 @@ def weapon_multipliers_for_talents(
     if not talents:
         return WeaponTalentMultipliers()
     records = db if db is not None else get_talent_db_by_id()
+    talents_by_id = _normalize_number_map(talents)
     cooldowns_by_id = _normalize_number_map(cooldowns) if cooldowns is not None else {}
     best_hit = 1.0
     best_burst = 1.0
     best_burst_hits = 1
-    for raw_id, raw_level in talents.items():
-        talent_id = _normalize_talent_id(raw_id)
+    for talent_id, raw_level in talents_by_id.items():
         record = records.get(talent_id)
         if (
             record is None
@@ -63,10 +63,11 @@ def weapon_multipliers_for_talents(
             continue
         if not _target_range_available(record, range_to_target):
             continue
-        hit = _weapon_multiplier(record.damage_low, record.damage_high, raw_level)
+        aux_level = talents_by_id.get(record.weapon_aux_talent_id, 0.0) if record.weapon_aux_talent_id else 0.0
+        hit = _weapon_multiplier(record.damage_low, record.damage_high, raw_level, aux_level)
         burst_low = record.weapon_burst_low if record.weapon_burst_high > 0.0 else record.damage_low
         burst_high = record.weapon_burst_high if record.weapon_burst_high > 0.0 else record.damage_high
-        burst = _weapon_multiplier(burst_low, burst_high, raw_level)
+        burst = _weapon_multiplier(burst_low, burst_high, raw_level, aux_level)
         if hit > best_hit:
             best_hit = hit
         if burst > best_burst:
@@ -75,8 +76,9 @@ def weapon_multipliers_for_talents(
     return WeaponTalentMultipliers(max_hit=best_hit, burst=best_burst, burst_hits=best_burst_hits)
 
 
-def _weapon_multiplier(low: float, high: float, level: float) -> float:
+def _weapon_multiplier(low: float, high: float, level: float, aux_level: float = 0.0) -> float:
     level = max(0.0, float(level))
+    level += max(0.0, float(aux_level)) / 2.0
     return low + (high - low) * math.sqrt(level / 5.0)
 
 

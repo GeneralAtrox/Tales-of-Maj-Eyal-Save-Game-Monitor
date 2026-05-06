@@ -277,8 +277,8 @@ newTalent{
 newTalent{
     name = "Shield Pummel",
     action = function(self, t)
-        self:attackTargetWith(target, shield_combat, nil, self:combatTalentWeaponDamage(t, 1, 1.7))
-        self:attackTargetWith(target, shield_combat, nil, self:combatTalentWeaponDamage(t, 1.2, 2.1))
+        self:attackTargetWith(target, shield_combat, nil, self:combatTalentWeaponDamage(t, 1, 1.7, self:getTalentLevel(self.T_SHIELD_EXPERTISE)))
+        self:attackTargetWith(target, shield_combat, nil, self:combatTalentWeaponDamage(t, 1.2, 2.1, self:getTalentLevel(self.T_SHIELD_EXPERTISE)))
     end,
     info = function(self, t)
         return ([[%d%% and %d%% damage]]):tformat(
@@ -295,6 +295,7 @@ newTalent{
         self.assertEqual(record.weapon_burst_low, 2.2)
         self.assertEqual(record.weapon_burst_high, 3.8)
         self.assertEqual(record.weapon_burst_hits, 2)
+        self.assertEqual(record.weapon_aux_talent_id, "T_SHIELD_EXPERTISE")
 
     def test_weapon_damage_ignores_unrelated_bleed_helper(self) -> None:
         lua = """

@@ -668,6 +668,33 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.talent_burst_weapon_mult, 2.0)
         self.assertEqual(offense.talent_burst_weapon_hits, 1)
 
+    def test_enemy_offense_applies_aux_weapon_talent_level(self) -> None:
+        db = {
+            "T_SHIELD_PUMMEL": TalentRecord(
+                talent_id="T_SHIELD_PUMMEL",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=1.7,
+                weapon_burst_low=2.2,
+                weapon_burst_high=3.8,
+                weapon_burst_hits=2,
+                weapon_aux_talent_id="T_SHIELD_EXPERTISE",
+            )
+        }
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            offense = EnemyOffense.from_all_fields(
+                {
+                    "combat.dam": 50.0,
+                    "talents.T_SHIELD_PUMMEL": 5.0,
+                    "talents.T_SHIELD_EXPERTISE": 5.0,
+                },
+                "Test",
+            )
+
+        self.assertAlmostEqual(offense.talent_max_weapon_mult, 1.0 + 0.7 * math.sqrt(7.5 / 5.0), places=3)
+        self.assertAlmostEqual(offense.talent_burst_weapon_mult, 2.2 + 1.6 * math.sqrt(7.5 / 5.0), places=3)
+        self.assertEqual(offense.talent_burst_weapon_hits, 2)
+
     def test_enemy_offense_skips_no_npc_use_weapon_talent_multiplier(self) -> None:
         db = {
             "T_STUNNING_BLOW": TalentRecord(
