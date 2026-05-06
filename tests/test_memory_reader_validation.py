@@ -131,6 +131,38 @@ class MemoryReaderValidationTests(unittest.TestCase):
         self.assertEqual(memory_reader._engine_armor_hardiness(90.0), 100.0)
         self.assertEqual(memory_reader._engine_armor_hardiness(-40.0), 0.0)
 
+    def test_tab_dump_stat_subtable_reads_integer_keyed_actor_stats(self) -> None:
+        indexed_values = {
+            3: 12.0,
+            4: 20.0,
+            5: 18.0,
+            6: 16.0,
+            7: 14.0,
+            8: 50.0,
+        }
+
+        def fake_index(_handle: int, _table: int, idx: int) -> float | None:
+            return indexed_values.get(idx)
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", return_value={"stats.str": 30.0}),
+            patch.object(memory_reader, "_tab_get_number_by_index", side_effect=fake_index),
+        ):
+            stats = memory_reader._tab_dump_stat_subtable(1, 0x20000000)
+
+        self.assertEqual(
+            stats,
+            {
+                "stats.str": 30.0,
+                "stats.dex": 12.0,
+                "stats.mag": 20.0,
+                "stats.wil": 18.0,
+                "stats.cun": 16.0,
+                "stats.con": 14.0,
+                "stats.lck": 50.0,
+            },
+        )
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1

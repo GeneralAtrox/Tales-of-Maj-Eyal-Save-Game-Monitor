@@ -738,8 +738,32 @@ def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
     for sub in _ENTITY_SUBTABLES:
         sub_ptr = _tab_get_table(h, tab_ptr, sub)
         if sub_ptr:
-            out.update(_tab_dump_flat(h, sub_ptr, prefix=f"{sub}."))
+            if sub == "stats":
+                out.update(_tab_dump_stat_subtable(h, sub_ptr))
+            else:
+                out.update(_tab_dump_flat(h, sub_ptr, prefix=f"{sub}."))
 
+    return out
+
+
+def _tab_dump_stat_subtable(h: int, tab_ptr: int, prefix: str = "stats.") -> dict[str, float]:
+    """Return stat values from a ToME Actor ``stats`` table.
+
+    Current saves use integer stat ids; string keys are retained only as
+    a fallback for older or partially migrated saves.
+    """
+    out = {
+        key: float(value)
+        for key, value in _tab_dump_flat(h, tab_ptr, prefix=prefix, allowed_keys=_ENTITY_STAT_FIELDS).items()
+        if isinstance(value, (int, float))
+    }
+    for stat_index, short_name in enumerate(_PLAYER_BASE_STAT_ORDER, start=1):
+        key = f"{prefix}{short_name}"
+        if key in out:
+            continue
+        value = _tab_get_number_by_index(h, tab_ptr, stat_index + 1)
+        if isinstance(value, (int, float)):
+            out[key] = float(value)
     return out
 
 
@@ -756,7 +780,7 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
 
     stats_tab = _tab_get_table(h, actor_ptr, "stats")
     if stats_tab:
-        out.update(_tab_dump_flat(h, stats_tab, prefix="stats.", allowed_keys=_ENTITY_STAT_FIELDS))
+        out.update(_tab_dump_stat_subtable(h, stats_tab))
 
     talents_tab = _tab_get_table(h, actor_ptr, "talents")
     if talents_tab:
