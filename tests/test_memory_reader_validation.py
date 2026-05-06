@@ -268,6 +268,45 @@ class MemoryReaderValidationTests(unittest.TestCase):
 
         self.assertEqual(snapshot, {"combat.special_on_hit": True})
 
+    def test_tab_dump_entity_snapshot_marks_equipped_weapon_proc_hooks(self) -> None:
+        actor_ptr = 0x10000000
+        inven_ptr = 0x20000000
+        bucket_ptr = 0x30000000
+        item_ptr = 0x40000000
+        combat_ptr = 0x50000000
+        hook_ptr = 0x60000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == actor_ptr and key == "inven":
+                return inven_ptr
+            if tab_ptr == item_ptr and key == "combat":
+                return combat_ptr
+            if tab_ptr == combat_ptr and key == "talent_on_hit":
+                return hook_ptr
+            return None
+
+        def fake_ordered(_handle: int, tab_ptr: int) -> list[int]:
+            if tab_ptr == inven_ptr:
+                return [bucket_ptr]
+            if tab_ptr == bucket_ptr:
+                return [item_ptr]
+            return []
+
+        def fake_dump_flat(_handle: int, tab_ptr: int, *args: object, **kwargs: object) -> dict[str, str]:
+            if tab_ptr == bucket_ptr:
+                return {"short_name": "MAINHAND"}
+            return {}
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", side_effect=fake_dump_flat),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_get_ordered_tables", side_effect=fake_ordered),
+            patch.object(memory_reader, "_tab_has_any_entries", return_value=True),
+        ):
+            snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
+
+        self.assertEqual(snapshot, {"combat.talent_on_hit": True})
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1
