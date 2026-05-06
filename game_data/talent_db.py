@@ -7,8 +7,8 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v3: adds damage metadata (talent_id, damage_type, scaling_family,
-damage_low/high, cooldown, tactical_disable) used by `scoring.talent_threat`.
+Schema v4: stores both name- and id-keyed records so duplicate display names
+do not drop engine ids used by NPC and boss talent tables.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 3
+_CACHE_SCHEMA_VERSION = 4
 
 
 @dataclass(slots=True)
@@ -101,26 +101,26 @@ def lookup_talent_by_id(talent_id: str) -> TalentRecord | None:
 
 def _rebuild() -> None:
     global _db, _db_by_id
-    _db = _load_or_build()
-    _db_by_id = {r.talent_id: r for r in _db.values() if r.talent_id}
+    _db, _db_by_id = _load_or_build()
 
 
-def _load_or_build() -> dict[str, TalentRecord]:
+def _load_or_build() -> tuple[dict[str, TalentRecord], dict[str, TalentRecord]]:
     if not _TOME_TEAM.exists():
-        return {}
+        return {}, {}
 
     if _CACHE_FILE.exists() and _CACHE_FILE.stat().st_mtime > _TOME_TEAM.stat().st_mtime:
         cached = _load_cache()
         if cached:
             return cached
 
-    db = _build_db()
-    _save_cache(db)
-    return db
+    db, db_by_id = _build_db()
+    _save_cache(db, db_by_id)
+    return db, db_by_id
 
 
-def _build_db() -> dict[str, TalentRecord]:
+def _build_db() -> tuple[dict[str, TalentRecord], dict[str, TalentRecord]]:
     db: dict[str, TalentRecord] = {}
+    db_by_id: dict[str, TalentRecord] = {}
     try:
         with zipfile.ZipFile(_TOME_TEAM) as zf:
             talent_paths = [
@@ -133,9 +133,11 @@ def _build_db() -> dict[str, TalentRecord]:
                 for name, record in _parse_lua(lua):
                     if name not in db:
                         db[name] = record
+                    if record.talent_id and record.talent_id not in db_by_id:
+                        db_by_id[record.talent_id] = record
     except Exception:  # noqa: BLE001
-        return {}
-    return db
+        return {}, {}
+    return db, db_by_id
 
 
 def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
@@ -236,62 +238,48 @@ def _normalize_description(text: str) -> str:
     return re.sub(r"\s+", " ", compact).strip()
 
 
-def _load_cache() -> dict[str, TalentRecord]:
+def _load_cache() -> tuple[dict[str, TalentRecord], dict[str, TalentRecord]] | None:
     try:
         raw = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
-        return {}
+        return None
     if not isinstance(raw, dict):
-        return {}
+        return None
     if raw.get("schema_version") != _CACHE_SCHEMA_VERSION:
-        return {}
+        return None
     records = raw.get("records")
-    if not isinstance(records, dict):
-        return {}
+    records_by_id = raw.get("records_by_id")
+    if not isinstance(records, dict) or not isinstance(records_by_id, dict):
+        return None
 
-    result: dict[str, TalentRecord] = {}
+    name_result: dict[str, TalentRecord] = {}
     for name, value in records.items():
-        if not isinstance(name, str) or not isinstance(value, dict):
+        if not isinstance(name, str):
             continue
-        td = value.get("tactical_disable", [])
-        result[name] = TalentRecord(
-            description=str(value.get("description", "")),
-            icon=str(value.get("icon", "")),
-            talent_id=str(value.get("talent_id", "")),
-            damage_type=str(value.get("damage_type", "")),
-            scaling_family=str(value.get("scaling_family", "")),
-            damage_low=float(value.get("damage_low", 0.0) or 0.0),
-            damage_high=float(value.get("damage_high", 0.0) or 0.0),
-            cooldown=int(value.get("cooldown", 0) or 0),
-            tactical_disable=[str(x) for x in td] if isinstance(td, list) else [],
-            talent_type=str(value.get("talent_type", "")),
-            mode=str(value.get("mode", "")),
-        )
-    return result
+        record = _record_from_cache(value)
+        if record is not None:
+            name_result[name] = record
+
+    id_result: dict[str, TalentRecord] = {}
+    for talent_id, value in records_by_id.items():
+        if not isinstance(talent_id, str):
+            continue
+        record = _record_from_cache(value)
+        if record is not None:
+            id_result[talent_id] = record
+    return name_result, id_result
 
 
-def _save_cache(db: dict[str, TalentRecord]) -> None:
+def _save_cache(db: dict[str, TalentRecord], db_by_id: dict[str, TalentRecord]) -> None:
     try:
         _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _CACHE_FILE.write_text(
             json.dumps(
                 {
                     "schema_version": _CACHE_SCHEMA_VERSION,
-                    "records": {
-                        name: {
-                            "description": r.description,
-                            "icon": r.icon,
-                            "talent_id": r.talent_id,
-                            "damage_type": r.damage_type,
-                            "scaling_family": r.scaling_family,
-                            "damage_low": r.damage_low,
-                            "damage_high": r.damage_high,
-                            "cooldown": r.cooldown,
-                            "tactical_disable": r.tactical_disable,
-                            "talent_type": r.talent_type,
-                            "mode": r.mode,
-                        }
-                        for name, r in db.items()
+                    "records": {name: _record_to_cache(record) for name, record in db.items()},
+                    "records_by_id": {
+                        talent_id: _record_to_cache(record) for talent_id, record in db_by_id.items()
                     },
                 },
                 ensure_ascii=False,
@@ -301,3 +289,38 @@ def _save_cache(db: dict[str, TalentRecord]) -> None:
         )
     except Exception:  # noqa: BLE001
         pass
+
+
+def _record_to_cache(record: TalentRecord) -> dict[str, object]:
+    return {
+        "description": record.description,
+        "icon": record.icon,
+        "talent_id": record.talent_id,
+        "damage_type": record.damage_type,
+        "scaling_family": record.scaling_family,
+        "damage_low": record.damage_low,
+        "damage_high": record.damage_high,
+        "cooldown": record.cooldown,
+        "tactical_disable": record.tactical_disable,
+        "talent_type": record.talent_type,
+        "mode": record.mode,
+    }
+
+
+def _record_from_cache(value: object) -> TalentRecord | None:
+    if not isinstance(value, dict):
+        return None
+    td = value.get("tactical_disable", [])
+    return TalentRecord(
+        description=str(value.get("description", "")),
+        icon=str(value.get("icon", "")),
+        talent_id=str(value.get("talent_id", "")),
+        damage_type=str(value.get("damage_type", "")),
+        scaling_family=str(value.get("scaling_family", "")),
+        damage_low=float(value.get("damage_low", 0.0) or 0.0),
+        damage_high=float(value.get("damage_high", 0.0) or 0.0),
+        cooldown=int(value.get("cooldown", 0) or 0),
+        tactical_disable=[str(x) for x in td] if isinstance(td, list) else [],
+        talent_type=str(value.get("talent_type", "")),
+        mode=str(value.get("mode", "")),
+    )
