@@ -1938,9 +1938,9 @@ class CharacterSheetView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        mark_startup_phase("sheet_detail_panel_create_start")
-        self._detail_panel = _TalentDetailPanel()
-        mark_startup_phase("sheet_detail_panel_create_done")
+        self._detail_panel: _TalentDetailPanel | None = None
+        self._talents_feature_lay: QVBoxLayout | None = None
+        mark_startup_phase("sheet_detail_panel_deferred")
         self._current_category: str = ""
         self._current_sprite: QPixmap | None = None
         self._current_sprite_key: tuple[str, tuple[str, ...]] | None = None
@@ -2022,8 +2022,8 @@ class CharacterSheetView(QWidget):
         feature_lay = QVBoxLayout(self._talents_feature_host)
         feature_lay.setContentsMargins(12, 12, 12, 12)
         feature_lay.setSpacing(0)
-        feature_lay.addWidget(self._detail_panel, 0, Qt.AlignmentFlag.AlignTop)
         feature_lay.addStretch()
+        self._talents_feature_lay = feature_lay
         splitter.addWidget(self._talents_feature_host)
         splitter.setSizes([860, 140])
         splitter.setStretchFactor(0, 1)
@@ -2692,7 +2692,16 @@ class CharacterSheetView(QWidget):
 
     def _show_talent_detail(self, name: str, data: Any, category: str) -> None:
         self._current_category = category
-        self._detail_panel.show_talent(name, data, category)
+        self._ensure_detail_panel().show_talent(name, data, category)
+
+    def _ensure_detail_panel(self) -> _TalentDetailPanel:
+        if self._detail_panel is not None:
+            return self._detail_panel
+        panel = _TalentDetailPanel()
+        self._detail_panel = panel
+        if self._talents_feature_lay is not None:
+            self._talents_feature_lay.insertWidget(0, panel, 0, Qt.AlignmentFlag.AlignTop)
+        return panel
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
