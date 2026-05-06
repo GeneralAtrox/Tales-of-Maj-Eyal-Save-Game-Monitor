@@ -27,6 +27,7 @@ DEFAULT_CRIT_POWER: Final[float] = 1.5
 """Base crit multiplier before `combat_critical_power` bonuses."""
 
 DEFAULT_DAMAGE_TYPE: Final[str] = "PHYSICAL"
+DEFAULT_DAMMOD: Final[dict[str, float]] = {"str": 0.6}
 
 
 # ── Primitives ──────────────────────────────────────────────────────────────
@@ -67,6 +68,61 @@ def hit_rate(attacker_atk: float, defender_def: float, evasion_pct: float = 0.0)
     base = math.ceil(HIT_RATE_BASE + HIT_RATE_SLOPE * (attacker_atk - defender_def))
     base = _clamp(base, 0.0, 100.0)
     return base * (100.0 - _clamp(evasion_pct, 0.0, 100.0)) / 100.0
+
+
+def rescale_damage(raw_damage: float) -> float:
+    """ToME's `rescaleDamage` curve for positive damage values."""
+    if raw_damage <= 0.0:
+        return raw_damage
+    return raw_damage**1.04
+
+
+def rescale_combat_stats(raw_value: float, interval: float = 20.0, step: float = 1.0) -> float:
+    """ToME's diminishing-returns `rescaleCombatStats` function."""
+    result = raw_value
+    shift = 1.0 + step
+    tier = interval
+    base = interval
+    while True:
+        next_result = tier + (raw_value - base) / shift
+        if next_result < result:
+            result = next_result
+            base += interval * shift
+            tier += interval
+            shift += step
+        else:
+            return math.floor(result)
+
+
+def combat_damage_power(weapon_damage: float) -> float:
+    """ToME's weapon-power portion of `combatDamage`."""
+    power = max(weapon_damage, 1.0)
+    return (math.sqrt(power / 10.0) - 1.0) * 0.5 + 1.0
+
+
+def estimate_combat_damage(
+    weapon_damage: float,
+    *,
+    combat_dam: float = 0.0,
+    stats: dict[str, float] | None = None,
+    dammod: dict[str, float] | None = None,
+) -> float:
+    """Estimate ToME `combatDamage` for a weapon-style melee hit.
+
+    This intentionally omits talent hooks and training bonuses, but it
+    captures the core engine path: physical power, stat dammod, weapon
+    power, and final damage rescaling.
+    """
+    if weapon_damage <= 0.0:
+        return 0.0
+    stats = stats or {}
+    dammod = dammod or DEFAULT_DAMMOD
+    stat_total = sum(float(stats.get(stat, 0.0)) * float(mod) for stat, mod in dammod.items())
+    physical_raw = max(0.0, float(combat_dam) + float(stats.get("str", 0.0)))
+    physical_power = rescale_combat_stats(physical_raw)
+    stat_mod = rescale_combat_stats(stat_total, 45.0, 1.0 / 3.0)
+    raw = 0.3 * (physical_power + stat_mod) * combat_damage_power(weapon_damage)
+    return rescale_damage(raw)
 
 
 def sp_multiply(a_pct: float, b_pct: float) -> float:

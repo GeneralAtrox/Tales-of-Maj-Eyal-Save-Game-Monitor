@@ -120,7 +120,7 @@ class EnemyOffense:
             rank=num("rank", 1.0),
             global_speed=num("global_speed", 1.0) or 1.0,
             atk=num("combat.atk"),
-            dam=num("combat.dam"),
+            dam=_melee_damage(all_fields, num("combat.dam")),
             apr=num("combat.apr"),
             crit_chance_pct=_physical_crit_chance(all_fields),
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
@@ -150,6 +150,27 @@ def _physical_crit_chance(all_fields: dict[str, str | float | bool]) -> float:
 
 def _physical_crit_power_bonus(all_fields: dict[str, str | float | bool]) -> float:
     return _number_field(all_fields, "combat_critical_power") + _number_field(all_fields, "combat.crit_power")
+
+
+def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: str) -> dict[str, float]:
+    return {
+        key.removeprefix(prefix).lower(): float(value)
+        for key, value in all_fields.items()
+        if key.startswith(prefix) and isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+
+
+def _melee_damage(all_fields: dict[str, str | float | bool], weapon_damage: float) -> float:
+    stats = _number_fields_by_prefix(all_fields, "stats.")
+    dammod = _number_fields_by_prefix(all_fields, "combat.dammod.")
+    if not stats and _number_field(all_fields, "combat_dam") <= 0.0:
+        return weapon_damage
+    return cm.estimate_combat_damage(
+        weapon_damage,
+        combat_dam=_number_field(all_fields, "combat_dam"),
+        stats=stats,
+        dammod=dammod or None,
+    )
 
 
 @dataclass(slots=True)

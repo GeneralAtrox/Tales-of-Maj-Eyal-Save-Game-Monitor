@@ -171,6 +171,21 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.crit_chance_pct, 10.5)
         self.assertEqual(offense.crit_power_bonus_pct, 30.0)
 
+    def test_enemy_offense_estimates_engine_melee_damage(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 50.0,
+                "combat_dam": 10.0,
+                "stats.str": 30.0,
+                "stats.mag": 20.0,
+                "combat.dammod.str": 1.0,
+                "combat.dammod.mag": 0.5,
+            },
+            "Test",
+        )
+
+        self.assertAlmostEqual(offense.dam, 39.1, places=1)
+
 
 if __name__ == "__main__":
     unittest.main()

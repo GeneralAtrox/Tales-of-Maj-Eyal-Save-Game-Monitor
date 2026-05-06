@@ -194,6 +194,7 @@ _ENTITY_ROOT_FIELDS = {
     "attachement_spots",
     "combat_armor",
     "combat_critical_power",
+    "combat_dam",
     "combat_def",
     "combat_generic_crit",
     "combat_mentalresist",
@@ -226,6 +227,8 @@ _ENTITY_COMBAT_FIELDS = {
     "physcrit",
     "physspeed",
 }
+
+_ENTITY_STAT_FIELDS = {"str", "dex", "con", "mag", "wil", "cun", "lck"}
 
 _ENTITY_RESIST_FIELDS = {
     "all",
@@ -721,6 +724,13 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
     combat_tab = _tab_get_table(h, actor_ptr, "combat")
     if combat_tab:
         out.update(_tab_dump_flat(h, combat_tab, prefix="combat.", allowed_keys=_ENTITY_COMBAT_FIELDS))
+        dammod_tab = _tab_get_table(h, combat_tab, "dammod")
+        if dammod_tab:
+            out.update(_tab_dump_flat(h, dammod_tab, prefix="combat.dammod.", allowed_keys=_ENTITY_STAT_FIELDS))
+
+    stats_tab = _tab_get_table(h, actor_ptr, "stats")
+    if stats_tab:
+        out.update(_tab_dump_flat(h, stats_tab, prefix="stats.", allowed_keys=_ENTITY_STAT_FIELDS))
 
     resists_tab = _tab_get_table(h, actor_ptr, "resists")
     if resists_tab:

@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from game_data.lua_extractor import RE_NAME, find_tome_team, iter_balanced_blocks
+from scoring import combat_math as cm
 from scoring.ranks import rank_label
 
 _BASE_TEMPLATE_RE = re.compile(r'define_as\s*=\s*"BASE_')
@@ -276,7 +277,15 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     combat_block = _extract_table(block, "combat")
     inc_damage = _parse_damage_table(_extract_table(block, "inc_damage"))
     resists_pen = _parse_damage_table(_extract_table(block, "resists_pen"))
-    dam = _combat_value(combat_block, "dam")
+    weapon_dam = _combat_value(combat_block, "dam")
+    stats = _parse_number_table(_extract_table(block, "stats"))
+    dammod = _parse_number_table(_extract_table(combat_block or "", "dammod"))
+    dam = _estimate_template_damage(
+        weapon_dam,
+        combat_dam=_parse_scalar_field(block, "combat_dam"),
+        stats=stats,
+        dammod=dammod,
+    )
     atk = _combat_value(combat_block, "atk")
     apr = _combat_value(combat_block, "apr")
     crit = (
@@ -602,6 +611,33 @@ def _parse_damage_table(table_block: str | None) -> dict[str, float]:
             continue
         damage_map[key] = _parse_number_expr(match.group(3))
     return damage_map
+
+
+def _parse_number_table(table_block: str | None) -> dict[str, float]:
+    if not table_block:
+        return {}
+    values: dict[str, float] = {}
+    entry_re = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^,\n}]+)")
+    for match in entry_re.finditer(table_block):
+        values[match.group(1).lower()] = _parse_number_expr(match.group(2))
+    return values
+
+
+def _estimate_template_damage(
+    weapon_dam: float,
+    *,
+    combat_dam: float,
+    stats: dict[str, float],
+    dammod: dict[str, float],
+) -> float:
+    if not stats and combat_dam <= 0.0:
+        return weapon_dam
+    return cm.estimate_combat_damage(
+        weapon_dam,
+        combat_dam=combat_dam,
+        stats=stats,
+        dammod=dammod or None,
+    )
 
 
 def _parse_damage_type_expr(expr: str | None, default: str = "PHYSICAL") -> str:

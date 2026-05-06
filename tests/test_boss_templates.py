@@ -84,6 +84,28 @@ newEntity{
         self.assertTrue(stats.has_combat_data)
         self.assertEqual(stats.warning, "")
 
+    def test_stats_estimate_engine_melee_damage_from_stats_and_dammod(self) -> None:
+        template = BossTemplate("The Test Boss", "Test Zone", "23+", "Quest: Testing")
+        block = """
+newEntity{
+    name = "The Test Boss",
+    stats = { str = 30, mag = 20 },
+    combat_dam = 10,
+    combat = {
+        dam = 50,
+        atk = 35,
+        dammod = { str = 1.0, mag = 0.5 },
+    },
+}
+"""
+        with patch(
+            "game_data.boss_templates._resolve_boss_block",
+            return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+        ):
+            stats = _boss_template_stats(template)
+
+        self.assertAlmostEqual(stats.dam, 39.1, places=1)
+
     def test_actor_refs_resolve_source_path_and_define_as(self) -> None:
         template = BossTemplate(
             "Tannen & Drolem",
