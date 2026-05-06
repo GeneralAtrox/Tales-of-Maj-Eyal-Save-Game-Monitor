@@ -161,6 +161,7 @@ def _copy_weapon_offense(weapon: WeaponOffense) -> WeaponOffense:
         melee_project=dict(weapon.melee_project),
         burst_on_hit=dict(weapon.burst_on_hit),
         burst_on_crit=dict(weapon.burst_on_crit),
+        talent_procs=tuple(weapon.talent_procs),
         unmodeled_proc_hooks=tuple(weapon.unmodeled_proc_hooks),
     )
 
@@ -205,7 +206,14 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             melee_project=dict(offense.melee_project),
             burst_on_hit=dict(offense.burst_on_hit),
             burst_on_crit=dict(offense.burst_on_crit),
+            talent_procs=tuple(offense.talent_procs),
             unmodeled_proc_hooks=tuple(offense.unmodeled_proc_hooks),
+            spellpower=offense.spellpower,
+            mindpower=offense.mindpower,
+            physicalpower=offense.physicalpower,
+            spell_crit_pct=offense.spell_crit_pct,
+            mind_crit_pct=offense.mind_crit_pct,
+            stats=dict(offense.stats),
             offhand=offhand,
             offhands=offhands or ((offhand,) if offhand else ()),
             talents=dict(offense.talents),

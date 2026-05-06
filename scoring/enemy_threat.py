@@ -13,8 +13,11 @@ scalars.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Final
+
+from game_data.talent_db import TalentRecord, get_talent_db, get_talent_db_by_id
 
 from . import combat_math as cm
 from .talent_weapon import WeaponTalentMultipliers, weapon_multipliers_for_talents
@@ -52,6 +55,9 @@ _UNMODELED_PROC_HOOKS: Final[tuple[str, ...]] = (
     "special_on_hit",
     "special_on_crit",
 )
+_TALENT_PROC_HOOKS: Final[tuple[str, ...]] = ("talent_on_hit", "talent_on_crit")
+_TALENT_PROC_FIELDS: Final[tuple[str, ...]] = ("level", "chance")
+_SUPPORTED_TALENT_PROC_FAMILIES: Final[frozenset[str]] = frozenset({"spell", "mind", "physical", "stat", "flat"})
 _OFFHAND_MULT_TALENTS: Final[dict[str, tuple[float, float, float]]] = {
     # talent id: (limit, low at TL 1, high at TL 5), matching getoffmult in ToME Lua.
     "t_dual_weapon_training": (1.0, 0.65, 0.85),
@@ -98,6 +104,16 @@ class PlayerDefenses:
         return max(1.0, self.max_life - self.die_at)
 
 
+@dataclass(frozen=True, slots=True)
+class WeaponTalentProc:
+    """Deterministic `talent_on_hit` / `talent_on_crit` weapon proc metadata."""
+
+    talent_id: str
+    level: float
+    chance_pct: float
+    trigger: str
+
+
 @dataclass(slots=True)
 class WeaponOffense:
     """Combat-table inputs for a secondary weapon hit."""
@@ -120,6 +136,7 @@ class WeaponOffense:
     melee_project: dict[str, float] = field(default_factory=dict)
     burst_on_hit: dict[str, float] = field(default_factory=dict)
     burst_on_crit: dict[str, float] = field(default_factory=dict)
+    talent_procs: tuple[WeaponTalentProc, ...] = ()
     unmodeled_proc_hooks: tuple[str, ...] = ()
 
     @classmethod
@@ -160,6 +177,7 @@ class WeaponOffense:
             melee_project=_damage_fields_by_prefixes(all_fields, f"{prefix}melee_project."),
             burst_on_hit=_damage_fields_by_prefixes(all_fields, f"{prefix}burst_on_hit."),
             burst_on_crit=_damage_fields_by_prefixes(all_fields, f"{prefix}burst_on_crit."),
+            talent_procs=_talent_procs_from_fields(all_fields, prefix=prefix),
             unmodeled_proc_hooks=_unmodeled_proc_hooks_from_fields(all_fields, prefix=prefix),
         )
 
@@ -195,8 +213,16 @@ class EnemyOffense:
     """Extra radius-1 project damage on every successful melee hit."""
     burst_on_crit: dict[str, float] = field(default_factory=dict)
     """Extra radius-2 project damage on successful melee crits."""
+    talent_procs: tuple[WeaponTalentProc, ...] = ()
+    """Deterministic weapon talent procs with chance and force-level metadata."""
     unmodeled_proc_hooks: tuple[str, ...] = ()
     """Weapon hooks present in Lua but not deterministic enough to model here."""
+    spellpower: float = 0.0
+    mindpower: float = 0.0
+    physicalpower: float = 0.0
+    spell_crit_pct: float = 0.0
+    mind_crit_pct: float = 0.0
+    stats: dict[str, float] = field(default_factory=dict)
     offhand: WeaponOffense | None = None
     """Equipped offhand weapon hit in the same attack action."""
     offhands: tuple[WeaponOffense, ...] = ()
@@ -292,7 +318,14 @@ class EnemyOffense:
             melee_project=_damage_fields_by_prefixes(all_fields, "combat.melee_project.", "melee_project."),
             burst_on_hit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_hit."),
             burst_on_crit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_crit."),
+            talent_procs=_talent_procs_from_fields(all_fields),
             unmodeled_proc_hooks=_unmodeled_proc_hooks_from_fields(all_fields),
+            spellpower=_spell_power(all_fields, stats),
+            mindpower=_mind_power(all_fields, stats),
+            physicalpower=_physical_power(all_fields, stats),
+            spell_crit_pct=_spell_crit_chance(all_fields, stats),
+            mind_crit_pct=_mind_crit_chance(all_fields, stats),
+            stats=dict(stats),
             offhand=offhands[0] if offhands else None,
             offhands=offhands,
             talents=talents,
@@ -372,8 +405,90 @@ def _combat_physical_speed(all_fields: dict[str, str | float | bool], weapon_phy
     return (weapon_physspeed or 1.0) / actor_physspeed
 
 
+def _precomputed_or_raw(
+    all_fields: dict[str, str | float | bool],
+    precomputed_key: str,
+    raw: float,
+) -> float:
+    if precomputed_key in all_fields:
+        return max(0.0, _number_field(all_fields, precomputed_key))
+    return max(0.0, raw)
+
+
+def _spell_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    scale = _hit_penalty_2h_scale(all_fields)
+    raw = _precomputed_or_raw(
+        all_fields,
+        "combat_precomputed_spellpower",
+        (
+            _number_field(all_fields, "combat_spellpower")
+            + _number_field(all_fields, "combat_generic_power")
+            + stats.get("mag", 0.0)
+        )
+        * scale,
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _mind_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    scale = _hit_penalty_2h_scale(all_fields)
+    raw = _precomputed_or_raw(
+        all_fields,
+        "combat_precomputed_mindpower",
+        (
+            _number_field(all_fields, "combat_mindpower")
+            + _number_field(all_fields, "combat_generic_power")
+            + stats.get("wil", 0.0) * 0.7
+            + stats.get("cun", 0.0) * 0.4
+        )
+        * scale,
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _physical_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    scale = _hit_penalty_2h_scale(all_fields)
+    raw = _precomputed_or_raw(
+        all_fields,
+        "combat_precomputed_physpower",
+        (
+            _number_field(all_fields, "combat_dam")
+            + _number_field(all_fields, "combat_generic_power")
+            + stats.get("str", 0.0)
+        )
+        * scale,
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
 def _crit_stat_bonus(stats: dict[str, float]) -> float:
     return (stats.get("cun", 10.0) - 10.0) * 0.3 + (stats.get("lck", 50.0) - 50.0) * 0.3
+
+
+def _spell_crit_chance(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    return min(
+        100.0,
+        max(
+            0.0,
+            _number_field(all_fields, "combat_spellcrit")
+            + _number_field(all_fields, "combat_generic_crit")
+            + _crit_stat_bonus(stats)
+            + 1.0,
+        ),
+    )
+
+
+def _mind_crit_chance(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    return min(
+        100.0,
+        max(
+            0.0,
+            _number_field(all_fields, "combat_mindcrit")
+            + _number_field(all_fields, "combat_generic_crit")
+            + _crit_stat_bonus(stats)
+            + 1.0,
+        ),
+    )
 
 
 def _physical_crit_chance(
@@ -454,6 +569,39 @@ def _accuracy_effect_from_fields(all_fields: dict[str, str | float | bool], *, p
     return _string_field(all_fields, f"{prefix}accuracy_effect") or _string_field(all_fields, f"{prefix}talented")
 
 
+def _talent_procs_from_fields(
+    all_fields: dict[str, str | float | bool],
+    *,
+    prefix: str = "combat.",
+    hooks: tuple[str, ...] = _TALENT_PROC_HOOKS,
+) -> tuple[WeaponTalentProc, ...]:
+    procs: list[WeaponTalentProc] = []
+    for hook in hooks:
+        key_prefix = f"{prefix}{hook}."
+        talent_ids: set[str] = set()
+        for key in all_fields:
+            if not key.startswith(key_prefix):
+                continue
+            talent_id, sep, field = key.removeprefix(key_prefix).partition(".")
+            if not sep or field not in _TALENT_PROC_FIELDS:
+                continue
+            normalized_id = talent_id.strip().upper()
+            if not normalized_id:
+                continue
+            if not normalized_id.startswith("T_"):
+                normalized_id = f"T_{normalized_id}"
+            talent_ids.add(normalized_id)
+
+        trigger = "crit" if hook.endswith("_crit") else "hit"
+        for talent_id in sorted(talent_ids):
+            level = _number_field(all_fields, f"{key_prefix}{talent_id}.level", 1.0)
+            chance_pct = _number_field(all_fields, f"{key_prefix}{talent_id}.chance")
+            if level <= 0.0 or chance_pct <= 0.0:
+                continue
+            procs.append(WeaponTalentProc(talent_id=talent_id, level=level, chance_pct=chance_pct, trigger=trigger))
+    return tuple(procs)
+
+
 def _unmodeled_proc_hooks_from_fields(
     all_fields: dict[str, str | float | bool],
     *,
@@ -463,6 +611,8 @@ def _unmodeled_proc_hooks_from_fields(
     for hook in _UNMODELED_PROC_HOOKS:
         key = f"{prefix}{hook}"
         if _truthy_field(all_fields, key) or any(field.startswith(f"{key}.") for field in all_fields):
+            if hook in _TALENT_PROC_HOOKS and _talent_procs_from_fields(all_fields, prefix=prefix, hooks=(hook,)):
+                continue
             hooks.append(hook)
     return tuple(hooks)
 
@@ -619,6 +769,15 @@ class ThreatReport:
         return "Low"
 
 
+@dataclass(frozen=True, slots=True)
+class _ModeledTalentProc:
+    proc: WeaponTalentProc
+    talent_name: str
+    damage_type: str
+    expected_damage: float
+    peak_damage: float
+
+
 # ── Core ────────────────────────────────────────────────────────────────────
 
 
@@ -732,6 +891,167 @@ def weapon_project_damage_expected_peak(
     return expected * hits, peak * hits
 
 
+def strongest_weapon_talent_proc(
+    source: EnemyOffense | WeaponOffense,
+    owner: EnemyOffense,
+    player: PlayerDefenses,
+    weapon_crit_used_pct: float,
+) -> tuple[_ModeledTalentProc | None, tuple[str, ...]]:
+    """Return the strongest deterministic weapon talent proc for one hit source."""
+    if not source.talent_procs:
+        return None, ()
+
+    records = get_talent_db_by_id()
+    modeled: list[_ModeledTalentProc] = []
+    unmodeled: list[str] = []
+    for proc in source.talent_procs:
+        record = records.get(proc.talent_id)
+        reason = _unsupported_talent_proc_reason(record)
+        if reason:
+            unmodeled.append(f"{proc.talent_id} ({reason})")
+            continue
+        assert record is not None
+        proc_damage = _modeled_talent_proc_damage(source, owner, player, proc, record, weapon_crit_used_pct)
+        if proc_damage is not None:
+            modeled.append(proc_damage)
+
+    if not modeled:
+        return None, tuple(unmodeled)
+    return max(modeled, key=lambda proc_damage: proc_damage.expected_damage), tuple(unmodeled)
+
+
+def _unsupported_talent_proc_reason(record: TalentRecord | None) -> str:
+    if record is None:
+        return "unknown"
+    if record.scaling_family == "weapon":
+        return "weapon-family"
+    if record.scaling_family not in _SUPPORTED_TALENT_PROC_FAMILIES:
+        return "custom-scaling"
+    if not record.damage_type or record.damage_high <= 0.0:
+        return "non-damage"
+    return ""
+
+
+def _modeled_talent_proc_damage(
+    source: EnemyOffense | WeaponOffense,
+    owner: EnemyOffense,
+    player: PlayerDefenses,
+    proc: WeaponTalentProc,
+    record: TalentRecord,
+    weapon_crit_used_pct: float,
+) -> _ModeledTalentProc | None:
+    raw = _scale_talent_proc_damage(record, proc.level, owner)
+    if raw <= 0.0:
+        return None
+    dtype = cm.normalize_damage_type(record.damage_type, "all")
+    after = raw
+    if record.scaling_family == "physical" and dtype == "PHYSICAL":
+        after = cm.armor_absorb(raw, player.armor, player.armor_hardiness_pct, owner.apr)
+    if after <= 0.0:
+        return None
+
+    chance = max(0.0, min(100.0, proc.chance_pct)) / 100.0
+    if proc.trigger == "crit":
+        chance *= max(0.0, min(100.0, weapon_crit_used_pct)) / 100.0
+    if chance <= 0.0:
+        return None
+
+    damage = after * damage_type_multiplier(source, player, dtype)
+    crit_expected = _talent_proc_crit_expected_multiplier(record, owner, player)
+    crit_peak = _talent_proc_crit_peak_multiplier(record, owner, player)
+    expected = damage * crit_expected * chance
+    peak = damage * crit_peak
+    return _ModeledTalentProc(
+        proc=proc,
+        talent_name=_talent_proc_name(proc.talent_id, record),
+        damage_type=dtype,
+        expected_damage=expected,
+        peak_damage=peak,
+    )
+
+
+def _scale_talent_proc_damage(record: TalentRecord, level: float, owner: EnemyOffense) -> float:
+    if record.damage_high <= 0.0:
+        return 0.0
+    if record.scaling_family == "stat":
+        return _scale_talent_proc_stat_damage(record, level, owner.stats.get(record.scaling_stat, 0.0))
+    power = _talent_proc_power_for_family(record.scaling_family, owner)
+    return _scale_talent_proc_power_damage(record, level, power)
+
+
+def _scale_talent_proc_power_damage(record: TalentRecord, level: float, power: float) -> float:
+    base = record.damage_low
+    max_damage = record.damage_high
+    talent_factor = (math.sqrt(max(1.0, level)) - 1.0) * 0.8 + 1.0
+    max_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
+    mod = max_damage / ((base + 100.0) * max_factor)
+    return cm.rescale_damage((base + max(0.0, power)) * talent_factor * mod)
+
+
+def _scale_talent_proc_stat_damage(record: TalentRecord, level: float, stat_value: float) -> float:
+    base = record.damage_low
+    max_damage = record.damage_high
+    talent_factor = (math.sqrt(max(1.0, level)) - 1.0) * 0.8 + 1.0
+    max_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
+    mod = max_damage / ((base + 100.0) * max_factor)
+    raw = (base + max(0.0, stat_value)) * talent_factor * mod
+    if raw <= 0.0 or record.scaling_no_dr:
+        return raw
+    return max(0.0, raw * (1.0 - math.log10(raw * 2.0) / 7.0))
+
+
+def _talent_proc_power_for_family(family: str, owner: EnemyOffense) -> float:
+    if family == "spell":
+        return owner.spellpower
+    if family == "mind":
+        return owner.mindpower
+    if family == "physical":
+        return owner.physicalpower or owner.atk
+    return 0.0
+
+
+def _talent_proc_crit_chance_pct(record: TalentRecord, owner: EnemyOffense) -> float:
+    if record.crit_family == "spell":
+        return owner.spell_crit_pct
+    if record.crit_family == "mind":
+        return owner.mind_crit_pct
+    if record.crit_family == "physical":
+        return owner.crit_chance_pct
+    return 0.0
+
+
+def _talent_proc_crit_power_multiplier(owner: EnemyOffense, player: PlayerDefenses) -> float:
+    crit_power = cm.DEFAULT_CRIT_POWER + owner.crit_power_bonus_pct / 100.0
+    if player.ignore_direct_crits_pct > 0.0:
+        ignore = max(0.0, min(1.0, player.ignore_direct_crits_pct / 100.0))
+        crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
+    return crit_power
+
+
+def _talent_proc_crit_expected_multiplier(
+    record: TalentRecord,
+    owner: EnemyOffense,
+    player: PlayerDefenses,
+) -> float:
+    chance = _talent_proc_crit_chance_pct(record, owner)
+    if chance <= 0.0:
+        return 1.0
+    return cm.crit_expected_multiplier(chance, _talent_proc_crit_power_multiplier(owner, player))
+
+
+def _talent_proc_crit_peak_multiplier(record: TalentRecord, owner: EnemyOffense, player: PlayerDefenses) -> float:
+    if _talent_proc_crit_chance_pct(record, owner) <= 0.0:
+        return 1.0
+    return _talent_proc_crit_power_multiplier(owner, player)
+
+
+def _talent_proc_name(talent_id: str, record: TalentRecord) -> str:
+    for name, candidate in get_talent_db().items():
+        if candidate.talent_id == talent_id and not name.startswith("T_"):
+            return name
+    return talent_id
+
+
 def weapon_damage_types(enemy: EnemyOffense) -> tuple[str, ...]:
     """Return base weapon and proc damage types in the order they can appear."""
     damage_types: list[str] = []
@@ -746,6 +1066,14 @@ def weapon_damage_types(enemy: EnemyOffense) -> tuple[str, ...]:
             for raw_type, raw_damage in table.items():
                 if raw_damage > 0.0:
                     _append_unique_damage_type_components(damage_types, raw_type)
+    proc_sources: tuple[EnemyOffense | WeaponOffense, ...] = (enemy, *_iter_offhands(enemy))
+    if any(source.talent_procs for source in proc_sources):
+        records = get_talent_db_by_id()
+        for source in proc_sources:
+            for proc in source.talent_procs:
+                record = records.get(proc.talent_id)
+                if record is not None and record.damage_type:
+                    _append_unique_damage_type_components(damage_types, record.damage_type)
     return tuple(damage_types)
 
 
@@ -841,6 +1169,13 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         crit_doubled,
         burst_hits=burst_hits,
     )
+    main_proc, main_unmodeled_procs = strongest_weapon_talent_proc(enemy, enemy, player, crit_doubled)
+    proc_options: list[tuple[str, _ModeledTalentProc]] = []
+    proc_damage_notes: list[tuple[str, _ModeledTalentProc]] = []
+    unmodeled_talent_procs = list(main_unmodeled_procs)
+    if main_proc is not None:
+        proc_options.append(("MAINHAND", main_proc))
+        proc_damage_notes.append(("MAINHAND", main_proc))
 
     base_multiplier = after_armor * damage_mult
     base_peak_multiplier = after_armor_peak * damage_mult
@@ -848,9 +1183,9 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     base_hit_peak = base_peak_multiplier * max(1.0, weapon_mults.max_hit)
     base_burst = base_multiplier * max(1.0, weapon_mults.burst)
     base_burst_peak = base_peak_multiplier * max(1.0, weapon_mults.burst)
-    expected = base_hit * crit_mult + project_expected
+    expected = base_hit * crit_mult + project_expected + (main_proc.expected_damage if main_proc is not None else 0.0)
     peak = base_hit_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit_peak
-    peak += project_peak
+    peak += project_peak + (main_proc.peak_damage if main_proc is not None else 0.0)
     burst_expected = base_burst * crit_mult + burst_project_expected
     burst_peak = base_burst_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst_peak
     burst_peak += burst_project_peak
@@ -862,6 +1197,25 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         burst_peak += offhand_peak
         report_burst_hits += 1
         offhand_damage_notes.append((offhand, offhand_expected))
+        offhand_source = offhand.source or "OFFHAND"
+        offhand_crit_used = min(100.0, weapon_crit_chance_pct(offhand, player) * 2.0)
+        offhand_proc, offhand_unmodeled_procs = strongest_weapon_talent_proc(
+            offhand,
+            enemy,
+            player,
+            offhand_crit_used,
+        )
+        for label in offhand_unmodeled_procs:
+            if label not in unmodeled_talent_procs:
+                unmodeled_talent_procs.append(label)
+        if offhand_proc is not None:
+            proc_options.append((offhand_source, offhand_proc))
+            proc_damage_notes.append((offhand_source, offhand_proc))
+
+    if proc_options:
+        _source, burst_proc = max(proc_options, key=lambda option: option[1].expected_damage)
+        burst_expected += burst_proc.expected_damage
+        burst_peak += burst_proc.peak_damage
 
     threat_damage = max(expected, burst_expected)
     if enemy.rank > RANK_BOSS_THRESHOLD:
@@ -905,6 +1259,14 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         )
         if offhand.project_damage_mult < 1.0:
             notes.append(f"{source} proc damage reduced by hit_penalty_2h")
+    for source, modeled_proc in proc_damage_notes:
+        proc = modeled_proc.proc
+        notes.append(
+            f"{source} talent proc adds ~{modeled_proc.expected_damage:.0f} expected damage: "
+            f"{modeled_proc.talent_name} ({proc.chance_pct:.0f}% on {proc.trigger})"
+        )
+    if len(proc_options) > 1:
+        notes.append("Same-action talent-proc estimate uses the strongest deterministic proc")
     if high_roll > low_roll:
         notes.append(f"Weapon damage range: {low_roll:.0f}-{high_roll:.0f} before armor")
     if mace_bonus > 0.0:
@@ -918,6 +1280,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
             notes.append(f"Project damage types: {', '.join(project_types)}")
     if staff_bonus > 0.0:
         notes.append(f"Staff accuracy bonus: +{staff_bonus * 100.0:.0f}% project damage")
+    if unmodeled_talent_procs:
+        notes.append(f"Unmodeled weapon talent procs: {', '.join(unmodeled_talent_procs)}")
     unmodeled_hooks = list(enemy.unmodeled_proc_hooks)
     for offhand in _iter_offhands(enemy):
         for hook in offhand.unmodeled_proc_hooks:

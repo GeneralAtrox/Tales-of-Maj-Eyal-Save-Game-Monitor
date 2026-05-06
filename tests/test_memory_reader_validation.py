@@ -302,10 +302,46 @@ class MemoryReaderValidationTests(unittest.TestCase):
             patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
             patch.object(memory_reader, "_tab_get_ordered_tables", side_effect=fake_ordered),
             patch.object(memory_reader, "_tab_has_any_entries", return_value=True),
+            patch.object(memory_reader, "_tab_iter_string_entries", return_value=[]),
         ):
             snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
 
         self.assertEqual(snapshot, {"combat.talent_on_hit": True, "combat.source": "MAINHAND"})
+
+    def test_tab_dump_combat_fields_reads_deterministic_talent_proc_metadata(self) -> None:
+        combat_ptr = 0x10000000
+        hook_ptr = 0x20000000
+        proc_ptr = 0x30000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == combat_ptr and key == "talent_on_hit":
+                return hook_ptr
+            return None
+
+        def fake_iter_string_entries(_handle: int, tab_ptr: int, **_kwargs: object) -> list[tuple[str, int, int]]:
+            if tab_ptr == hook_ptr:
+                return [("T_FLAME", memory_reader._LJ_TTAB, proc_ptr)]
+            return []
+
+        def fake_get_number(_handle: int, tab_ptr: int, key: str) -> float | None:
+            if tab_ptr == proc_ptr and key == "level":
+                return 2.0
+            if tab_ptr == proc_ptr and key == "chance":
+                return 10.0
+            return None
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", return_value={}),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_has_any_entries", return_value=True),
+            patch.object(memory_reader, "_tab_iter_string_entries", side_effect=fake_iter_string_entries),
+            patch.object(memory_reader, "_tab_get_number", side_effect=fake_get_number),
+        ):
+            snapshot = memory_reader._tab_dump_combat_fields(1, combat_ptr)
+
+        self.assertEqual(snapshot["combat.talent_on_hit"], True)
+        self.assertEqual(snapshot["combat.talent_on_hit.T_FLAME.level"], 2.0)
+        self.assertEqual(snapshot["combat.talent_on_hit.T_FLAME.chance"], 10.0)
 
     def test_tab_dump_entity_snapshot_prefers_primary_weapon_combat_fields(self) -> None:
         actor_ptr = 0x10000000

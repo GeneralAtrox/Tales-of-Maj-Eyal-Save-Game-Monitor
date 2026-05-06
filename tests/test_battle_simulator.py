@@ -810,6 +810,75 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(report.expected_damage, 100.0)
         self.assertIn("Unmodeled weapon proc hooks: talent_on_hit, special_on_crit", report.notes)
 
+    def test_deterministic_weapon_talent_proc_adds_expected_damage(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0, resists_cap={"all": 70})
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 100.0,
+                "combat.atk": 100.0,
+                "combat.damrange": 1.0,
+                "combat_precomputed_spellpower": 100.0,
+                "combat.talent_on_hit": True,
+                "combat.talent_on_hit.T_FLAME.level": 5.0,
+                "combat.talent_on_hit.T_FLAME.chance": 50.0,
+            },
+            "Flaming Striker",
+        )
+        flame = TalentRecord(
+            talent_id="T_FLAME",
+            damage_type="FIRE",
+            scaling_family="spell",
+            damage_low=10.0,
+            damage_high=100.0,
+        )
+
+        with (
+            patch("scoring.enemy_threat.get_talent_db_by_id", return_value={"T_FLAME": flame}),
+            patch("scoring.enemy_threat.get_talent_db", return_value={"Flame": flame}),
+        ):
+            report = weapon_threat(offense, player)
+
+        talent_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
+        mod = 100.0 / ((10.0 + 100.0) * talent_factor)
+        expected_proc = cm.rescale_damage((10.0 + offense.spellpower) * talent_factor * mod) * 0.5
+        self.assertEqual(offense.unmodeled_proc_hooks, ())
+        self.assertEqual(len(offense.talent_procs), 1)
+        self.assertEqual(report.expected_damage, round(100.0 + expected_proc, 1))
+        self.assertEqual(report.burst_expected_damage, round(100.0 + expected_proc, 1))
+        self.assertIn("FIRE", report.damage_types)
+        self.assertIn("MAINHAND talent proc adds ~34 expected damage: Flame (50% on hit)", report.notes)
+
+    def test_weapon_family_talent_proc_stays_flagged_as_unmodeled(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 100.0,
+                "combat.atk": 100.0,
+                "combat.damrange": 1.0,
+                "combat.talent_on_hit": True,
+                "combat.talent_on_hit.T_STUNNING_BLOW.level": 3.0,
+                "combat.talent_on_hit.T_STUNNING_BLOW.chance": 25.0,
+            },
+            "Stunning Striker",
+        )
+        stunning_blow = TalentRecord(
+            talent_id="T_STUNNING_BLOW",
+            damage_type="PHYSICAL",
+            scaling_family="weapon",
+            damage_low=100.0,
+            damage_high=150.0,
+        )
+
+        with patch(
+            "scoring.enemy_threat.get_talent_db_by_id",
+            return_value={"T_STUNNING_BLOW": stunning_blow},
+        ):
+            report = weapon_threat(offense, player)
+
+        self.assertEqual(offense.unmodeled_proc_hooks, ())
+        self.assertEqual(report.expected_damage, 100.0)
+        self.assertIn("Unmodeled weapon talent procs: T_STUNNING_BLOW (weapon-family)", report.notes)
+
     def test_burst_on_crit_project_damage_uses_crit_probability(self) -> None:
         player = PlayerDefenses(max_life=300, defense=0)
         enemy = EnemyOffense(

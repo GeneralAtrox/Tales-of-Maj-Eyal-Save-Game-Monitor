@@ -746,6 +746,8 @@ _DAMAGE_SUBTABLES = {"resists", "resists_cap", "inc_damage", "resists_pen"}
 _ENTITY_PROJECT_SUBTABLES = ("melee_project",)
 _COMBAT_PROJECT_SUBTABLES = ("melee_project", "burst_on_hit", "burst_on_crit")
 _COMBAT_PROC_HOOK_TABLES = ("talent_on_hit", "talent_on_crit", "special_on_hit", "special_on_crit")
+_COMBAT_TALENT_PROC_HOOK_TABLES = ("talent_on_hit", "talent_on_crit")
+_COMBAT_TALENT_PROC_FIELDS = ("level", "chance")
 _WEAPON_COMBAT_INVENTORY_BUCKETS = {"MAINHAND", "OFFHAND", "PSIONIC_FOCUS"}
 _PRIMARY_WEAPON_COMBAT_INVENTORY_BUCKETS = {"MAINHAND"}
 _OFFHAND_WEAPON_COMBAT_INVENTORY_BUCKETS = {"OFFHAND"}
@@ -755,6 +757,8 @@ _COMBAT_REPLACE_PREFIXES = (
     "combat.melee_project.",
     "combat.burst_on_hit.",
     "combat.burst_on_crit.",
+    "combat.talent_on_hit.",
+    "combat.talent_on_crit.",
 )
 _COMBAT_REPLACE_KEYS = {f"combat.{field}" for field in _ENTITY_COMBAT_FIELDS} | {
     f"combat.{hook}" for hook in _COMBAT_PROC_HOOK_TABLES
@@ -916,6 +920,24 @@ def _tab_dump_equipped_weapon_proc_hooks(h: int, actor_ptr: int) -> dict[str, bo
     return out
 
 
+def _tab_dump_talent_proc_table(h: int, proc_tab: int, prefix: str) -> dict[str, float]:
+    """Return allowlisted deterministic weapon talent-proc metadata."""
+    out: dict[str, float] = {}
+    for talent_id, value_it, value_lo in _tab_iter_string_entries(h, proc_tab, max_key_len=96):
+        normalized_id = talent_id.strip().upper()
+        if not normalized_id:
+            continue
+        if not normalized_id.startswith("T_"):
+            normalized_id = f"T_{normalized_id}"
+        if value_it != _LJ_TTAB or not _is_heap(value_lo):
+            continue
+        for field in _COMBAT_TALENT_PROC_FIELDS:
+            value = _tab_get_number(h, value_lo, field)
+            if value is not None:
+                out[f"{prefix}{normalized_id}.{field}"] = float(value)
+    return out
+
+
 def _tab_dump_combat_fields(h: int, combat_tab: int) -> dict[str, str | float | bool]:
     out = _tab_dump_flat(h, combat_tab, prefix="combat.", allowed_keys=_ENTITY_COMBAT_FIELDS)
     dammod_tab = _tab_get_table(h, combat_tab, "dammod")
@@ -929,6 +951,8 @@ def _tab_dump_combat_fields(h: int, combat_tab: int) -> dict[str, str | float | 
         sub_tab = _tab_get_table(h, combat_tab, sub)
         if sub_tab and _tab_has_any_entries(h, sub_tab):
             out[f"combat.{sub}"] = True
+            if sub in _COMBAT_TALENT_PROC_HOOK_TABLES:
+                out.update(_tab_dump_talent_proc_table(h, sub_tab, prefix=f"combat.{sub}."))
     return out
 
 
