@@ -5,6 +5,7 @@ import zipfile
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Final
 
 from game_data.lua_extractor import RE_NAME, find_tome_team, iter_balanced_blocks
 from scoring import combat_math as cm
@@ -21,6 +22,12 @@ _AUTOLEVEL_RE = re.compile(r'^[^\n{]*\bautolevel\s*=\s*"([^"]+)"', re.MULTILINE)
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _TALENT_ENTRY_RE = re.compile(
     r"\[\s*(?:(?:ActorTalents|Talents)\.)?(T_[A-Z0-9_]+)\s*\]\s*=\s*(\{[^}]*\}|[^,\n}]+)"
+)
+_UNMODELED_PROC_HOOKS: Final[tuple[str, ...]] = (
+    "talent_on_hit",
+    "talent_on_crit",
+    "special_on_hit",
+    "special_on_crit",
 )
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _VENDORED_DATA_ROOT = _REPO_ROOT / "tools" / "t-engine4-master" / "game" / "modules" / "tome" / "data"
@@ -112,6 +119,7 @@ class BossTemplateStats:
     melee_project: dict[str, float] = field(default_factory=dict)
     burst_on_hit: dict[str, float] = field(default_factory=dict)
     burst_on_crit: dict[str, float] = field(default_factory=dict)
+    unmodeled_proc_hooks: tuple[str, ...] = ()
     talents: dict[str, int] = field(default_factory=dict)
     has_combat_data: bool = False
 
@@ -344,6 +352,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     )
     burst_on_hit = _parse_damage_table(_extract_table(combat_block or "", "burst_on_hit"))
     burst_on_crit = _parse_damage_table(_extract_table(combat_block or "", "burst_on_crit"))
+    unmodeled_proc_hooks = _parse_unmodeled_proc_hooks(source_blocks)
     talents = _parse_merged_talent_table(source_blocks)
     weapon_dam = _combat_value(combat_block, "dam")
     level = _parse_scalar_from_blocks(source_blocks, "level_range", default=_template_level(template.level_label))
@@ -464,6 +473,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         melee_project=melee_project,
         burst_on_hit=burst_on_hit,
         burst_on_crit=burst_on_crit,
+        unmodeled_proc_hooks=unmodeled_proc_hooks,
         talents={talent_id: int(level) for talent_id, level in talents.items() if level > 0.0},
         has_combat_data=has_combat_data,
     )
@@ -702,6 +712,18 @@ def _combat_truthy(combat_block: str | None, field_name: str) -> bool:
     if cleaned in {"", "nil", "false", "0"}:
         return False
     return bool(_parse_number_expr(cleaned, default=1.0))
+
+
+def _parse_unmodeled_proc_hooks(blocks: tuple[str, ...]) -> tuple[str, ...]:
+    hooks: list[str] = []
+    for block in blocks:
+        combat_block = _extract_table(block, "combat")
+        if combat_block is None:
+            continue
+        for hook in _UNMODELED_PROC_HOOKS:
+            if hook not in hooks and _combat_truthy(combat_block, hook):
+                hooks.append(hook)
+    return tuple(hooks)
 
 
 def _parse_string_expr(expr: str) -> str:

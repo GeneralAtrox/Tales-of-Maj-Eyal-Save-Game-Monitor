@@ -62,6 +62,8 @@ newEntity{
         melee_project = { [DamageType.COLD] = 5 },
         burst_on_hit = { [DamageType.LIGHTNING] = 9 },
         burst_on_crit = { [DamageType.ARCANE] = 11 },
+        talent_on_hit = { [Talents.T_FLAME] = {level=2, chance=10} },
+        special_on_crit = {desc="test", fct=function() end},
     },
     resolvers.talents{ [Talents.T_STUNNING_BLOW] = {base = 2, every = 5, max = 5} },
     inc_damage = { [DamageType.BLIGHT] = 25, all = 10 },
@@ -119,6 +121,7 @@ newEntity{
         self.assertEqual(stats.melee_project, {"FIRE": 7.0, "COLD": 5.0})
         self.assertEqual(stats.burst_on_hit, {"LIGHTNING": 9.0})
         self.assertEqual(stats.burst_on_crit, {"ARCANE": 11.0})
+        self.assertEqual(stats.unmodeled_proc_hooks, ("talent_on_hit", "special_on_crit"))
         self.assertTrue(stats.has_combat_data)
         self.assertEqual(stats.warning, "")
 

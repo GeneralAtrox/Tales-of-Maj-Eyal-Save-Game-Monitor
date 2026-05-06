@@ -221,6 +221,53 @@ class MemoryReaderValidationTests(unittest.TestCase):
         self.assertEqual(values, {"PHYSICAL": 12.0, "ARCANE": 25.0, "FIRE": 0.0})
         rpm.assert_called_once_with(1, array_ptr, 24)
 
+    def test_tab_has_any_entries_detects_array_values(self) -> None:
+        table_ptr = 0x10000000
+        array_ptr = 0x20000000
+        array = (
+            struct.pack("<II", 0, memory_reader._LJ_TNIL)
+            + struct.pack("<II", 0x30000000, memory_reader._LJ_TTAB)
+        )
+
+        def fake_ru32(_handle: int, addr: int) -> int | None:
+            if addr == table_ptr + 24:
+                return 2
+            if addr == table_ptr + 8:
+                return array_ptr
+            if addr == table_ptr + 20:
+                return 0
+            if addr == table_ptr + 28:
+                return None
+            return None
+
+        with (
+            patch.object(memory_reader, "_ru32", side_effect=fake_ru32),
+            patch.object(memory_reader, "_is_heap", return_value=True),
+            patch.object(memory_reader, "_rpm", return_value=array),
+        ):
+            self.assertTrue(memory_reader._tab_has_any_entries(1, table_ptr))
+
+    def test_tab_dump_entity_snapshot_marks_unmodeled_combat_proc_hooks(self) -> None:
+        actor_ptr = 0x10000000
+        combat_ptr = 0x20000000
+        hook_ptr = 0x30000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == actor_ptr and key == "combat":
+                return combat_ptr
+            if tab_ptr == combat_ptr and key == "special_on_hit":
+                return hook_ptr
+            return None
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", return_value={}),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_has_any_entries", return_value=True),
+        ):
+            snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
+
+        self.assertEqual(snapshot, {"combat.special_on_hit": True})
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1

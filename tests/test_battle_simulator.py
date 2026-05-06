@@ -797,6 +797,19 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(report.expected_damage, 220.0)
         self.assertIn("Staff accuracy bonus: +200% project damage", report.notes)
 
+    def test_unmodeled_proc_hooks_are_reported_without_damage_modeling(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            unmodeled_proc_hooks=("talent_on_hit", "special_on_crit"),
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 100.0)
+        self.assertIn("Unmodeled weapon proc hooks: talent_on_hit, special_on_crit", report.notes)
+
     def test_burst_on_crit_project_damage_uses_crit_probability(self) -> None:
         player = PlayerDefenses(max_life=300, defense=0)
         enemy = EnemyOffense(
@@ -873,6 +886,19 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.burst_on_hit, {"BLIGHT": 7.0})
         self.assertEqual(offense.burst_on_crit, {"LIGHTNING": 9.0})
         self.assertEqual(override.accuracy_effect, "axe")
+
+    def test_enemy_offense_reads_unmodeled_proc_hooks_from_live_combat_table(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.talent_on_hit": True,
+                "combat.talent_on_crit": False,
+                "combat.special_on_hit.desc": "callback",
+                "combat.special_on_crit": "nil",
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.unmodeled_proc_hooks, ("talent_on_hit", "special_on_hit"))
 
     def test_enemy_offense_defaults_live_weapon_damage_range_like_engine(self) -> None:
         offense = EnemyOffense.from_all_fields({"combat.dam": 50.0}, "Test")

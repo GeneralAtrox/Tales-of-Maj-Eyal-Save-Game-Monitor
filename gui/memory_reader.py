@@ -740,6 +740,7 @@ _ENTITY_SUBTABLES = (
 _DAMAGE_SUBTABLES = {"resists", "resists_cap", "inc_damage", "resists_pen"}
 _ENTITY_PROJECT_SUBTABLES = ("melee_project",)
 _COMBAT_PROJECT_SUBTABLES = ("melee_project", "burst_on_hit", "burst_on_crit")
+_COMBAT_PROC_HOOK_TABLES = ("talent_on_hit", "talent_on_crit", "special_on_hit", "special_on_crit")
 
 
 def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
@@ -842,6 +843,37 @@ def _tab_dump_indexed_numbers(h: int, tab_ptr: int, index_to_key: dict[int, str]
     return out
 
 
+def _tab_has_any_entries(h: int, tab_ptr: int) -> bool:
+    """Return True if a LuaJIT table has any non-nil array or hash entries."""
+    asize = _ru32(h, tab_ptr + 24)
+    array_ptr = _ru32(h, tab_ptr + 8)
+    if asize and array_ptr and _is_heap(array_ptr):
+        total = asize * 8
+        if total > 4 * 1024 * 1024:
+            return True
+        bulk = _rpm(h, array_ptr, total)
+        if bulk:
+            for off in range(0, len(bulk), 8):
+                if struct.unpack_from("<I", bulk, off + 4)[0] != _LJ_TNIL:
+                    return True
+
+    node_ptr = _ru32(h, tab_ptr + 20)
+    hmask = _ru32(h, tab_ptr + 28)
+    if not node_ptr or hmask is None or not _is_heap(node_ptr):
+        return False
+    total = (hmask + 1) * _NODE_SIZE
+    if total > 4 * 1024 * 1024:
+        return True
+    bulk = _rpm(h, node_ptr, total)
+    if not bulk:
+        return False
+    for i in range(hmask + 1):
+        off = i * _NODE_SIZE
+        if struct.unpack_from("<I", bulk, off + 4)[0] != _LJ_TNIL:
+            return True
+    return False
+
+
 def _tab_dump_stat_subtable(h: int, tab_ptr: int, prefix: str = "stats.") -> dict[str, float]:
     """Return stat values from a ToME Actor ``stats`` table.
 
@@ -877,6 +909,10 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
             sub_tab = _tab_get_table(h, combat_tab, sub)
             if sub_tab:
                 out.update(_tab_dump_damage_subtable(h, sub_tab, prefix=f"combat.{sub}."))
+        for sub in _COMBAT_PROC_HOOK_TABLES:
+            sub_tab = _tab_get_table(h, combat_tab, sub)
+            if sub_tab and _tab_has_any_entries(h, sub_tab):
+                out[f"combat.{sub}"] = True
 
     for sub in _ENTITY_PROJECT_SUBTABLES:
         sub_tab = _tab_get_table(h, actor_ptr, sub)

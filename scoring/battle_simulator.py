@@ -179,6 +179,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             melee_project=dict(offense.melee_project),
             burst_on_hit=dict(offense.burst_on_hit),
             burst_on_crit=dict(offense.burst_on_crit),
+            unmodeled_proc_hooks=tuple(offense.unmodeled_proc_hooks),
             talents=dict(offense.talents),
             talents_cd=dict(offense.talents_cd),
             resources=dict(offense.resources),

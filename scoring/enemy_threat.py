@@ -46,6 +46,12 @@ _RESOURCE_COST_FIELDS: Final[tuple[str, ...]] = (
     "soul",
     "steam",
 )
+_UNMODELED_PROC_HOOKS: Final[tuple[str, ...]] = (
+    "talent_on_hit",
+    "talent_on_crit",
+    "special_on_hit",
+    "special_on_crit",
+)
 
 
 def _damage_type_from_field(value: str | float | bool | None) -> str:
@@ -116,6 +122,8 @@ class EnemyOffense:
     """Extra radius-1 project damage on every successful melee hit."""
     burst_on_crit: dict[str, float] = field(default_factory=dict)
     """Extra radius-2 project damage on successful melee crits."""
+    unmodeled_proc_hooks: tuple[str, ...] = ()
+    """Weapon hooks present in Lua but not deterministic enough to model here."""
     talents: dict[str, float] = field(default_factory=dict)
     talents_cd: dict[str, float] = field(default_factory=dict)
     resources: dict[str, float] = field(default_factory=dict)
@@ -200,6 +208,7 @@ class EnemyOffense:
             melee_project=_damage_fields_by_prefixes(all_fields, "combat.melee_project.", "melee_project."),
             burst_on_hit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_hit."),
             burst_on_crit=_damage_fields_by_prefixes(all_fields, "combat.burst_on_crit."),
+            unmodeled_proc_hooks=_unmodeled_proc_hooks_from_fields(all_fields),
             talents=talents,
             talents_cd=talents_cd,
             resources=resources,
@@ -306,6 +315,15 @@ def _truthy_field(all_fields: dict[str, str | float | bool], key: str) -> bool:
 
 def _accuracy_effect_from_fields(all_fields: dict[str, str | float | bool]) -> str:
     return _string_field(all_fields, "combat.accuracy_effect") or _string_field(all_fields, "combat.talented")
+
+
+def _unmodeled_proc_hooks_from_fields(all_fields: dict[str, str | float | bool]) -> tuple[str, ...]:
+    hooks: list[str] = []
+    for hook in _UNMODELED_PROC_HOOKS:
+        key = f"combat.{hook}"
+        if _truthy_field(all_fields, key) or any(field.startswith(f"{key}.") for field in all_fields):
+            hooks.append(hook)
+    return tuple(hooks)
 
 
 def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: str) -> dict[str, float]:
@@ -650,6 +668,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
             notes.append(f"Project damage types: {', '.join(project_types)}")
     if staff_bonus > 0.0:
         notes.append(f"Staff accuracy bonus: +{staff_bonus * 100.0:.0f}% project damage")
+    if enemy.unmodeled_proc_hooks:
+        notes.append(f"Unmodeled weapon proc hooks: {', '.join(enemy.unmodeled_proc_hooks)}")
     if hit >= 75:
         notes.append(f"Very likely to hit ({hit:.0f}%)")
     elif hit < 25:

@@ -99,6 +99,7 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             melee_project=dict(stats.melee_project),
             burst_on_hit=dict(stats.burst_on_hit),
             burst_on_crit=dict(stats.burst_on_crit),
+            unmodeled_proc_hooks=tuple(stats.unmodeled_proc_hooks),
             talent_max_weapon_mult=stats.talent_max_weapon_mult,
             talent_burst_weapon_mult=stats.talent_burst_weapon_mult,
             talent_burst_weapon_hits=stats.talent_burst_weapon_hits,
