@@ -25,6 +25,21 @@ _PRACTICE_WINDOW_SIZE = "1280x720 Windowed"
 _DEFAULT_TURN_CAP = 200
 _RESULT_TIMEOUT_SECONDS = 300
 _QUICK_ESTIMATE_UNDER_RATIO = 0.9
+_DAMAGE_TYPE_LABELS = {
+    "physical": "PHYSICAL",
+    "arcane": "ARCANE",
+    "fire": "FIRE",
+    "cold": "COLD",
+    "lightning": "LIGHTNING",
+    "acid": "ACID",
+    "nature": "NATURE",
+    "blight": "BLIGHT",
+    "light": "LIGHT",
+    "darkness": "DARKNESS",
+    "mind": "MIND",
+    "temporal": "TEMPORAL",
+    "steam": "STEAM",
+}
 
 
 class PracticeLaunchError(RuntimeError):
@@ -52,6 +67,7 @@ class PracticeDamageEvent:
     target: str
     target_role: str
     amount: float
+    damage_type: str
     message: str
 
 
@@ -70,6 +86,7 @@ def summarize_damage_calibration(
     damage_events: tuple[PracticeDamageEvent, ...],
     *,
     quick_expected_damage: float | None = None,
+    quick_damage_type: str = "",
     limit: int = 3,
 ) -> tuple[str, ...]:
     """Return compact engine-vs-quick-estimate lines for the simulator UI."""
@@ -88,18 +105,24 @@ def summarize_damage_calibration(
         return ()
 
     max_hit = incoming_hits[0]
-    lines = [f"Engine max incoming hit: {max_hit.amount:.1f} from {max_hit.source or 'unknown'}"]
+    max_type = f" {max_hit.damage_type}" if max_hit.damage_type else ""
+    lines = [f"Engine max incoming hit: {max_hit.amount:.1f}{max_type} from {max_hit.source or 'unknown'}"]
     if quick_expected_damage is not None and max_hit.amount > 0:
         ratio = quick_expected_damage / max_hit.amount
         lines.append(f"Quick estimate: {quick_expected_damage:.1f} ({ratio:.2f}x engine max)")
         if ratio < _QUICK_ESTIMATE_UNDER_RATIO:
             shortfall = (1.0 - ratio) * 100.0
             lines.append(f"Warning: quick estimate is {shortfall:.0f}% below the engine max hit")
+        if max_hit.damage_type and quick_damage_type:
+            normalized_quick_type = quick_damage_type.strip().upper()
+            if max_hit.damage_type != normalized_quick_type:
+                lines.append(f"Damage type mismatch: engine {max_hit.damage_type}, quick {normalized_quick_type}")
 
     lines.append("Top incoming hits:")
     for event in incoming_hits[: max(1, limit)]:
         message = f" - {event.message}" if event.message else ""
-        lines.append(f"  T{event.turn}: {event.amount:.1f} from {event.source or 'unknown'}{message}")
+        dtype = f" {event.damage_type}" if event.damage_type else ""
+        lines.append(f"  T{event.turn}: {event.amount:.1f}{dtype} from {event.source or 'unknown'}{message}")
     return tuple(lines)
 
 
@@ -460,7 +483,23 @@ def _parse_damage_events(raw_events: object) -> tuple[PracticeDamageEvent, ...]:
                 target=str(raw.get("target") or ""),
                 target_role=str(raw.get("target_role") or ""),
                 amount=float(raw.get("amount") or 0.0),
+                damage_type=_damage_type_from_event(raw),
                 message=str(raw.get("message") or ""),
             )
         )
     return tuple(events)
+
+
+def _damage_type_from_event(raw: dict[str, object]) -> str:
+    explicit = str(raw.get("damage_type") or "").strip().upper()
+    if explicit:
+        return explicit
+    return _damage_type_from_message(str(raw.get("message") or ""))
+
+
+def _damage_type_from_message(message: str) -> str:
+    normalized = message.casefold()
+    for label, damage_type in sorted(_DAMAGE_TYPE_LABELS.items(), key=lambda item: len(item[0]), reverse=True):
+        if re.search(rf"\b{re.escape(label)}\b", normalized):
+            return damage_type
+    return ""

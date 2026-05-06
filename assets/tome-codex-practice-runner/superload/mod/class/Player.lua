@@ -19,7 +19,8 @@ local function write_damage_events(file, events)
 		file:write(
 			(
 				'    {"turn": %d, "source": "%s", "source_role": "%s", ' ..
-				'"target": "%s", "target_role": "%s", "amount": %.3f, "message": "%s"}%s\n'
+				'"target": "%s", "target_role": "%s", "amount": %.3f, ' ..
+				'"damage_type": "%s", "message": "%s"}%s\n'
 			):format(
 				tonumber(event.turn) or 0,
 				json_escape(event.source),
@@ -27,6 +28,7 @@ local function write_damage_events(file, events)
 				json_escape(event.target),
 				json_escape(event.target_role),
 				tonumber(event.amount) or 0,
+				json_escape(event.damage_type),
 				json_escape(event.message),
 				suffix
 			)

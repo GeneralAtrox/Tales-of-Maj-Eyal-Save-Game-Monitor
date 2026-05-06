@@ -55,11 +55,35 @@ local function clean_damage_message(message)
 	return message
 end
 
+local function damage_type_from_message(message)
+	local lowered = tostring(message or ""):lower()
+	local labels = {
+		{"lightning", "LIGHTNING"},
+		{"physical", "PHYSICAL"},
+		{"darkness", "DARKNESS"},
+		{"temporal", "TEMPORAL"},
+		{"arcane", "ARCANE"},
+		{"nature", "NATURE"},
+		{"blight", "BLIGHT"},
+		{"steam", "STEAM"},
+		{"light", "LIGHT"},
+		{"fire", "FIRE"},
+		{"cold", "COLD"},
+		{"acid", "ACID"},
+		{"mind", "MIND"},
+	}
+	for _, item in ipairs(labels) do
+		if lowered:find("%f[%a]" .. item[1] .. "%f[%A]") then return item[2] end
+	end
+	return ""
+end
+
 local function record_damage_event(src, target, dam, message)
 	local practice = game and game._codex_practice
 	if not practice or practice.finished then return end
 	local amount = tonumber(dam) or 0
 	if amount <= 0 then return end
+	local clean_message = clean_damage_message(message)
 	practice.damage_events = practice.damage_events or {}
 	if #practice.damage_events >= 80 then return end
 	practice.damage_events[#practice.damage_events + 1] = {
@@ -69,7 +93,8 @@ local function record_damage_event(src, target, dam, message)
 		target = actor_name(target),
 		target_role = actor_role(target),
 		amount = amount,
-		message = clean_damage_message(message),
+		damage_type = damage_type_from_message(clean_message),
+		message = clean_message,
 	}
 end
 
@@ -91,7 +116,8 @@ local function write_damage_events(file, events)
 		file:write(
 			(
 				'    {"turn": %d, "source": "%s", "source_role": "%s", ' ..
-				'"target": "%s", "target_role": "%s", "amount": %.3f, "message": "%s"}%s\n'
+				'"target": "%s", "target_role": "%s", "amount": %.3f, ' ..
+				'"damage_type": "%s", "message": "%s"}%s\n'
 			):format(
 				tonumber(event.turn) or 0,
 				json_escape(event.source),
@@ -99,6 +125,7 @@ local function write_damage_events(file, events)
 				json_escape(event.target),
 				json_escape(event.target_role),
 				tonumber(event.amount) or 0,
+				json_escape(event.damage_type),
 				json_escape(event.message),
 				suffix
 			)

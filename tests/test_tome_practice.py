@@ -138,6 +138,7 @@ class TomePracticeTests(unittest.TestCase):
         self.assertEqual(result.damage_events[0].source_role, "enemy")
         self.assertEqual(result.damage_events[0].target_role, "player")
         self.assertEqual(result.damage_events[0].amount, 123.5)
+        self.assertEqual(result.damage_events[0].damage_type, "LIGHTNING")
 
     def test_damage_calibration_summary_flags_underestimate_and_top_hits(self) -> None:
         events = (
@@ -148,6 +149,7 @@ class TomePracticeTests(unittest.TestCase):
                 target="Player",
                 target_role="player",
                 amount=40.0,
+                damage_type="PHYSICAL",
                 message="40 physical",
             ),
             tome_practice.PracticeDamageEvent(
@@ -157,17 +159,24 @@ class TomePracticeTests(unittest.TestCase):
                 target="Player",
                 target_role="player",
                 amount=120.0,
+                damage_type="LIGHTNING",
                 message="120 lightning",
             ),
         )
 
-        lines = summarize_damage_calibration(events, quick_expected_damage=90.0, limit=2)
+        lines = summarize_damage_calibration(
+            events,
+            quick_expected_damage=90.0,
+            quick_damage_type="PHYSICAL",
+            limit=2,
+        )
 
-        self.assertEqual(lines[0], "Engine max incoming hit: 120.0 from Urkis")
+        self.assertEqual(lines[0], "Engine max incoming hit: 120.0 LIGHTNING from Urkis")
         self.assertIn("0.75x engine max", lines[1])
         self.assertIn("below the engine max hit", lines[2])
-        self.assertEqual(lines[3], "Top incoming hits:")
-        self.assertIn("Urkis", lines[4])
+        self.assertEqual(lines[3], "Damage type mismatch: engine LIGHTNING, quick PHYSICAL")
+        self.assertEqual(lines[4], "Top incoming hits:")
+        self.assertIn("Urkis", lines[5])
 
     def test_prepare_practice_home_merges_addons_into_engine_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

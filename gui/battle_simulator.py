@@ -874,6 +874,7 @@ class BattleSimulatorPanel(QWidget):
             summarize_damage_calibration(
                 result.damage_events,
                 quick_expected_damage=quick_expected_damage,
+                quick_damage_type=quick_report.damage_type if quick_report is not None else "",
             )
         )
         if result.reason:
