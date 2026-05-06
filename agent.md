@@ -134,3 +134,25 @@ Respond with a JSON object. No prose outside the object.
 
 `priority` values: `"high"` (gap ≥ 40%), `"medium"` (gap 20–39%), `"low"` (gap < 20%).  
 Set `remove`/`add` to `null` if no swap is warranted. Set `rotation` to `[]` if cooldown data is insufficient.
+
+---
+
+## ToME GUI startup performance rule
+
+When changing `TOME_SaveMonitor_GUI.py`, `gui/app.py`, `gui/main_window.py`, `gui/dashboard_tab.py`, `gui/sheet_view.py`, or live memory startup code, monitor startup time before considering the work complete.
+
+Use `.startup_timing.txt` and `.startup_trace.json` as the first source of truth. For hot starts with ToME already running and cached `_G` available, keep "Startup time to game connection" under `0.35s` when practical. Treat `>0.75s` as a regression that needs investigation unless the trace clearly shows external PyCharm/Qt variance outside app control.
+
+The target is staged startup:
+- report cached memory attach before expensive Qt widget hydration;
+- keep `window.show()`, sheet tabs, inventory, enemies, status bar, logs, and battle simulator construction off the critical hook-report path;
+- allow full character sheet, enemies, and live inventory to hydrate after the connection report.
+
+Before committing startup-sensitive changes, run:
+
+```powershell
+C:\Users\svjkr\.venvs\codex\Scripts\python.exe -m unittest discover -s tests
+C:\Users\svjkr\.venvs\codex\Scripts\python.exe tools\validate_memory_rebase.py --strict
+```
+
+Also run at least one GUI startup benchmark, preferably from PyCharm if the change affects perceived launch speed. Record the key timings in the final response: `_G` reuse or scan time, connection report time, sheet load time, and live inventory apply time.
