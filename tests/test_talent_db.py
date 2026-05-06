@@ -128,6 +128,24 @@ newTalent{
 
         self.assertEqual(record.resource_costs, {"mana": 12.0, "stamina": 4.5})
 
+    def test_simple_range_metadata_is_preserved(self) -> None:
+        lua = """
+newTalent{
+    name = "Ranged Action",
+    requires_target = true,
+    range = 6,
+    radius = 2,
+    action = function(self, t)
+        local range = 99
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertTrue(record.requires_target)
+        self.assertEqual(record.target_range, 6.0)
+        self.assertEqual(record.target_radius, 2.0)
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{

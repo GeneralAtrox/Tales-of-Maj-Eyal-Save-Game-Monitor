@@ -235,12 +235,51 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.max_available_threat_pct, 0.0)
         self.assertIsNone(result.talent_report.strongest_available_entry())
 
+    def test_compute_marks_out_of_range_talent_unavailable(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}, x=0, y=0))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Distant Caster",
+                level=25,
+                max_life=500,
+                offense=EnemyOffense(name="Distant Caster", atk=10, dam=5),
+                powers=EnemyPowers(spellpower=100, talents={"T_FLAME": 5}, x=10, y=0),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+                requires_target=True,
+                target_range=6.0,
+                target_radius=1.0,
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertTrue(result.talent_report.entries[0].is_out_of_range)
+        self.assertEqual(result.talent_report.max_available_expected_damage, 0.0)
+        self.assertEqual(result.talent_report.max_available_threat_pct, 0.0)
+        self.assertIsNone(result.talent_report.strongest_available_entry())
+
     def test_talent_timing_label_includes_mode_and_cooldown(self) -> None:
         self.assertEqual(talent_timing_label("activated", 4), "activated, cd 4")
         self.assertEqual(talent_timing_label("activated", 4, 2), "activated, cd 4, cooling 2")
         self.assertEqual(
             talent_timing_label("activated", 4, 0, {"mana": 25.0}),
             "activated, cd 4, needs mana +25",
+        )
+        self.assertEqual(
+            talent_timing_label("activated", 4, 0, None, 10.0, 7.0),
+            "activated, cd 4, out of range 10>7",
         )
         self.assertEqual(talent_timing_label("activated", 0), "activated, no cd")
         self.assertEqual(talent_timing_label("passive", 0), "passive")

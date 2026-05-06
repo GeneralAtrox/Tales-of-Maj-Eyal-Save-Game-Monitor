@@ -1122,6 +1122,8 @@ class PlayerStats:
     armor_hardiness: float = 0.0
     evasion: float = 0.0
     ignore_direct_crits: float = 0.0
+    x: float | None = None
+    y: float | None = None
     resists: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
     resists_cap: dict[str, float] = field(default_factory=dict)
@@ -1484,6 +1486,8 @@ class MemoryReader:
             armor_hardiness=_tab_get_number(h, pt, "combat_armor_hardiness") or 0.0,
             evasion=_tab_get_number(h, pt, "evasion") or 0.0,
             ignore_direct_crits=_tab_get_number(h, pt, "ignore_direct_crits") or 0.0,
+            x=_tab_get_number(h, pt, "x"),
+            y=_tab_get_number(h, pt, "y"),
             resists=raw_resists,
             resists_pen=_dump_numeric_subtable("resists_pen"),
             resists_cap=raw_caps,

@@ -139,6 +139,8 @@ def player_stats_to_defenses(stats: PlayerStats | None) -> PlayerDefenses | None
         resists_pen=dict(stats.resists_pen),
         resists_cap=dict(stats.resists_cap),
         ignore_direct_crits_pct=stats.ignore_direct_crits,
+        x=stats.x,
+        y=stats.y,
     )
 
 _RESIST_LABELS: dict[str, str] = {
@@ -349,6 +351,8 @@ class _EnemyCard(QFrame):
                     talent_report.worst_cooldown,
                     talent_report.worst_current_cooldown,
                     talent_report.entries[0].resource_shortages if talent_report.entries else None,
+                    talent_report.entries[0].range_to_target if talent_report.entries else None,
+                    talent_report.entries[0].range_limit if talent_report.entries else None,
                 )
                 timing_text = f", {timing}" if timing else ""
                 talent_line = (
@@ -500,6 +504,8 @@ class _EnemyCard(QFrame):
                     talent_report.worst_cooldown,
                     talent_report.worst_current_cooldown,
                     talent_report.entries[0].resource_shortages if talent_report.entries else None,
+                    talent_report.entries[0].range_to_target if talent_report.entries else None,
+                    talent_report.entries[0].range_limit if talent_report.entries else None,
                 )
                 timing_text = f", {timing}" if timing else ""
                 prefix = "⚠ " if talent_can_kill else "● "

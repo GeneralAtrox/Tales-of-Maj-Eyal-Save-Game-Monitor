@@ -54,6 +54,8 @@ class EnemyPowers:
     resources: dict[str, float] = field(default_factory=dict)
     """Current actor resources read from memory, keyed by resource short name."""
     has_resource_snapshot: bool = False
+    x: float | None = None
+    y: float | None = None
     stats: dict[str, float] = field(default_factory=dict)
     """Base stat values used by ``combatTalentStatDamage`` talents."""
     spell_crit_pct: float = 0.0
@@ -84,6 +86,8 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         talents_cd=_cooldown_fields_by_prefix(all_fields, "talents_cd."),
         resources=resources,
         has_resource_snapshot=bool(resources),
+        x=_optional_number_field(all_fields, "x"),
+        y=_optional_number_field(all_fields, "y"),
         stats=stats,
         spell_crit_pct=_spell_crit(all_fields, stats),
         mind_crit_pct=_mind_crit(all_fields, stats),
@@ -104,10 +108,18 @@ class TalentThreatEntry:
     current_cooldown: int
     mode: str
     resource_shortages: dict[str, float] = field(default_factory=dict)
+    range_to_target: float | None = None
+    range_limit: float | None = None
 
     @property
     def is_available(self) -> bool:
-        return self.current_cooldown <= 0 and not self.resource_shortages
+        return self.current_cooldown <= 0 and not self.resource_shortages and not self.is_out_of_range
+
+    @property
+    def is_out_of_range(self) -> bool:
+        if self.range_to_target is None or self.range_limit is None:
+            return False
+        return self.range_to_target > self.range_limit
 
 
 @dataclass(slots=True)
@@ -136,6 +148,8 @@ def talent_timing_label(
     cooldown: int,
     current_cooldown: int = 0,
     resource_shortages: dict[str, float] | None = None,
+    range_to_target: float | None = None,
+    range_limit: float | None = None,
 ) -> str:
     """Compact display label for a parsed talent's activation context."""
     parts: list[str] = []
@@ -150,6 +164,8 @@ def talent_timing_label(
         parts.append(f"cooling {current_cooldown}")
     if resource_shortages:
         parts.extend(_resource_shortage_labels(resource_shortages))
+    if range_to_target is not None and range_limit is not None and range_to_target > range_limit:
+        parts.append(f"out of range {range_to_target:.0f}>{range_limit:.0f}")
     return ", ".join(parts)
 
 
@@ -359,6 +375,7 @@ def compute_talent_threat(
         daminc_mult = 1.0 + cm.damage_increase_for_type(powers.inc_damage, dtype or "all") / 100.0
         expected = after * mult * daminc_mult * _crit_multiplier(record, powers, player)
         threat_pct = (expected / player.effective_hp) * 100.0
+        range_to_target, range_limit = _range_check(record, powers, player)
 
         entry = TalentThreatEntry(
             talent_id=tid,
@@ -371,6 +388,8 @@ def compute_talent_threat(
             current_cooldown=powers.talents_cd.get(tid, 0),
             mode=record.mode,
             resource_shortages=_resource_shortages(record.resource_costs, powers),
+            range_to_target=range_to_target,
+            range_limit=range_limit,
         )
         report.entries.append(entry)
         if expected > report.max_expected_damage:
@@ -410,6 +429,13 @@ def _number_field(all_fields: dict[str, str | float | bool], key: str, default: 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     return default
+
+
+def _optional_number_field(all_fields: dict[str, str | float | bool], key: str) -> float | None:
+    value = all_fields.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: str) -> dict[str, float]:
@@ -484,3 +510,16 @@ def _resource_shortage_labels(shortages: dict[str, float]) -> list[str]:
         missing_text = str(int(missing)) if float(missing).is_integer() else f"{missing:.1f}"
         labels.append(f"needs {resource} +{missing_text}")
     return labels
+
+
+def _range_check(
+    record: TalentRecord,
+    powers: EnemyPowers,
+    player: PlayerDefenses,
+) -> tuple[float | None, float | None]:
+    if not record.requires_target or record.target_range is None:
+        return None, None
+    if powers.x is None or powers.y is None or player.x is None or player.y is None:
+        return None, None
+    distance = max(abs(powers.x - player.x), abs(powers.y - player.y))
+    return distance, max(0.0, record.target_range + max(0.0, record.target_radius))

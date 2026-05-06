@@ -127,6 +127,8 @@ def copy_player_defenses(player: PlayerDefenses | None) -> PlayerDefenses | None
         resists_pen=dict(player.resists_pen),
         resists_cap=dict(player.resists_cap),
         ignore_direct_crits_pct=player.ignore_direct_crits_pct,
+        x=player.x,
+        y=player.y,
     )
 
 
@@ -178,6 +180,8 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             talents_cd=dict(powers.talents_cd),
             resources=dict(powers.resources),
             has_resource_snapshot=powers.has_resource_snapshot,
+            x=powers.x,
+            y=powers.y,
             stats=dict(powers.stats),
             spell_crit_pct=powers.spell_crit_pct,
             mind_crit_pct=powers.mind_crit_pct,

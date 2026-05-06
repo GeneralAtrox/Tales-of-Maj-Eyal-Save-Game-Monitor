@@ -75,6 +75,8 @@ class PlayerDefenses:
     resists_cap: dict[str, float] = field(default_factory=dict)
     ignore_direct_crits_pct: float = 0.0
     """Chance (0..100) that a crit is ignored — the 'ignore_direct_crits' attr."""
+    x: float | None = None
+    y: float | None = None
 
     @property
     def effective_hp(self) -> float:
