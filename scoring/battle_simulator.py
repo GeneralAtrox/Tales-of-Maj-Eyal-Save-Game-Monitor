@@ -141,11 +141,37 @@ def copy_player_defenses(player: PlayerDefenses | None) -> PlayerDefenses | None
     )
 
 
+def _copy_weapon_offense(weapon: WeaponOffense) -> WeaponOffense:
+    return WeaponOffense(
+        source=weapon.source,
+        atk=weapon.atk,
+        dam=weapon.dam,
+        apr=weapon.apr,
+        crit_chance_pct=weapon.crit_chance_pct,
+        crit_power_bonus_pct=weapon.crit_power_bonus_pct,
+        accuracy_effect=weapon.accuracy_effect,
+        accuracy_effect_scale=weapon.accuracy_effect_scale,
+        damage_range=weapon.damage_range,
+        physspeed=weapon.physspeed,
+        damage_type=weapon.damage_type,
+        damage_mult=weapon.damage_mult,
+        project_damage_mult=weapon.project_damage_mult,
+        inc_damage=dict(weapon.inc_damage),
+        resists_pen=dict(weapon.resists_pen),
+        melee_project=dict(weapon.melee_project),
+        burst_on_hit=dict(weapon.burst_on_hit),
+        burst_on_crit=dict(weapon.burst_on_crit),
+        unmodeled_proc_hooks=tuple(weapon.unmodeled_proc_hooks),
+    )
+
+
 def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapshot | None:
     if enemy is None:
         return None
     offense = enemy.offense
     powers = enemy.powers
+    offhands = tuple(_copy_weapon_offense(weapon) for weapon in offense.offhands)
+    offhand = offhands[0] if offhands else (_copy_weapon_offense(offense.offhand) if offense.offhand else None)
     return BattleEnemySnapshot(
         name=enemy.name,
         level=enemy.level,
@@ -180,28 +206,8 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             burst_on_hit=dict(offense.burst_on_hit),
             burst_on_crit=dict(offense.burst_on_crit),
             unmodeled_proc_hooks=tuple(offense.unmodeled_proc_hooks),
-            offhand=None
-            if offense.offhand is None
-            else WeaponOffense(
-                source=offense.offhand.source,
-                atk=offense.offhand.atk,
-                dam=offense.offhand.dam,
-                apr=offense.offhand.apr,
-                crit_chance_pct=offense.offhand.crit_chance_pct,
-                crit_power_bonus_pct=offense.offhand.crit_power_bonus_pct,
-                accuracy_effect=offense.offhand.accuracy_effect,
-                accuracy_effect_scale=offense.offhand.accuracy_effect_scale,
-                damage_range=offense.offhand.damage_range,
-                physspeed=offense.offhand.physspeed,
-                damage_type=offense.offhand.damage_type,
-                damage_mult=offense.offhand.damage_mult,
-                inc_damage=dict(offense.offhand.inc_damage),
-                resists_pen=dict(offense.offhand.resists_pen),
-                melee_project=dict(offense.offhand.melee_project),
-                burst_on_hit=dict(offense.offhand.burst_on_hit),
-                burst_on_crit=dict(offense.offhand.burst_on_crit),
-                unmodeled_proc_hooks=tuple(offense.offhand.unmodeled_proc_hooks),
-            ),
+            offhand=offhand,
+            offhands=offhands or ((offhand,) if offhand else ()),
             talents=dict(offense.talents),
             talents_cd=dict(offense.talents_cd),
             resources=dict(offense.resources),

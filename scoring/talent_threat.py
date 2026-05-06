@@ -33,6 +33,7 @@ _RESOURCE_COST_FIELDS = (
     "soul",
     "steam",
 )
+_CURSE_OF_MADNESS_EFFECT_PREFIX = "effects.EFF_CURSE_OF_MADNESS."
 
 
 @dataclass(slots=True)
@@ -96,7 +97,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         spell_crit_pct=_spell_crit(all_fields, stats),
         mind_crit_pct=_mind_crit(all_fields, stats),
         physical_crit_pct=_physical_crit(all_fields, stats),
-        crit_power_bonus_pct=_number_field(all_fields, "combat_critical_power"),
+        crit_power_bonus_pct=_actor_crit_power_bonus(all_fields),
     )
 
 
@@ -226,35 +227,47 @@ def _precomputed_or_raw(
 
 
 def _spell_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    scale = _hit_penalty_2h_scale(all_fields)
     raw = _precomputed_or_raw(
         all_fields,
         "combat_precomputed_spellpower",
-        _number_field(all_fields, "combat_spellpower")
-        + _number_field(all_fields, "combat_generic_power")
-        + stats.get("mag", 0.0),
+        (
+            _number_field(all_fields, "combat_spellpower")
+            + _number_field(all_fields, "combat_generic_power")
+            + stats.get("mag", 0.0)
+        )
+        * scale,
     )
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
 def _mind_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    scale = _hit_penalty_2h_scale(all_fields)
     raw = _precomputed_or_raw(
         all_fields,
         "combat_precomputed_mindpower",
-        _number_field(all_fields, "combat_mindpower")
-        + _number_field(all_fields, "combat_generic_power")
-        + stats.get("wil", 0.0) * 0.7
-        + stats.get("cun", 0.0) * 0.4,
+        (
+            _number_field(all_fields, "combat_mindpower")
+            + _number_field(all_fields, "combat_generic_power")
+            + stats.get("wil", 0.0) * 0.7
+            + stats.get("cun", 0.0) * 0.4
+        )
+        * scale,
     )
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
 def _physical_power(all_fields: dict[str, str | float | bool], stats: dict[str, float]) -> float:
+    scale = _hit_penalty_2h_scale(all_fields)
     raw = _precomputed_or_raw(
         all_fields,
         "combat_precomputed_physpower",
-        _number_field(all_fields, "combat_dam")
-        + _number_field(all_fields, "combat_generic_power")
-        + stats.get("str", 0.0),
+        (
+            _number_field(all_fields, "combat_dam")
+            + _number_field(all_fields, "combat_generic_power")
+            + stats.get("str", 0.0)
+        )
+        * scale,
     )
     return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
@@ -437,6 +450,36 @@ def _number_field(all_fields: dict[str, str | float | bool], key: str, default: 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     return default
+
+
+def _truthy_field(all_fields: dict[str, str | float | bool], key: str) -> bool:
+    value = all_fields.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0.0
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "nil"}
+    return False
+
+
+def _hit_penalty_2h_scale(all_fields: dict[str, str | float | bool]) -> float:
+    return cm.two_handed_hit_penalty_scale(
+        _truthy_field(all_fields, "hit_penalty_2h"),
+        _number_field(all_fields, "size_category", 4.0),
+    )
+
+
+def _curse_of_madness_crit_power_bonus(all_fields: dict[str, str | float | bool]) -> float:
+    level = _number_field(all_fields, f"{_CURSE_OF_MADNESS_EFFECT_PREFIX}level")
+    unlock_level = _number_field(all_fields, f"{_CURSE_OF_MADNESS_EFFECT_PREFIX}unlockLevel")
+    if level < 1.0 or unlock_level < 1.0:
+        return 0.0
+    return level * 3.0
+
+
+def _actor_crit_power_bonus(all_fields: dict[str, str | float | bool]) -> float:
+    return max(_number_field(all_fields, "combat_critical_power"), _curse_of_madness_crit_power_bonus(all_fields))
 
 
 def _optional_number_field(all_fields: dict[str, str | float | bool], key: str) -> float | None:

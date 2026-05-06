@@ -107,6 +107,14 @@ def combat_damage_power(weapon_damage: float) -> float:
     return (math.sqrt(power / 10.0) - 1.0) * 0.5 + 1.0
 
 
+def two_handed_hit_penalty_scale(active: bool, size_category: float) -> float:
+    """Damage/accuracy power scale from ToME's `hit_penalty_2h` attr."""
+    if not active:
+        return 1.0
+    penalty_pct = max(0.0, 20.0 - (float(size_category) - 4.0) * 5.0)
+    return max(0.0, 1.0 - penalty_pct / 100.0)
+
+
 def combat_talent_limit(
     talent_level: float,
     limit: float,
@@ -147,6 +155,7 @@ def estimate_combat_damage(
     combat_dam: float = 0.0,
     stats: dict[str, float] | None = None,
     dammod: dict[str, float] | None = None,
+    physical_power_scale: float = 1.0,
 ) -> float:
     """Estimate ToME `combatDamage` for a weapon-style melee hit.
 
@@ -159,7 +168,7 @@ def estimate_combat_damage(
     stats = stats or {}
     dammod = dammod or DEFAULT_DAMMOD
     stat_total = sum(float(stats.get(stat, 0.0)) * float(mod) for stat, mod in dammod.items())
-    physical_raw = max(0.0, float(combat_dam) + float(stats.get("str", 0.0)))
+    physical_raw = max(0.0, (float(combat_dam) + float(stats.get("str", 0.0))) * physical_power_scale)
     physical_power = rescale_combat_stats(physical_raw)
     stat_mod = rescale_combat_stats(stat_total, 45.0, 1.0 / 3.0)
     raw = 0.3 * (physical_power + stat_mod) * combat_damage_power(weapon_damage)

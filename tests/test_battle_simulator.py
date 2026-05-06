@@ -865,6 +865,33 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertIn("OFFHAND adds ~30 same-action damage (x0.50 offhand multiplier)", report.notes)
         self.assertIn("Unmodeled weapon proc hooks: special_on_hit", report.notes)
 
+    def test_multiple_offhand_weapons_add_same_action_damage(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 100.0,
+                "combat.atk": 100.0,
+                "combat.damrange": 1.0,
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 20.0,
+                "combat.offhand.damrange": 1.0,
+                "combat.offhand.mult": 0.5,
+                "combat.offhand2.source": "OFFHAND #2",
+                "combat.offhand2.dam": 40.0,
+                "combat.offhand2.damrange": 1.0,
+                "combat.offhand2.mult": 0.5,
+            },
+            "Many Hands",
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(len(enemy.offhands), 2)
+        self.assertEqual(report.burst_expected_damage, 130.0)
+        self.assertEqual(report.burst_hits, 3)
+        self.assertIn("OFFHAND adds ~10 same-action damage (x0.50 offhand multiplier)", report.notes)
+        self.assertIn("OFFHAND #2 adds ~20 same-action damage (x0.50 offhand multiplier)", report.notes)
+
     def test_enemy_offense_reads_offhand_weapon_fields(self) -> None:
         offense = EnemyOffense.from_all_fields(
             {
@@ -891,6 +918,72 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.offhand.melee_project, {"FIRE": 5.0})
         self.assertEqual(offense.offhand.unmodeled_proc_hooks, ("special_on_hit",))
         self.assertEqual(offense.offhand.damage_mult, 1.0)
+
+    def test_hit_penalty_2h_reduces_accuracy_power_and_offhand_procs(self) -> None:
+        penalized = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 40.0,
+                "combat.atk": 40.0,
+                "stats.str": 40.0,
+                "stats.dex": 10.0,
+                "size_category": 4.0,
+                "hit_penalty_2h": True,
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 20.0,
+                "combat.offhand.damrange": 1.0,
+                "combat.offhand.mult": 0.5,
+                "combat.offhand.burst_on_hit.FIRE": 20.0,
+            },
+            "Oversized Wielder",
+        )
+        normal = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 40.0,
+                "combat.atk": 40.0,
+                "stats.str": 40.0,
+                "stats.dex": 10.0,
+                "size_category": 4.0,
+            },
+            "Normal Wielder",
+        )
+
+        self.assertLess(penalized.atk, normal.atk)
+        self.assertLess(penalized.dam, normal.dam)
+        self.assertIsNotNone(penalized.offhand)
+        assert penalized.offhand is not None
+        self.assertEqual(penalized.offhand.project_damage_mult, 0.5)
+
+        report = weapon_threat(penalized, PlayerDefenses(max_life=300, defense=0))
+
+        self.assertIn("OFFHAND proc damage reduced by hit_penalty_2h", report.notes)
+
+    def test_curse_of_madness_effect_supplies_crit_power_floor(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 100.0,
+                "combat.crit": 100.0,
+                "combat.damrange": 1.0,
+                "effects.EFF_CURSE_OF_MADNESS.level": 5.0,
+                "effects.EFF_CURSE_OF_MADNESS.unlockLevel": 1.0,
+            },
+            "Mad Critter",
+        )
+
+        self.assertEqual(offense.crit_power_bonus_pct, 15.0)
+        report = weapon_threat(offense, PlayerDefenses(max_life=300, defense=0))
+        self.assertEqual(report.expected_damage, 165.0)
+
+    def test_curse_of_madness_crit_power_does_not_double_count_live_total(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat_critical_power": 30.0,
+                "effects.EFF_CURSE_OF_MADNESS.level": 5.0,
+                "effects.EFF_CURSE_OF_MADNESS.unlockLevel": 1.0,
+            },
+            "Mad Critter",
+        )
+
+        self.assertEqual(offense.crit_power_bonus_pct, 30.0)
 
     def test_offhand_multiplier_uses_dual_weapon_training(self) -> None:
         expected_mult = cm.combat_talent_limit(5.0, 1.0, 0.65, 0.85)
@@ -1527,6 +1620,47 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(powers.spellpower, cm.rescale_combat_stats(50.0))
         self.assertEqual(powers.mindpower, cm.rescale_combat_stats(40.0))
         self.assertEqual(powers.physicalpower, cm.rescale_combat_stats(30.0))
+
+    def test_enemy_powers_apply_hit_penalty_2h_to_raw_power_fields(self) -> None:
+        normal = enemy_powers_from_fields(
+            {
+                "combat_spellpower": 40.0,
+                "combat_mindpower": 40.0,
+                "combat_dam": 40.0,
+                "stats.mag": 20.0,
+                "stats.wil": 20.0,
+                "stats.cun": 10.0,
+                "stats.str": 20.0,
+                "size_category": 4.0,
+            }
+        )
+        penalized = enemy_powers_from_fields(
+            {
+                "combat_spellpower": 40.0,
+                "combat_mindpower": 40.0,
+                "combat_dam": 40.0,
+                "stats.mag": 20.0,
+                "stats.wil": 20.0,
+                "stats.cun": 10.0,
+                "stats.str": 20.0,
+                "size_category": 4.0,
+                "hit_penalty_2h": True,
+            }
+        )
+
+        self.assertLess(penalized.spellpower, normal.spellpower)
+        self.assertLess(penalized.mindpower, normal.mindpower)
+        self.assertLess(penalized.physicalpower, normal.physicalpower)
+
+    def test_enemy_powers_use_curse_of_madness_crit_power_floor(self) -> None:
+        powers = enemy_powers_from_fields(
+            {
+                "effects.EFF_CURSE_OF_MADNESS.level": 5.0,
+                "effects.EFF_CURSE_OF_MADNESS.unlockLevel": 1.0,
+            }
+        )
+
+        self.assertEqual(powers.crit_power_bonus_pct, 15.0)
 
 
 if __name__ == "__main__":
