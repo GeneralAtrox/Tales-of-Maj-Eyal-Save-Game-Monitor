@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from game_data.talent_db import lookup_talent_description, lookup_talent_icon
 from gui.sprite_composer import compose_layers, get_sprite, normalize_sprite_layers
+from gui.startup_trace import mark_startup_phase
 from gui.theme import (
     BG,
     BLUE,
@@ -1937,7 +1938,9 @@ class CharacterSheetView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        mark_startup_phase("sheet_detail_panel_create_start")
         self._detail_panel = _TalentDetailPanel()
+        mark_startup_phase("sheet_detail_panel_create_done")
         self._current_category: str = ""
         self._current_sprite: QPixmap | None = None
         self._current_sprite_key: tuple[str, tuple[str, ...]] | None = None
@@ -1969,22 +1972,29 @@ class CharacterSheetView(QWidget):
         root.setSpacing(0)
 
         # ── Header bar ───────────────────────────────────────────────────
+        mark_startup_phase("sheet_header_create_start")
         self._header = _HeaderBar()
         root.addWidget(self._header)
+        mark_startup_phase("sheet_header_create_done")
 
         # ── Fixed player overview ────────────────────────────────────────
+        mark_startup_phase("sheet_top_row_create_start")
         self._player_box = QFrame()
         self._player_box.setStyleSheet(f"background: {BG}; border-bottom: 1px solid {BORDER};")
         self._player_box_lay = QVBoxLayout(self._player_box)
         self._player_box_lay.setContentsMargins(12, 0, 12, 8)
         self._player_box_lay.setSpacing(0)
         root.addWidget(self._player_box)
+        mark_startup_phase("sheet_top_row_create_done")
 
         # ── Content tabs ─────────────────────────────────────────────────
+        mark_startup_phase("sheet_tabs_create_start")
         self._content_tabs = QTabWidget()
         root.addWidget(self._content_tabs, 1)
+        mark_startup_phase("sheet_tabs_create_done")
 
         # Talents tab: left scroll | open feature area
+        mark_startup_phase("sheet_talents_tab_create_start")
         talents_tab = QWidget()
         talents_root = QVBoxLayout(talents_tab)
         talents_root.setContentsMargins(0, 0, 0, 0)
@@ -2020,26 +2030,34 @@ class CharacterSheetView(QWidget):
         splitter.setStretchFactor(1, 1)
         talents_root.addWidget(splitter)
         self._content_tabs.addTab(talents_tab, "Talents")
+        mark_startup_phase("sheet_talents_tab_create_done")
 
+        mark_startup_phase("sheet_inventory_placeholder_start")
         inventory_tab = QWidget()
         self._inventory_host_lay = QVBoxLayout(inventory_tab)
         self._inventory_host_lay.setContentsMargins(0, 0, 0, 0)
         self._inventory_host_lay.setSpacing(0)
         self._inventory_tab_index = self._content_tabs.addTab(inventory_tab, "Inventory")
+        mark_startup_phase("sheet_inventory_placeholder_done")
 
+        mark_startup_phase("sheet_progression_placeholder_start")
         self._progression_host = QWidget()
         self._progression_host_lay = QVBoxLayout(self._progression_host)
         self._progression_host_lay.setContentsMargins(0, 0, 0, 0)
         self._progression_host_lay.setSpacing(0)
         self._progression_tab_index = self._content_tabs.addTab(self._progression_host, "Progression")
+        mark_startup_phase("sheet_progression_placeholder_done")
 
+        mark_startup_phase("sheet_enemy_placeholder_start")
         self._enemy_host = QWidget()
         self._enemy_host_lay = QVBoxLayout(self._enemy_host)
         self._enemy_host_lay.setContentsMargins(0, 0, 0, 0)
         self._enemy_host_lay.setSpacing(0)
         self._content_tabs.addTab(self._enemy_host, "Enemies")
         self._content_tabs.currentChanged.connect(self._on_content_tab_changed)
+        mark_startup_phase("sheet_enemy_placeholder_done")
 
+        mark_startup_phase("sheet_overlay_create_start")
         self._connecting_overlay = QWidget(self)
         self._connecting_overlay.setStyleSheet(f"background: {BG};")
         overlay_lay = QVBoxLayout(self._connecting_overlay)
@@ -2057,6 +2075,7 @@ class CharacterSheetView(QWidget):
         overlay_lay.addStretch()
         self._connecting_overlay.raise_()
         self._connecting_overlay.show()
+        mark_startup_phase("sheet_overlay_create_done")
 
     # ── Public API ────────────────────────────────────────────────────────
 
