@@ -12,16 +12,42 @@ from scoring.ranks import rank_label
 from scoring.talent_weapon import weapon_multiplier_for_talents
 
 _BASE_TEMPLATE_RE = re.compile(r'define_as\s*=\s*"BASE_')
+_BASE_RE = re.compile(r'\bbase\s*=\s*"([^"]+)"')
 _DEFINE_AS_RE = re.compile(r'\bdefine_as\s*=\s*"([^"]+)"')
-_TYPE_RE = re.compile(r'\btype\s*=\s*"([^"]+)"')
-_SUBTYPE_RE = re.compile(r'\bsubtype\s*=\s*"([^"]+)"')
-_FACTION_RE = re.compile(r'\bfaction\s*=\s*"([^"]+)"')
+_TYPE_RE = re.compile(r'^[^\n{]*\btype\s*=\s*"([^"]+)"', re.MULTILINE)
+_SUBTYPE_RE = re.compile(r'^[^\n{]*\bsubtype\s*=\s*"([^"]+)"', re.MULTILINE)
+_FACTION_RE = re.compile(r'^[^\n{]*\bfaction\s*=\s*"([^"]+)"', re.MULTILINE)
+_AUTOLEVEL_RE = re.compile(r'^[^\n{]*\bautolevel\s*=\s*"([^"]+)"', re.MULTILINE)
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _TALENT_ENTRY_RE = re.compile(
     r"\[\s*(?:(?:ActorTalents|Talents)\.)?(T_[A-Z0-9_]+)\s*\]\s*=\s*(\{[^}]*\}|[^,\n}]+)"
 )
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _VENDORED_DATA_ROOT = _REPO_ROOT / "tools" / "t-engine4-master" / "game" / "modules" / "tome" / "data"
+_AUTOLEVEL_STAT_GAINS: dict[str, dict[str, float]] = {
+    "warrior": {"str": 2, "dex": 1},
+    "ghoul": {"str": 1, "con": 1},
+    "toad": {"dex": 1, "con": 1},
+    "zerker": {"str": 2, "con": 1},
+    "tank": {"str": 1, "con": 2},
+    "rogue": {"dex": 1, "cun": 2},
+    "slinger": {"dex": 2, "cun": 1},
+    "archer": {"dex": 2, "str": 1},
+    "caster": {"mag": 2, "wil": 1},
+    "wisecaster": {"mag": 1, "wil": 1},
+    "warriormage": {"mag": 2, "wil": 1, "str": 2, "dex": 1},
+    "roguemage": {"cun": 2, "dex": 1, "mag": 1},
+    "dexmage": {"mag": 2, "dex": 2},
+    "snake": {"cun": 2, "dex": 2, "con": 1, "str": 1},
+    "spider": {"cun": 1, "wil": 1, "mag": 1, "dex": 2},
+    "alchemy-golem": {"str": 2, "dex": 1, "con": 1},
+    "drake": {"str": 2, "wil": 2, "con": 1, "dex": 1},
+    "wildcaster": {"wil": 2, "cun": 1},
+    "summoner": {"wil": 1, "cun": 1},
+    "wyrmic": {"str": 1, "wil": 1, "dex": 1, "cun": 1},
+    "warriorwill": {"str": 2, "wil": 2, "dex": 1},
+    "butcher": {"str": 1, "con": 1, "cun": 1},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,14 +313,21 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         )
 
     block = boss_block.block
-    combat_block = _extract_table(block, "combat")
-    inc_damage = _parse_damage_table(_extract_table(block, "inc_damage"))
-    resists_pen = _parse_damage_table(_extract_table(block, "resists_pen"))
-    talents = _parse_talent_table(block)
+    base_block = _resolve_base_block(block)
+    source_blocks = (block, base_block.block) if base_block is not None else (block,)
+    combat_block = _extract_table_from_blocks(source_blocks, "combat")
+    inc_damage = _parse_merged_damage_table(source_blocks, "inc_damage")
+    resists_pen = _parse_merged_damage_table(source_blocks, "resists_pen")
+    talents = _parse_merged_talent_table(source_blocks)
     weapon_dam = _combat_value(combat_block, "dam")
-    stats = _parse_number_table(_extract_table(block, "stats"))
+    level = _parse_scalar_from_blocks(source_blocks, "level_range", default=_template_level(template.level_label))
+    stats = _autoleveled_stats(
+        _parse_merged_number_table(source_blocks, "stats"),
+        _parse_string(source_blocks, _AUTOLEVEL_RE),
+        level,
+    )
     dammod = _parse_number_table(_extract_table(combat_block or "", "dammod"))
-    combat_dam = _parse_scalar_field(block, "combat_dam")
+    combat_dam = _parse_scalar_from_blocks(source_blocks, "combat_dam")
     dam = _estimate_template_damage(
         weapon_dam,
         combat_dam=combat_dam,
@@ -304,16 +337,18 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     atk = _combat_value(combat_block, "atk")
     apr = _combat_value(combat_block, "apr")
     crit = (
-        _parse_scalar_field(block, "combat_physcrit")
-        + _parse_scalar_field(block, "combat_generic_crit")
+        _parse_scalar_from_blocks(source_blocks, "combat_physcrit")
+        + _parse_scalar_from_blocks(source_blocks, "combat_generic_crit")
         + _combat_value(combat_block, "physcrit")
     )
     if crit == 0.0:
         crit = _combat_value(combat_block, "crit")
-    crit_power = _parse_scalar_field(block, "combat_critical_power") + _combat_value(combat_block, "crit_power")
+    crit_power = _parse_scalar_from_blocks(source_blocks, "combat_critical_power") + _combat_value(
+        combat_block, "crit_power"
+    )
     physspeed = _combat_value(combat_block, "physspeed")
     if physspeed == 0.0:
-        physspeed = _parse_scalar_field(block, "combat_physspeed", default=1.0)
+        physspeed = _parse_scalar_from_blocks(source_blocks, "combat_physspeed", default=1.0)
     damage_type = _parse_damage_type_expr(_extract_value_expr(combat_block or "", "damtype"))
 
     has_combat_data = any(
@@ -328,21 +363,21 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         )
     )
 
-    rank = _parse_scalar_field(block, "rank", default=4.0)
+    rank = _parse_scalar_from_blocks(source_blocks, "rank", default=4.0)
     return BossTemplateStats(
         template=template,
         name=template.name,
-        level=_parse_scalar_field(block, "level_range", default=_template_level(template.level_label)),
-        max_life=_parse_scalar_field(block, "max_life"),
+        level=level,
+        max_life=_parse_scalar_from_blocks(source_blocks, "max_life"),
         rank=rank,
         rank_name=rank_label(rank),
-        faction=_parse_string(block, _FACTION_RE),
-        type_name=_parse_string(block, _TYPE_RE),
-        subtype=_parse_string(block, _SUBTYPE_RE),
-        global_speed=_parse_scalar_field(
-            block,
+        faction=_parse_string(source_blocks, _FACTION_RE),
+        type_name=_parse_string(source_blocks, _TYPE_RE),
+        subtype=_parse_string(source_blocks, _SUBTYPE_RE),
+        global_speed=_parse_scalar_from_blocks(
+            source_blocks,
             "global_speed_base",
-            default=_parse_scalar_field(block, "global_speed", default=1.0),
+            default=_parse_scalar_from_blocks(source_blocks, "global_speed", default=1.0),
         )
         or 1.0,
         dam=dam,
@@ -353,8 +388,8 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
         talent_max_weapon_mult=weapon_multiplier_for_talents(talents),
-        spellpower=_parse_scalar_field(block, "combat_spellpower"),
-        mindpower=_parse_scalar_field(block, "combat_mindpower"),
+        spellpower=_template_spell_power(_parse_scalar_from_blocks(source_blocks, "combat_spellpower"), stats),
+        mindpower=_template_mind_power(_parse_scalar_from_blocks(source_blocks, "combat_mindpower"), stats),
         physicalpower=_template_physical_power(combat_dam, stats),
         inc_damage=inc_damage,
         resists_pen=resists_pen,
@@ -396,6 +431,18 @@ def _boss_block_map() -> dict[str, list[_BossBlock]]:
     return boss_map
 
 
+@lru_cache(maxsize=1)
+def _define_block_map() -> dict[str, _BossBlock]:
+    define_map: dict[str, _BossBlock] = {}
+    for source_path, lua in _iter_npc_sources():
+        for block in iter_balanced_blocks(lua, "newEntity"):
+            define_as_match = _DEFINE_AS_RE.search(block)
+            if define_as_match is None:
+                continue
+            define_map[define_as_match.group(1).strip()] = _BossBlock(source_path=source_path, block=block)
+    return define_map
+
+
 def _resolve_boss_block(template: BossTemplate) -> _BossBlock | None:
     for candidate_name in template.candidate_names:
         boss_block = _resolve_boss_block_for_name(template, candidate_name)
@@ -415,6 +462,13 @@ def _resolve_boss_block_for_name(template: BossTemplate, candidate_name: str) ->
         if filtered:
             return filtered[-1]
     return entries[-1]
+
+
+def _resolve_base_block(block: str) -> _BossBlock | None:
+    base_match = _BASE_RE.search(block)
+    if base_match is None:
+        return None
+    return _define_block_map().get(base_match.group(1).strip())
 
 
 def _iter_npc_sources() -> list[tuple[str, str]]:
@@ -450,11 +504,53 @@ def _iter_npc_sources() -> list[tuple[str, str]]:
     return []
 
 
-def _parse_string(block: str, pattern: re.Pattern[str]) -> str:
-    match = pattern.search(block)
-    if match is None:
-        return ""
-    return match.group(1).strip()
+def _as_blocks(blocks: str | tuple[str, ...]) -> tuple[str, ...]:
+    return (blocks,) if isinstance(blocks, str) else blocks
+
+
+def _parse_string(blocks: str | tuple[str, ...], pattern: re.Pattern[str]) -> str:
+    for block in _as_blocks(blocks):
+        match = pattern.search(block)
+        if match is not None:
+            return match.group(1).strip()
+    return ""
+
+
+def _parse_scalar_from_blocks(blocks: tuple[str, ...], field_name: str, default: float = 0.0) -> float:
+    for block in blocks:
+        expr = _extract_value_expr(block, field_name)
+        if expr is not None:
+            return _parse_number_expr(expr, default=default)
+    return default
+
+
+def _extract_table_from_blocks(blocks: tuple[str, ...], field_name: str) -> str | None:
+    for block in blocks:
+        table_block = _extract_table(block, field_name)
+        if table_block is not None:
+            return table_block
+    return None
+
+
+def _parse_merged_damage_table(blocks: tuple[str, ...], field_name: str) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    for block in reversed(blocks):
+        merged.update(_parse_damage_table(_extract_table(block, field_name)))
+    return merged
+
+
+def _parse_merged_number_table(blocks: tuple[str, ...], field_name: str) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    for block in reversed(blocks):
+        merged.update(_parse_number_table(_extract_table(block, field_name)))
+    return merged
+
+
+def _parse_merged_talent_table(blocks: tuple[str, ...]) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    for block in reversed(blocks):
+        merged.update(_parse_talent_table(block))
+    return merged
 
 
 def _parse_scalar_field(block: str, field_name: str, default: float = 0.0) -> float:
@@ -678,6 +774,27 @@ def _estimate_template_damage(
         stats=stats,
         dammod=dammod or None,
     )
+
+
+def _autoleveled_stats(stats: dict[str, float], autolevel: str, level: float) -> dict[str, float]:
+    gains = _AUTOLEVEL_STAT_GAINS.get(autolevel)
+    if not gains or level <= 1.0:
+        return stats
+    leveled = dict(stats)
+    levelups = max(0.0, level - 1.0)
+    for stat, gain in gains.items():
+        leveled[stat] = leveled.get(stat, 0.0) + gain * levelups
+    return leveled
+
+
+def _template_spell_power(combat_spellpower: float, stats: dict[str, float]) -> float:
+    raw = max(0.0, combat_spellpower + stats.get("mag", 0.0))
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
+def _template_mind_power(combat_mindpower: float, stats: dict[str, float]) -> float:
+    raw = max(0.0, combat_mindpower + stats.get("wil", 0.0) * 0.7 + stats.get("cun", 0.0) * 0.4)
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
 
 
 def _template_physical_power(combat_dam: float, stats: dict[str, float]) -> float:

@@ -106,8 +106,9 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertIsNotNone(result.talent_report)
         assert result.talent_report is not None
-        self.assertEqual(result.talent_report.max_expected_damage, 150.0)
-        self.assertEqual(result.talent_report.max_threat_pct, 150.0)
+        expected = round(cm.rescale_damage(100.0) * 1.5, 1)
+        self.assertEqual(result.talent_report.max_expected_damage, expected)
+        self.assertEqual(result.talent_report.max_threat_pct, expected)
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
 

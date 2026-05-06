@@ -6,27 +6,21 @@ the engine's scaling formula, then runs the result through the
 player's resists / inc_damage multipliers — the same downstream
 plumbing used for weapon hits.
 
-This is intentionally conservative: ToME's real formula combines
-talent level, power stat, and mastery in a non-trivial way. We
-approximate with ``base + (max - base) * min(1, level * power / 500)``
-which gives a reasonable midpoint without needing to reproduce every
-engine branch.
+This is intentionally conservative around targeting and cooldowns, but
+the damage scaling itself follows ToME's `combatTalent*Damage` curve:
+talent level and power stat are fed through the same square-root and
+damage-rescale path used by the engine.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Final
+import math
 
 from game_data.talent_db import TalentRecord, get_talent_db_by_id
 
 from . import combat_math as cm
 from .enemy_threat import PlayerDefenses
-
-_POWER_LEVEL_DIVISOR: Final[float] = 500.0
-"""``level * power`` at which a talent is assumed to reach its ``max``
-value. Chosen so L5 + 100 power → full scaling; L3 + 50 power → ~30%."""
-
 
 @dataclass(slots=True)
 class EnemyPowers:
@@ -94,13 +88,12 @@ def _scale(record: TalentRecord, level: int, power: float) -> float:
     """Approximate `combatTalentScaledDamage` for non-weapon families."""
     if record.damage_high <= 0:
         return 0.0
-    low = record.damage_low
-    span = record.damage_high - low
-    if span <= 0:
-        return low
-    progress = (max(1, level) * max(0.0, power)) / _POWER_LEVEL_DIVISOR
-    progress = min(1.0, progress)
-    return low + span * progress
+    base = record.damage_low
+    max_damage = record.damage_high
+    talent_factor = (math.sqrt(max(1, level)) - 1.0) * 0.8 + 1.0
+    max_factor = (math.sqrt(5.0) - 1.0) * 0.8 + 1.0
+    mod = max_damage / ((base + 100.0) * max_factor)
+    return cm.rescale_damage((base + max(0.0, power)) * talent_factor * mod)
 
 
 def _power_for_family(family: str, powers: EnemyPowers) -> float:

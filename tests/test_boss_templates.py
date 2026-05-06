@@ -7,15 +7,18 @@ from game_data.boss_templates import (
     _BossBlock,
     _boss_actor_refs,
     _boss_template_stats,
+    _define_block_map,
     get_boss_templates,
 )
 from game_data.talent_db import TalentRecord
+from scoring import combat_math as cm
 
 
 class BossTemplateTests(unittest.TestCase):
     def tearDown(self) -> None:
         _boss_template_stats.cache_clear()
         _boss_actor_refs.cache_clear()
+        _define_block_map.cache_clear()
 
     def test_display_label_uses_name_location_level_and_quest(self) -> None:
         templates = get_boss_templates()
@@ -97,6 +100,70 @@ newEntity{
         self.assertEqual(stats.resists_pen["COLD"], 15.0)
         self.assertTrue(stats.has_combat_data)
         self.assertEqual(stats.warning, "")
+
+    def test_stats_estimate_caster_powers_from_autoleveled_stats(self) -> None:
+        template = BossTemplate("The Test Boss", "Test Zone", "17+", "Quest: Testing")
+        block = """
+newEntity{
+    name = "The Test Boss",
+    level_range = {17, nil},
+    stats = { mag = 25, wil = 16, cun = 14 },
+    combat_spellpower = 5,
+    combat_mindpower = 7,
+    autolevel = "caster",
+}
+"""
+        with patch(
+            "game_data.boss_templates._resolve_boss_block",
+            return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+        ):
+            stats = _boss_template_stats(template)
+
+        expected_spellpower = cm.rescale_combat_stats(5 + 25 + (17 - 1) * 2)
+        expected_mindpower = cm.rescale_combat_stats(7 + (16 + (17 - 1)) * 0.7 + 14 * 0.4)
+        self.assertEqual(stats.spellpower, expected_spellpower)
+        self.assertEqual(stats.mindpower, expected_mindpower)
+
+    def test_stats_inherit_base_template_fields(self) -> None:
+        template = BossTemplate("The Test Boss", "Test Zone", "10+", "Quest: Testing")
+        base_block = """
+newEntity{ define_as = "BASE_TEST_CASTER",
+    type = "humanoid", subtype = "elf", faction = "rhaloren",
+    stats = { mag = 20, wil = 12, cun = 8 },
+    combat_spellpower = 10,
+    autolevel = "caster",
+    inc_damage = { [DamageType.FIRE] = 20 },
+    resists_pen = { [DamageType.FIRE] = 5 },
+    resolvers.talents{ [Talents.T_FLAME] = 2 },
+}
+"""
+        block = """
+newEntity{ base = "BASE_TEST_CASTER",
+    name = "The Test Boss",
+    level_range = {10, nil},
+    resolvers.talents{ [Talents.T_LIGHTNING] = 3 },
+}
+"""
+        with (
+            patch(
+                "game_data.boss_templates._resolve_boss_block",
+                return_value=_BossBlock("data/zones/test-zone/npcs.lua", block),
+            ),
+            patch(
+                "game_data.boss_templates._define_block_map",
+                return_value={"BASE_TEST_CASTER": _BossBlock("data/general/npcs/test.lua", base_block)},
+            ),
+        ):
+            stats = _boss_template_stats(template)
+
+        self.assertEqual(stats.type_name, "humanoid")
+        self.assertEqual(stats.subtype, "elf")
+        self.assertEqual(stats.faction, "rhaloren")
+        self.assertEqual(stats.inc_damage["FIRE"], 20.0)
+        self.assertEqual(stats.resists_pen["FIRE"], 5.0)
+        self.assertEqual(stats.talents["T_FLAME"], 2)
+        self.assertEqual(stats.talents["T_LIGHTNING"], 3)
+        self.assertGreater(stats.spellpower, 0.0)
 
     def test_stats_estimate_engine_melee_damage_from_stats_and_dammod(self) -> None:
         template = BossTemplate("The Test Boss", "Test Zone", "23+", "Quest: Testing")
