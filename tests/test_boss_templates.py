@@ -57,7 +57,7 @@ newEntity{
     combat = {
         dam = resolvers.rngavg(40, 60), atk = 35, apr = 12,
         physcrit = 5, crit_power = 10, physspeed = 2,
-        talented = "sword", accuracy_effect_scale = 0.5,
+        talented = "sword", accuracy_effect_scale = 0.5, damrange = 1.4,
         damtype = DamageType.BLIGHT,
     },
     resolvers.talents{ [Talents.T_STUNNING_BLOW] = {base = 2, every = 5, max = 5} },
@@ -100,6 +100,7 @@ newEntity{
         self.assertEqual(stats.crit_power_bonus_pct, 30.0)
         self.assertEqual(stats.accuracy_effect, "sword")
         self.assertTrue(stats.accuracy_effect_scale)
+        self.assertEqual(stats.damage_range, 1.4)
         self.assertEqual(stats.physspeed, 2.0)
         self.assertEqual(stats.damage_type, "BLIGHT")
         self.assertEqual(stats.talent_max_weapon_mult, 2.0)

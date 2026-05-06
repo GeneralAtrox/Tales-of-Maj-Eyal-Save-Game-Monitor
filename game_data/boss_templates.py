@@ -94,6 +94,7 @@ class BossTemplateStats:
     crit_power_bonus_pct: float
     accuracy_effect: str
     accuracy_effect_scale: bool
+    damage_range: float
     physspeed: float
     damage_type: str
     talent_max_weapon_mult: float
@@ -314,6 +315,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             crit_power_bonus_pct=0.0,
             accuracy_effect="",
             accuracy_effect_scale=False,
+            damage_range=1.0,
             physspeed=1.0,
             damage_type="PHYSICAL",
             talent_max_weapon_mult=1.0,
@@ -366,6 +368,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     )
     accuracy_effect = _combat_string(combat_block, "accuracy_effect") or _combat_string(combat_block, "talented")
     accuracy_effect_scale = _combat_truthy(combat_block, "accuracy_effect_scale")
+    damage_range = _combat_value(combat_block, "damrange", default=1.1 if combat_block is not None else 1.0)
     physspeed = _template_physical_speed(
         _combat_value(combat_block, "physspeed", default=1.0),
         _parse_scalar_from_blocks(source_blocks, "combat_physspeed", default=1.0),
@@ -409,6 +412,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         crit_power_bonus_pct=crit_power,
         accuracy_effect=accuracy_effect,
         accuracy_effect_scale=accuracy_effect_scale,
+        damage_range=damage_range or 1.0,
         physspeed=physspeed or 1.0,
         damage_type=damage_type,
         talent_max_weapon_mult=weapon_mults.max_hit,

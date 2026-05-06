@@ -257,6 +257,7 @@ _ENTITY_COMBAT_FIELDS = {
     "crit",
     "crit_power",
     "dam",
+    "damrange",
     "damtype",
     "physcrit",
     "physspeed",

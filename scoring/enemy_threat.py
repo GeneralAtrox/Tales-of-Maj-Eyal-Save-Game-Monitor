@@ -102,6 +102,8 @@ class EnemyOffense:
     """Weapon accuracy effect kind (`accuracy_effect` or `talented` in ToME combat tables)."""
     accuracy_effect_scale: bool = False
     """ToME treats a truthy `accuracy_effect_scale` as a half-strength accuracy effect."""
+    damage_range: float = 1.0
+    """Weapon damage roll range. ToME rolls from base damage to base damage * this value before armor."""
     physspeed: float = 1.0
     weapon_range: float = 0.0
     damage_type: str = cm.DEFAULT_DAMAGE_TYPE
@@ -181,6 +183,7 @@ class EnemyOffense:
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
             accuracy_effect=_accuracy_effect_from_fields(all_fields),
             accuracy_effect_scale=_truthy_field(all_fields, "combat.accuracy_effect_scale"),
+            damage_range=num("combat.damrange", 1.1) or 1.0,
             physspeed=num("combat.physspeed", 1.0) or 1.0,
             weapon_range=num("combat.range"),
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
@@ -393,6 +396,22 @@ def weapon_apr_after_accuracy(enemy: EnemyOffense, player: PlayerDefenses) -> fl
     return enemy.apr
 
 
+def weapon_damage_rolls_after_accuracy(enemy: EnemyOffense, player: PlayerDefenses) -> tuple[float, float]:
+    """Low/high weapon damage rolls after ToME's damage range and mace accuracy bonus."""
+    base = weapon_damage_after_accuracy(enemy, player)
+    ranged = base * max(0.0, enemy.damage_range or 1.0)
+    return min(base, ranged), max(base, ranged)
+
+
+def weapon_after_armor_expected_peak(enemy: EnemyOffense, player: PlayerDefenses) -> tuple[float, float]:
+    """Expected/peak post-armor weapon damage after range, mace, and knife accuracy effects."""
+    low_damage, high_damage = weapon_damage_rolls_after_accuracy(enemy, player)
+    weapon_apr = weapon_apr_after_accuracy(enemy, player)
+    low_after = cm.armor_absorb(low_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
+    high_after = cm.armor_absorb(high_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
+    return (low_after + high_after) / 2.0, max(low_after, high_after)
+
+
 def weapon_crit_chance_pct(enemy: EnemyOffense, player: PlayerDefenses) -> float:
     """Engine-style physical weapon crit chance after player reduction and axe accuracy bonus."""
     chance = enemy.crit_chance_pct - max(0.0, player.combat_crit_reduction_pct)
@@ -421,9 +440,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     """
     damage_type = cm.normalize_damage_type(enemy.damage_type)
     hit = cm.hit_rate(enemy.atk, player.defense, player.evasion_pct)
-    weapon_damage = weapon_damage_after_accuracy(enemy, player)
-    weapon_apr = weapon_apr_after_accuracy(enemy, player)
-    after_armor = cm.armor_absorb(weapon_damage, player.armor, player.armor_hardiness_pct, weapon_apr)
+    after_armor, after_armor_peak = weapon_after_armor_expected_peak(enemy, player)
     resist_mult = cm.resist_multiplier_for_type(
         player.resists,
         enemy.resists_pen,
@@ -440,12 +457,15 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     weapon_mults = enemy.weapon_multipliers_against(player)
 
     base_multiplier = after_armor * resist_mult * daminc_mult
+    base_peak_multiplier = after_armor_peak * resist_mult * daminc_mult
     base_hit = base_multiplier * max(1.0, weapon_mults.max_hit)
+    base_hit_peak = base_peak_multiplier * max(1.0, weapon_mults.max_hit)
     base_burst = base_multiplier * max(1.0, weapon_mults.burst)
+    base_burst_peak = base_peak_multiplier * max(1.0, weapon_mults.burst)
     expected = base_hit * crit_mult
-    peak = base_hit * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit
+    peak = base_hit_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_hit_peak
     burst_expected = base_burst * crit_mult
-    burst_peak = base_burst * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst
+    burst_peak = base_burst_peak * crit_power if crit_chance > 0.0 and crit_power > 1.0 else base_burst_peak
     burst_hits = max(1, weapon_mults.burst_hits)
 
     threat_damage = max(expected, burst_expected)
@@ -464,6 +484,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         threat_pct *= min(100.0, hit * 2.0) / 100.0
 
     notes: list[str] = []
+    low_roll, high_roll = weapon_damage_rolls_after_accuracy(enemy, player)
     mace_bonus = _accuracy_effect_bonus(enemy, player, 0.002, 0.2) if enemy.accuracy_effect.lower() == "mace" else 0.0
     knife_bonus = _accuracy_effect_bonus(enemy, player, 0.005, 0.5) if enemy.accuracy_effect.lower() == "knife" else 0.0
     if peak >= player.effective_hp:
@@ -479,6 +500,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         notes.append(f"Can remove ~{burst_expected / player.effective_hp * 100:.0f}% HP in a weapon burst")
     if burst_hits > 1:
         notes.append(f"Strongest weapon talent chains {burst_hits} direct hits")
+    if high_roll > low_roll:
+        notes.append(f"Weapon damage range: {low_roll:.0f}-{high_roll:.0f} before armor")
     if mace_bonus > 0.0:
         notes.append(f"Mace accuracy bonus: +{mace_bonus * 100.0:.0f}% base damage")
     if knife_bonus > 0.0:

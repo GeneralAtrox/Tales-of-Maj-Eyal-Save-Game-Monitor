@@ -675,6 +675,35 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertTrue(report.can_one_shot)
         self.assertTrue(survive_one_hit_advice(enemy, player))
 
+    def test_damage_range_uses_average_for_expected_and_high_roll_for_peak(self) -> None:
+        player = PlayerDefenses(max_life=300, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=100,
+            damage_range=1.4,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 120.0)
+        self.assertEqual(report.peak_damage, 140.0)
+        self.assertIn("Weapon damage range: 100-140 before armor", report.notes)
+
+    def test_damage_range_high_roll_feeds_survival_advice(self) -> None:
+        player = PlayerDefenses(max_life=100, defense=0)
+        enemy = EnemyOffense(
+            atk=100,
+            dam=80,
+            damage_range=1.4,
+        )
+
+        report = weapon_threat(enemy, player)
+
+        self.assertEqual(report.expected_damage, 96.0)
+        self.assertEqual(report.peak_damage, 112.0)
+        self.assertTrue(report.can_one_shot)
+        self.assertTrue(survive_one_hit_advice(enemy, player))
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 
@@ -688,6 +717,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
             {
                 "combat.talented": "sword",
                 "combat.accuracy_effect_scale": 0.5,
+                "combat.damrange": 1.4,
             },
             "Test",
         )
@@ -701,7 +731,13 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.accuracy_effect, "sword")
         self.assertTrue(offense.accuracy_effect_scale)
+        self.assertEqual(offense.damage_range, 1.4)
         self.assertEqual(override.accuracy_effect, "axe")
+
+    def test_enemy_offense_defaults_live_weapon_damage_range_like_engine(self) -> None:
+        offense = EnemyOffense.from_all_fields({"combat.dam": 50.0}, "Test")
+
+        self.assertEqual(offense.damage_range, 1.1)
 
     def test_enemy_offense_reads_engine_crit_fields(self) -> None:
         offense = EnemyOffense.from_all_fields(

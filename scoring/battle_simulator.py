@@ -162,6 +162,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             crit_power_bonus_pct=offense.crit_power_bonus_pct,
             accuracy_effect=offense.accuracy_effect,
             accuracy_effect_scale=offense.accuracy_effect_scale,
+            damage_range=offense.damage_range,
             physspeed=offense.physspeed,
             weapon_range=offense.weapon_range,
             damage_type=offense.damage_type,
