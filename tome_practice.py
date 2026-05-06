@@ -107,6 +107,9 @@ def summarize_damage_calibration(
     max_hit = incoming_hits[0]
     max_type = f" {max_hit.damage_type}" if max_hit.damage_type else ""
     lines = [f"Engine max incoming hit: {max_hit.amount:.1f}{max_type} from {max_hit.source or 'unknown'}"]
+    by_type = _incoming_damage_by_type(incoming_hits)
+    if by_type:
+        lines.append("Engine incoming by type: " + ", ".join(by_type))
     if quick_expected_damage is not None and max_hit.amount > 0:
         ratio = quick_expected_damage / max_hit.amount
         lines.append(f"Quick estimate: {quick_expected_damage:.1f} ({ratio:.2f}x engine max)")
@@ -124,6 +127,15 @@ def summarize_damage_calibration(
         dtype = f" {event.damage_type}" if event.damage_type else ""
         lines.append(f"  T{event.turn}: {event.amount:.1f}{dtype} from {event.source or 'unknown'}{message}")
     return tuple(lines)
+
+
+def _incoming_damage_by_type(events: list[PracticeDamageEvent], limit: int = 4) -> tuple[str, ...]:
+    max_by_type: dict[str, float] = {}
+    for event in events:
+        damage_type = event.damage_type or "UNKNOWN"
+        max_by_type[damage_type] = max(max_by_type.get(damage_type, 0.0), event.amount)
+    ordered = sorted(max_by_type.items(), key=lambda item: item[1], reverse=True)
+    return tuple(f"{damage_type} {amount:.1f}" for damage_type, amount in ordered[: max(1, limit)])
 
 
 def launch_manual_practice(

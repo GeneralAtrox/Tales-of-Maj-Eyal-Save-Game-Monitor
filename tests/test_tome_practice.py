@@ -172,11 +172,12 @@ class TomePracticeTests(unittest.TestCase):
         )
 
         self.assertEqual(lines[0], "Engine max incoming hit: 120.0 LIGHTNING from Urkis")
-        self.assertIn("0.75x engine max", lines[1])
-        self.assertIn("below the engine max hit", lines[2])
-        self.assertEqual(lines[3], "Damage type mismatch: engine LIGHTNING, quick PHYSICAL")
-        self.assertEqual(lines[4], "Top incoming hits:")
-        self.assertIn("Urkis", lines[5])
+        self.assertEqual(lines[1], "Engine incoming by type: LIGHTNING 120.0, PHYSICAL 40.0")
+        self.assertIn("0.75x engine max", lines[2])
+        self.assertIn("below the engine max hit", lines[3])
+        self.assertEqual(lines[4], "Damage type mismatch: engine LIGHTNING, quick PHYSICAL")
+        self.assertEqual(lines[5], "Top incoming hits:")
+        self.assertIn("Urkis", lines[6])
 
     def test_prepare_practice_home_merges_addons_into_engine_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
