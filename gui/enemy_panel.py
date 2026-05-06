@@ -7,14 +7,16 @@ game.level.entities, scanned on map change only.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -245,6 +247,7 @@ class _EnemyCard(QFrame):
         parent: QWidget | None = None,
         *,
         player: PlayerDefenses | None = None,
+        on_simulate: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("EnemyCard")
@@ -331,7 +334,7 @@ class _EnemyCard(QFrame):
                 f"Threat: {report.weapon_threat_pct:.0f}% of effective HP per hit\n"
                 f"Expected damage: {report.expected_damage:.0f}\n"
                 f"Hit rate: {report.hit_rate_pct:.0f}%\n"
-                f"Worst resist type: {report.worst_resist_type} "
+                f"Damage type: {report.damage_type} "
                 f"(x{report.worst_resist_multiplier:.2f})"
             )
             danger_badge = QLabel(badge_text)
@@ -463,6 +466,15 @@ class _EnemyCard(QFrame):
             desc_lbl.setStyleSheet(f"color: {SUBTEXT0}; font-size: 11px; font-style: italic;")
             info.addWidget(desc_lbl)
 
+        if on_simulate is not None:
+            action_row = QHBoxLayout()
+            action_row.setContentsMargins(0, 2, 0, 0)
+            action_row.addStretch()
+            simulate_btn = QPushButton("Add To Battle Simulator")
+            simulate_btn.clicked.connect(on_simulate)
+            action_row.addWidget(simulate_btn, 0, Qt.AlignmentFlag.AlignRight)
+            info.addLayout(action_row)
+
         outer.addLayout(info, stretch=1)
 
 
@@ -471,6 +483,8 @@ class EnemyPanel(QWidget):
     Scrollable enemy list panel.  Call ``update_enemies()`` with a fresh
     entity list whenever the map changes.
     """
+
+    simulate_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -579,6 +593,10 @@ class EnemyPanel(QWidget):
         self._count_label.setText(f"{len(enemies)} enemies")
 
         for ent in enemies:
-            card = _EnemyCard(ent, player=player)
+            card = _EnemyCard(
+                ent,
+                player=player,
+                on_simulate=lambda checked=False, enemy=ent: self.simulate_requested.emit(enemy),
+            )
             # Insert before the trailing stretch
             self._card_layout.insertWidget(self._card_layout.count() - 1, card)

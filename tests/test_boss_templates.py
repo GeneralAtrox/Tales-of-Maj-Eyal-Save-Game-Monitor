@@ -45,7 +45,11 @@ newEntity{
     max_life = resolvers.rngavg(300, 500),
     rank = 5,
     global_speed_base = 1.2,
-    combat = { dam = resolvers.rngavg(40, 60), atk = 35, apr = 12, crit = 10, crit_power = 30, physspeed = 2 },
+    combat = {
+        dam = resolvers.rngavg(40, 60), atk = 35, apr = 12,
+        crit = 10, crit_power = 30, physspeed = 2,
+        damtype = DamageType.BLIGHT,
+    },
     inc_damage = { [DamageType.BLIGHT] = 25, all = 10 },
     resists_pen = { [DamageType.COLD] = 15 },
 }
@@ -70,6 +74,7 @@ newEntity{
         self.assertEqual(stats.crit_chance_pct, 10.0)
         self.assertEqual(stats.crit_power_bonus_pct, 30.0)
         self.assertEqual(stats.physspeed, 2.0)
+        self.assertEqual(stats.damage_type, "BLIGHT")
         self.assertEqual(stats.inc_damage["BLIGHT"], 25.0)
         self.assertEqual(stats.inc_damage["ALL"], 10.0)
         self.assertEqual(stats.resists_pen["COLD"], 15.0)
@@ -86,8 +91,18 @@ newEntity{
             source_zone="tannen-tower",
         )
         mapping = {
-            "tannen": [_BossBlock("data/zones/tannen-tower/npcs.lua", 'newEntity{ name = "Tannen", define_as = "TANNEN" }')],
-            "drolem": [_BossBlock("data/zones/tannen-tower/npcs.lua", 'newEntity{ name = "Drolem", define_as = "DROLEM" }')],
+            "tannen": [
+                _BossBlock(
+                    "data/zones/tannen-tower/npcs.lua",
+                    'newEntity{ name = "Tannen", define_as = "TANNEN" }',
+                )
+            ],
+            "drolem": [
+                _BossBlock(
+                    "data/zones/tannen-tower/npcs.lua",
+                    'newEntity{ name = "Drolem", define_as = "DROLEM" }',
+                )
+            ],
         }
         with patch("game_data.boss_templates._boss_block_map", return_value=mapping):
             refs = _boss_actor_refs(template)

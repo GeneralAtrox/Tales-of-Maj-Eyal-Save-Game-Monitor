@@ -96,6 +96,7 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             crit_chance_pct=offense.crit_chance_pct,
             crit_power_bonus_pct=offense.crit_power_bonus_pct,
             physspeed=offense.physspeed,
+            damage_type=offense.damage_type,
             inc_damage=dict(offense.inc_damage),
             resists_pen=dict(offense.resists_pen),
             talent_max_weapon_mult=offense.talent_max_weapon_mult,
@@ -113,7 +114,7 @@ class BattleSimulatorState:
     )
     enemy_base: BattleEnemySnapshot | None = None
     enemy_overrides: dict[str, str | float] = field(default_factory=dict)
-    enemy_offense_overrides: dict[str, float] = field(default_factory=dict)
+    enemy_offense_overrides: dict[str, str | float] = field(default_factory=dict)
     enemy_dict_overrides: dict[str, dict[str, float]] = field(
         default_factory=lambda: {field_name: {} for field_name in _ENEMY_DICT_FIELDS}
     )
@@ -160,6 +161,9 @@ class BattleSimulatorState:
 
     def set_enemy_offense_scalar(self, field_name: str, value: float) -> None:
         self.enemy_offense_overrides[field_name] = float(value)
+
+    def set_enemy_offense_text(self, field_name: str, value: str) -> None:
+        self.enemy_offense_overrides[field_name] = value
 
     def set_enemy_damage_value(self, group: str, damage_type: str, value: float) -> None:
         self.enemy_dict_overrides.setdefault(group, {})[damage_type] = float(value)

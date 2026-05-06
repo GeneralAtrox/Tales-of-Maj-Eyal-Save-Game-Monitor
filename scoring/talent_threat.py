@@ -125,11 +125,11 @@ def compute_talent_threat(
         # skip armor (talents typically bypass it) unless this is a
         # physical-scaling talent that does PHYSICAL damage.
         dtype = record.damage_type or ""
-        cap = cm.resist_cap_for_type(player.resists_cap, dtype or "all")
-        mult = cm.effective_resist_multiplier(
-            player.resists.get(dtype, player.resists.get("all", 0.0)),
-            powers.resists_pen.get(dtype, powers.resists_pen.get("all", 0.0)),
-            cap,
+        mult = cm.resist_multiplier_for_type(
+            player.resists,
+            powers.resists_pen,
+            player.resists_cap,
+            dtype or "all",
         )
         after = raw
         if record.scaling_family == "physical" and dtype == "PHYSICAL":

@@ -19,6 +19,29 @@ from . import combat_math as cm
 
 # ── Inputs ──────────────────────────────────────────────────────────────────
 
+_DAMAGE_TYPE_BY_ID: Final[dict[int, str]] = {
+    1: "PHYSICAL",
+    2: "ARCANE",
+    3: "FIRE",
+    4: "COLD",
+    5: "LIGHTNING",
+    6: "ACID",
+    7: "NATURE",
+    8: "BLIGHT",
+    9: "LIGHT",
+    10: "DARKNESS",
+    11: "MIND",
+    12: "TEMPORAL",
+}
+
+
+def _damage_type_from_field(value: str | float | bool | None) -> str:
+    if isinstance(value, str):
+        return cm.normalize_damage_type(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _DAMAGE_TYPE_BY_ID.get(int(value), cm.DEFAULT_DAMAGE_TYPE)
+    return cm.DEFAULT_DAMAGE_TYPE
+
 
 @dataclass(slots=True)
 class PlayerDefenses:
@@ -59,6 +82,8 @@ class EnemyOffense:
     crit_power_bonus_pct: float = 0.0
     """`combat.crit_power` — a percent bonus added on top of the 1.5 base."""
     physspeed: float = 1.0
+    damage_type: str = cm.DEFAULT_DAMAGE_TYPE
+    """Weapon damage type. ToME defaults melee weapons to PHYSICAL."""
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
     talent_max_weapon_mult: float = 1.0
@@ -99,6 +124,7 @@ class EnemyOffense:
             crit_chance_pct=num("combat.crit"),
             crit_power_bonus_pct=num("combat.crit_power"),
             physspeed=num("combat.physspeed", 1.0) or 1.0,
+            damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
             resists_pen=pen,
         )
@@ -122,6 +148,7 @@ class ThreatReport:
     for safety, clamped at 100)."""
 
     can_one_shot: bool
+    damage_type: str
     worst_resist_type: str
     worst_resist_multiplier: float
     best_inc_type: str
@@ -156,20 +183,21 @@ even if their nominal hit rate is modest."""
 def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
     """Compute a single-hit weapon threat report.
 
-    Mirrors `calcWeaponThreat` in the addon: conservative (crit
-    doubled), picks worst resist and best inc_damage, folds in
-    rank/speed scalars, and scales by hit rate with the 60-pct pivot.
+    Mirrors `calcWeaponThreat` in the addon where useful, but uses the
+    engine's type-specific damage/resist pipeline for the actual weapon
+    damage type.
     """
+    damage_type = cm.normalize_damage_type(enemy.damage_type)
     hit = cm.hit_rate(enemy.atk, player.defense, player.evasion_pct)
     after_armor = cm.armor_absorb(enemy.dam, player.armor, player.armor_hardiness_pct, enemy.apr)
-
-    worst_type, worst_mult = cm.worst_damage_multiplier(
+    resist_mult = cm.resist_multiplier_for_type(
         player.resists,
         enemy.resists_pen,
         player.resists_cap,
+        damage_type,
     )
-    best_inc_type, best_inc = cm.best_damage_increase(enemy.inc_damage)
-    daminc_mult = 1.0 + best_inc / 100.0
+    damage_inc = cm.damage_increase_for_type(enemy.inc_damage, damage_type)
+    daminc_mult = 1.0 + damage_inc / 100.0
 
     crit_doubled = min(100.0, enemy.crit_chance_pct * 2.0)
     crit_power = enemy.crit_power_bonus_pct / 100.0 + cm.DEFAULT_CRIT_POWER
@@ -178,7 +206,7 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         crit_power = 1.0 + (crit_power - 1.0) * (1.0 - ignore)
     crit_mult = cm.crit_expected_multiplier(crit_doubled, crit_power)
 
-    expected = after_armor * crit_mult * worst_mult * daminc_mult
+    expected = after_armor * crit_mult * resist_mult * daminc_mult
     expected *= max(1.0, enemy.talent_max_weapon_mult)
 
     if enemy.rank > RANK_BOSS_THRESHOLD:
@@ -203,8 +231,8 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         notes.append(f"Very likely to hit ({hit:.0f}%)")
     elif hit < 25:
         notes.append(f"Unlikely to hit ({hit:.0f}%)")
-    if best_inc >= 25:
-        notes.append(f"Boosted {best_inc_type} damage: +{best_inc:.0f}%")
+    if damage_inc >= 25:
+        notes.append(f"Boosted {damage_type} damage: +{damage_inc:.0f}%")
     if enemy.global_speed > 1.0:
         notes.append(f"Acts {enemy.global_speed:.1f}x per turn")
 
@@ -216,9 +244,10 @@ def weapon_threat(enemy: EnemyOffense, player: PlayerDefenses) -> ThreatReport:
         crit_chance_pct=enemy.crit_chance_pct,
         crit_used_pct=crit_doubled,
         can_one_shot=expected >= player.effective_hp,
-        worst_resist_type=worst_type,
-        worst_resist_multiplier=round(worst_mult, 3),
-        best_inc_type=best_inc_type,
-        best_inc_pct=best_inc,
+        damage_type=damage_type,
+        worst_resist_type=damage_type,
+        worst_resist_multiplier=round(resist_mult, 3),
+        best_inc_type=damage_type,
+        best_inc_pct=damage_inc,
         notes=notes,
     )

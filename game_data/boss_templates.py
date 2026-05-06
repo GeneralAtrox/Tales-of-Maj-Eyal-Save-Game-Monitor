@@ -62,6 +62,7 @@ class BossTemplateStats:
     crit_chance_pct: float
     crit_power_bonus_pct: float
     physspeed: float
+    damage_type: str
     inc_damage: dict[str, float] = field(default_factory=dict)
     resists_pen: dict[str, float] = field(default_factory=dict)
     has_combat_data: bool = False
@@ -268,6 +269,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
             crit_chance_pct=0.0,
             crit_power_bonus_pct=0.0,
             physspeed=1.0,
+            damage_type="PHYSICAL",
         )
 
     block = boss_block.block
@@ -284,6 +286,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
     physspeed = _combat_value(combat_block, "physspeed")
     if physspeed == 0.0:
         physspeed = _parse_scalar_field(block, "combat_physspeed", default=1.0)
+    damage_type = _parse_damage_type_expr(_extract_value_expr(combat_block or "", "damtype"))
 
     has_combat_data = any(
         (
@@ -320,6 +323,7 @@ def _boss_template_stats(template: BossTemplate) -> BossTemplateStats:
         crit_chance_pct=crit,
         crit_power_bonus_pct=crit_power,
         physspeed=physspeed or 1.0,
+        damage_type=damage_type,
         inc_damage=inc_damage,
         resists_pen=resists_pen,
         has_combat_data=has_combat_data,
@@ -596,9 +600,36 @@ def _parse_damage_table(table_block: str | None) -> dict[str, float]:
     return damage_map
 
 
+def _parse_damage_type_expr(expr: str | None, default: str = "PHYSICAL") -> str:
+    if not expr:
+        return default
+    damage_type_match = re.search(r"(?:engine\.)?DamageType\.([A-Z_]+)", expr)
+    if damage_type_match is not None:
+        return _normalize_damage_type(damage_type_match.group(1)) or default
+    string_match = re.search(r"""["']([^"']+)["']""", expr)
+    if string_match is not None:
+        return _normalize_damage_type(string_match.group(1)) or default
+    return _normalize_damage_type(expr) or default
+
+
 def _normalize_damage_type(raw_key: str) -> str:
     key = raw_key.strip().upper()
-    if key in {"ALL", "PHYSICAL", "FIRE", "COLD", "LIGHTNING", "ACID", "NATURE", "ARCANE", "LIGHT", "DARKNESS", "BLIGHT", "TEMPORAL", "MIND", "STEAM"}:
+    if key in {
+        "ALL",
+        "PHYSICAL",
+        "FIRE",
+        "COLD",
+        "LIGHTNING",
+        "ACID",
+        "NATURE",
+        "ARCANE",
+        "LIGHT",
+        "DARKNESS",
+        "BLIGHT",
+        "TEMPORAL",
+        "MIND",
+        "STEAM",
+    }:
         return key
     if key == "ICE":
         return "COLD"

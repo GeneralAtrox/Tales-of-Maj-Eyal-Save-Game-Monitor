@@ -78,6 +78,7 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             crit_chance_pct=stats.crit_chance_pct,
             crit_power_bonus_pct=stats.crit_power_bonus_pct,
             physspeed=stats.physspeed,
+            damage_type=stats.damage_type,
             inc_damage=dict(stats.inc_damage),
             resists_pen=dict(stats.resists_pen),
         ),
@@ -105,6 +106,7 @@ class BattleSimulatorPanel(QWidget):
         self._enemy_line_edits: dict[str, QLineEdit] = {}
         self._enemy_scalar_spins: dict[str, QDoubleSpinBox] = {}
         self._enemy_offense_spins: dict[str, QDoubleSpinBox] = {}
+        self._enemy_damage_type_combo = QComboBox()
         self._enemy_damage_spins: dict[str, dict[str, QDoubleSpinBox]] = {}
         self._result_values: dict[str, QLabel] = {}
         self._boss_templates = get_boss_templates()
@@ -226,7 +228,14 @@ class BattleSimulatorPanel(QWidget):
             self._player_spins,
             self._on_player_scalar_changed,
         ))
-        root.addWidget(self._build_damage_table("Resists", "resists", self._player_damage_spins, self._on_player_damage_changed))
+        root.addWidget(
+            self._build_damage_table(
+                "Resists",
+                "resists",
+                self._player_damage_spins,
+                self._on_player_damage_changed,
+            )
+        )
         root.addWidget(
             self._build_damage_table(
                 "Resist Pen",
@@ -294,6 +303,7 @@ class BattleSimulatorPanel(QWidget):
                 self._on_enemy_offense_changed,
             )
         )
+        root.addWidget(self._build_damage_type_selector())
         root.addWidget(
             self._build_damage_table(
                 "Damage Bonus",
@@ -336,8 +346,8 @@ class BattleSimulatorPanel(QWidget):
             ("raw", "Raw Damage"),
             ("hit_rate", "Hit Rate"),
             ("one_shot", "One-Shot"),
-            ("worst_resist", "Worst Resist"),
-            ("best_bonus", "Best Bonus"),
+            ("worst_resist", "Damage Type"),
+            ("best_bonus", "Damage Bonus"),
         )
         for row, (key, label) in enumerate(rows):
             key_lbl = QLabel(label)
@@ -363,7 +373,8 @@ class BattleSimulatorPanel(QWidget):
         self._engine_summary.setReadOnly(True)
         self._engine_summary.setMinimumHeight(110)
         self._engine_summary.setStyleSheet(
-            f"QPlainTextEdit {{ background: {SURFACE0}; border: 1px solid {BORDER}; border-radius: 4px; padding: 6px; }}"
+            f"QPlainTextEdit {{ background: {SURFACE0}; border: 1px solid {BORDER}; "
+            "border-radius: 4px; padding: 6px; }"
         )
         root.addWidget(self._engine_summary)
 
@@ -375,10 +386,24 @@ class BattleSimulatorPanel(QWidget):
         self._advice_box.setReadOnly(True)
         self._advice_box.setMinimumHeight(220)
         self._advice_box.setStyleSheet(
-            f"QPlainTextEdit {{ background: {SURFACE0}; border: 1px solid {BORDER}; border-radius: 4px; padding: 6px; }}"
+            f"QPlainTextEdit {{ background: {SURFACE0}; border: 1px solid {BORDER}; "
+            "border-radius: 4px; padding: 6px; }"
         )
         root.addWidget(self._advice_box, 1)
         return panel
+
+    def _build_damage_type_selector(self) -> QWidget:
+        frame = self._section_frame()
+        layout = QFormLayout(frame)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+        self._enemy_damage_type_combo = QComboBox()
+        for damage_type in COMMON_DAMAGE_TYPES:
+            if damage_type != "all":
+                self._enemy_damage_type_combo.addItem(damage_type)
+        self._enemy_damage_type_combo.currentTextChanged.connect(self._on_enemy_damage_type_changed)
+        layout.addRow(self._form_label("Weapon Damage Type"), self._enemy_damage_type_combo)
+        return frame
 
     @staticmethod
     def _section_frame() -> QFrame:
@@ -547,6 +572,12 @@ class BattleSimulatorPanel(QWidget):
         self._state.set_enemy_offense_scalar(field_name, value)
         self._refresh_results()
 
+    def _on_enemy_damage_type_changed(self, value: str) -> None:
+        if self._syncing_controls:
+            return
+        self._state.set_enemy_offense_text("damage_type", value)
+        self._refresh_results()
+
     def _on_enemy_damage_changed(self, group: str, damage_type: str, value: float) -> None:
         if self._syncing_controls:
             return
@@ -604,12 +635,27 @@ class BattleSimulatorPanel(QWidget):
             ))
             self._set_damage_values(self._player_damage_spins, player)
 
-            self._set_line_values(self._enemy_line_edits, enemy, ("name", "rank_label", "faction", "type_name", "subtype"))
+            self._set_line_values(
+                self._enemy_line_edits,
+                enemy,
+                ("name", "rank_label", "faction", "type_name", "subtype"),
+            )
             self._set_spin_values(self._enemy_scalar_spins, enemy, ("level", "life", "max_life"))
             self._set_enemy_offense_values(
                 enemy,
-                ("rank", "global_speed", "dam", "atk", "apr", "crit_chance_pct", "crit_power_bonus_pct", "physspeed", "talent_max_weapon_mult"),
+                (
+                    "rank",
+                    "global_speed",
+                    "dam",
+                    "atk",
+                    "apr",
+                    "crit_chance_pct",
+                    "crit_power_bonus_pct",
+                    "physspeed",
+                    "talent_max_weapon_mult",
+                ),
             )
+            self._set_enemy_damage_type(enemy)
             self._set_enemy_damage_values(enemy)
         finally:
             self._syncing_controls = False
@@ -648,7 +694,9 @@ class BattleSimulatorPanel(QWidget):
             self._result_status.setStyleSheet(f"font-size: 12px; color: {SUBTEXT0};")
 
         tier_color = RED if report.can_one_shot else (YELLOW if report.weapon_threat_pct >= 35 else GREEN)
-        self._result_values["tier"].setText(f"<span style='color:{tier_color}; font-weight:700;'>{report.tier_label}</span>")
+        self._result_values["tier"].setText(
+            f"<span style='color:{tier_color}; font-weight:700;'>{report.tier_label}</span>"
+        )
         self._result_values["threat"].setText(f"{report.weapon_threat_pct:.1f}% of effective HP")
         self._result_values["expected"].setText(f"{report.expected_damage:.1f}")
         self._result_values["raw"].setText(f"{report.raw_damage:.1f}")
@@ -710,6 +758,14 @@ class BattleSimulatorPanel(QWidget):
             value = float(getattr(offense, field_name, 0.0)) if offense is not None else 0.0
             with QSignalBlocker(self._enemy_offense_spins[field_name]):
                 self._enemy_offense_spins[field_name].setValue(value)
+
+    def _set_enemy_damage_type(self, enemy: BattleEnemySnapshot | None) -> None:
+        damage_type = enemy.offense.damage_type if enemy is not None else "PHYSICAL"
+        index = self._enemy_damage_type_combo.findText(damage_type)
+        if index < 0:
+            index = self._enemy_damage_type_combo.findText("PHYSICAL")
+        with QSignalBlocker(self._enemy_damage_type_combo):
+            self._enemy_damage_type_combo.setCurrentIndex(max(0, index))
 
     def _set_enemy_damage_values(self, enemy: BattleEnemySnapshot | None) -> None:
         if enemy is None:
@@ -788,7 +844,8 @@ class BattleSimulatorPanel(QWidget):
         monitor_note = ""
         if launch.used_shared_launcher:
             monitor_note = (
-                "\nUsing the main t-engine.exe launcher. The live monitor may follow the practice instance while it is open."
+                "\nUsing the main t-engine.exe launcher. The live monitor may follow the practice instance "
+                "while it is open."
             )
         self._engine_summary_text = (
             f"Template: {launch.template_label}\n"

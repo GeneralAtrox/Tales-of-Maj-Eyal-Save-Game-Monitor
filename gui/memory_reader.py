@@ -219,6 +219,7 @@ _ENTITY_COMBAT_FIELDS = {
     "crit",
     "crit_power",
     "dam",
+    "damtype",
     "physspeed",
 }
 
@@ -1435,7 +1436,7 @@ class MemoryReader:
             armor_hardiness=_tab_get_number(h, pt, "combat_armor_hardiness") or 0.0,
             evasion=_tab_get_number(h, pt, "evasion") or 0.0,
             ignore_direct_crits=_tab_get_number(h, pt, "ignore_direct_crits") or 0.0,
-            resists=_effective_player_resists(raw_resists, raw_caps),
+            resists=raw_resists,
             resists_pen=_dump_numeric_subtable("resists_pen"),
             resists_cap=raw_caps,
         )
@@ -2388,7 +2389,12 @@ class MemoryReader:
                 str(descriptor_values.get("subclass") or ""),
             }:
                 continue
-            if record.race_evolution_logic and not self._special_requirement_met(h, pt, talents_tab, record.race_evolution_logic):
+            if record.race_evolution_logic and not self._special_requirement_met(
+                h,
+                pt,
+                talents_tab,
+                record.race_evolution_logic,
+            ):
                 continue
             if any(enabled_types.get(type_key) is not True for type_key, _desc in record.category_requirements):
                 continue

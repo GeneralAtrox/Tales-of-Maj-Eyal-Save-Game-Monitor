@@ -8,6 +8,7 @@ units (percent for rates/resists, raw for damage/armor).
 
 from __future__ import annotations
 
+import math
 from typing import Final
 
 # ── ToME constants ──────────────────────────────────────────────────────────
@@ -25,6 +26,8 @@ HIT_RATE_SLOPE: Final[float] = 2.5
 DEFAULT_CRIT_POWER: Final[float] = 1.5
 """Base crit multiplier before `combat_critical_power` bonuses."""
 
+DEFAULT_DAMAGE_TYPE: Final[str] = "PHYSICAL"
+
 
 # ── Primitives ──────────────────────────────────────────────────────────────
 
@@ -33,12 +36,35 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
+def normalize_damage_type(damage_type: str | None, default: str = DEFAULT_DAMAGE_TYPE) -> str:
+    """Return the canonical key used by ToME damage tables."""
+    if damage_type is None:
+        return default
+    key = str(damage_type).strip()
+    if not key:
+        return default
+    if key.lower() == "all":
+        return "all"
+    return key.upper()
+
+
+def _table_value(table: dict[str, float] | None, damage_type: str) -> float:
+    if not table:
+        return 0.0
+    key = normalize_damage_type(damage_type, "all")
+    if key in table:
+        return float(table[key])
+    if key == "all":
+        return float(table.get("ALL", 0.0))
+    return float(table.get(key.lower(), 0.0))
+
+
 def hit_rate(attacker_atk: float, defender_def: float, evasion_pct: float = 0.0) -> float:
     """Chance (0..100) that the attacker's swing connects.
 
     Evasion is composed post-hit-rate as an independent filter.
     """
-    base = HIT_RATE_BASE + HIT_RATE_SLOPE * (attacker_atk - defender_def)
+    base = math.ceil(HIT_RATE_BASE + HIT_RATE_SLOPE * (attacker_atk - defender_def))
     base = _clamp(base, 0.0, 100.0)
     return base * (100.0 - _clamp(evasion_pct, 0.0, 100.0)) / 100.0
 
@@ -86,10 +112,11 @@ def resist_cap_for_type(
     """
     if not resists_cap:
         return default_cap
-    all_cap = float(resists_cap.get("all", default_cap))
+    damage_type = normalize_damage_type(damage_type, "all")
+    all_cap = float(resists_cap.get("all", resists_cap.get("ALL", default_cap)))
     if damage_type == "all":
         return _clamp(all_cap, -100.0, RESIST_HARD_CAP)
-    return _clamp(all_cap + float(resists_cap.get(damage_type, 0.0)), -100.0, RESIST_HARD_CAP)
+    return _clamp(all_cap + _table_value(resists_cap, damage_type), -100.0, RESIST_HARD_CAP)
 
 
 def effective_resist_multiplier(
@@ -107,6 +134,59 @@ def effective_resist_multiplier(
         pen = _clamp(resist_pen_pct, 0.0, 100.0) / 100.0
         effective *= 1.0 - pen
     return 1.0 - effective / 100.0
+
+
+def effective_resist_pct(
+    resists: dict[str, float] | None,
+    damage_type: str,
+    resists_cap: dict[str, float] | None = None,
+) -> float:
+    """Engine-style `combatGetResist` for one damage type.
+
+    ToME stacks `all` resistance and the specific damage type as
+    independent reductions, then bounds the combined result by the
+    type's effective cap.
+    """
+    damage_type = normalize_damage_type(damage_type, "all")
+    all_r = _table_value(resists, "all")
+    if damage_type == "all":
+        specific_r = 0.0
+    else:
+        specific_r = _table_value(resists, damage_type)
+    all_factor = min(all_r / 100.0, 1.0)
+    specific_factor = min(specific_r / 100.0, 1.0)
+    combined = 100.0 * (1.0 - (1.0 - all_factor) * (1.0 - specific_factor))
+    return _clamp(combined, -100.0, resist_cap_for_type(resists_cap, damage_type))
+
+
+def resist_pen_for_type(resists_pen: dict[str, float] | None, damage_type: str) -> float:
+    """Engine-style `combatGetResistPen` for one damage type."""
+    damage_type = normalize_damage_type(damage_type)
+    pen = _table_value(resists_pen, "all")
+    if damage_type != "all":
+        pen += _table_value(resists_pen, damage_type)
+    return min(pen, RESIST_CAP)
+
+
+def resist_multiplier_for_type(
+    resists: dict[str, float] | None,
+    resists_pen: dict[str, float] | None,
+    resists_cap: dict[str, float] | None,
+    damage_type: str,
+) -> float:
+    """Damage multiplier after ToME resist stacking and penetration."""
+    resist = effective_resist_pct(resists, damage_type, resists_cap)
+    pen = resist_pen_for_type(resists_pen, damage_type)
+    return effective_resist_multiplier(resist, pen, resist_cap_for_type(resists_cap, damage_type))
+
+
+def damage_increase_for_type(inc_damage: dict[str, float] | None, damage_type: str) -> float:
+    """Engine-style `combatGetDamageIncrease` for one damage type."""
+    damage_type = normalize_damage_type(damage_type)
+    inc = _table_value(inc_damage, "all")
+    if damage_type != "all":
+        inc += _table_value(inc_damage, damage_type)
+    return inc
 
 
 def crit_expected_multiplier(
@@ -134,19 +214,18 @@ def worst_damage_multiplier(
 
     Returns `(damage_type, multiplier)`. Uses `"all"` as the floor.
     """
-    resists_pen = resists_pen or {}
-    all_r = resists.get("all", 0.0)
+    candidate_types = {
+        normalize_damage_type(dtype, "all")
+        for source in (resists, resists_pen or {})
+        for dtype in source
+        if normalize_damage_type(dtype, "all") != "all"
+    }
     best_type = "all"
-    best_mult = effective_resist_multiplier(
-        all_r,
-        resists_pen.get("all", 0.0),
-        resist_cap_for_type(resists_cap, "all"),
-    )
-    for dtype, r in resists.items():
+    best_mult = resist_multiplier_for_type(resists, resists_pen, resists_cap, "all")
+    for dtype in sorted(candidate_types):
         if dtype == "all":
             continue
-        pen = resists_pen.get(dtype, resists_pen.get("all", 0.0))
-        mult = effective_resist_multiplier(r, pen, resist_cap_for_type(resists_cap, dtype))
+        mult = resist_multiplier_for_type(resists, resists_pen, resists_cap, dtype)
         if mult > best_mult:
             best_mult = mult
             best_type = dtype
@@ -154,20 +233,22 @@ def worst_damage_multiplier(
 
 
 def best_damage_increase(inc_damage: dict[str, float]) -> tuple[str, float]:
-    """Attacker's largest damage-type bonus: `max("all", per-type)`.
+    """Attacker's largest damage-type bonus using engine additivity.
 
-    Returns `(damage_type, inc_pct)`. Mirrors the addon's convention
-    of using the biggest available bonus rather than matching types.
+    Returns `(damage_type, inc_pct)`. This remains conservative by
+    searching all available types, but each candidate is computed as
+    `all + per-type`, matching `combatGetDamageIncrease`.
     """
     if not inc_damage:
         return "all", 0.0
-    all_i = inc_damage.get("all", 0.0)
     best_type = "all"
-    best_val = all_i
-    for dtype, v in inc_damage.items():
+    best_val = damage_increase_for_type(inc_damage, "all")
+    for dtype in inc_damage:
+        dtype = normalize_damage_type(dtype, "all")
         if dtype == "all":
             continue
-        if v > best_val:
-            best_val = v
+        candidate = damage_increase_for_type(inc_damage, dtype)
+        if candidate > best_val:
+            best_val = candidate
             best_type = dtype
     return best_type, best_val
