@@ -935,6 +935,39 @@ class BattleSimulatorStateTests(unittest.TestCase):
         assert offense.offhand is not None
         self.assertAlmostEqual(offense.offhand.damage_mult, max(mastery_mult, corrupted_mult), places=6)
 
+    def test_offhand_multiplier_includes_curse_of_madness_bonus(self) -> None:
+        curse_bonus = cm.combat_talent_limit(5.0, 50.0, 4.0, 20.0) / 100.0
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 60.0,
+                "combat.offhand.mult": 0.5,
+                "effects.EFF_CURSE_OF_MADNESS.level": 5.0,
+                "effects.EFF_CURSE_OF_MADNESS.unlockLevel": 1.0,
+            },
+            "Mad Dual Wielder",
+        )
+
+        self.assertIsNotNone(offense.offhand)
+        assert offense.offhand is not None
+        self.assertAlmostEqual(offense.offhand.damage_mult, 0.5 + curse_bonus, places=6)
+
+    def test_locked_curse_of_madness_does_not_increase_offhand_multiplier(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.offhand.source": "OFFHAND",
+                "combat.offhand.dam": 60.0,
+                "combat.offhand.mult": 0.5,
+                "effects.EFF_CURSE_OF_MADNESS.level": 5.0,
+                "effects.EFF_CURSE_OF_MADNESS.unlockLevel": 0.0,
+            },
+            "Mad Dual Wielder",
+        )
+
+        self.assertIsNotNone(offense.offhand)
+        assert offense.offhand is not None
+        self.assertEqual(offense.offhand.damage_mult, 0.5)
+
     def test_hit_rate_ceil_matches_engine(self) -> None:
         self.assertEqual(cm.hit_rate(10.1, 10.0), 51.0)
 

@@ -22,7 +22,7 @@ import sys
 import threading as _threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from game_data.effect_db import lookup_effect_by_id
 from game_data.prodigy_db import get_prodigy_db as _get_prodigy_db
@@ -269,6 +269,10 @@ _ENTITY_COMBAT_FIELDS = {
 }
 
 _ENTITY_STAT_FIELDS = {"str", "dex", "con", "mag", "wil", "cun", "lck"}
+
+_ENTITY_EFFECT_FIELDS_BY_ID: Final[dict[str, set[str]]] = {
+    "EFF_CURSE_OF_MADNESS": {"level", "unlockLevel"},
+}
 
 _ENTITY_RESIST_FIELDS = {
     "all",
@@ -988,6 +992,24 @@ def _tab_dump_offhand_weapon_combat_fields(h: int, actor_ptr: int) -> dict[str, 
     return {}
 
 
+def _tab_dump_entity_effect_fields(h: int, actor_ptr: int) -> dict[str, float]:
+    """Return selected active-effect fields used by threat scoring."""
+    tmp_tab = _tab_get_table(h, actor_ptr, "tmp")
+    if tmp_tab is None:
+        return {}
+
+    out: dict[str, float] = {}
+    for effect_id, value_it, value_lo in _tab_iter_string_entries(h, tmp_tab):
+        allowed_fields = _ENTITY_EFFECT_FIELDS_BY_ID.get(effect_id)
+        if not allowed_fields or value_it != _LJ_TTAB or not _is_heap(value_lo):
+            continue
+        for field in allowed_fields:
+            value = _tab_get_number(h, value_lo, field)
+            if value is not None:
+                out[f"effects.{effect_id}.{field}"] = float(value)
+    return out
+
+
 def _replace_combat_fields(
     out: dict[str, str | float | bool],
     combat_fields: dict[str, str | float | bool],
@@ -1047,6 +1069,8 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
     talents_cd_tab = _tab_get_table(h, actor_ptr, "talents_cd")
     if talents_cd_tab:
         out.update(_tab_dump_flat(h, talents_cd_tab, prefix="talents_cd."))
+
+    out.update(_tab_dump_entity_effect_fields(h, actor_ptr))
 
     resists_tab = _tab_get_table(h, actor_ptr, "resists")
     if resists_tab:

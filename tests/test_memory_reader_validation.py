@@ -436,6 +436,43 @@ class MemoryReaderValidationTests(unittest.TestCase):
         self.assertEqual(snapshot["combat.offhand.mult"], 0.5)
         self.assertEqual(snapshot["combat.offhand.source"], "OFFHAND")
 
+    def test_tab_dump_entity_snapshot_reads_selected_effect_fields(self) -> None:
+        actor_ptr = 0x10000000
+        tmp_ptr = 0x20000000
+        effect_ptr = 0x30000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == actor_ptr and key == "tmp":
+                return tmp_ptr
+            return None
+
+        def fake_iter_string_entries(_handle: int, tab_ptr: int) -> list[tuple[str, int, int]]:
+            if tab_ptr == tmp_ptr:
+                return [
+                    ("EFF_CURSE_OF_MADNESS", memory_reader._LJ_TTAB, effect_ptr),
+                    ("EFF_UNRELATED", memory_reader._LJ_TTAB, 0x40000000),
+                ]
+            return []
+
+        def fake_get_number(_handle: int, tab_ptr: int, key: str) -> float | None:
+            if tab_ptr == effect_ptr and key == "level":
+                return 5.0
+            if tab_ptr == effect_ptr and key == "unlockLevel":
+                return 1.0
+            return None
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", return_value={}),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_iter_string_entries", side_effect=fake_iter_string_entries),
+            patch.object(memory_reader, "_tab_get_number", side_effect=fake_get_number),
+        ):
+            snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
+
+        self.assertEqual(snapshot["effects.EFF_CURSE_OF_MADNESS.level"], 5.0)
+        self.assertEqual(snapshot["effects.EFF_CURSE_OF_MADNESS.unlockLevel"], 1.0)
+        self.assertNotIn("effects.EFF_UNRELATED.level", snapshot)
+
     def test_tab_dump_entity_snapshot_ignores_archery_mainhand_for_melee_combat(self) -> None:
         actor_ptr = 0x10000000
         actor_combat_ptr = 0x20000000

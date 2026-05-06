@@ -58,6 +58,7 @@ _OFFHAND_MULT_TALENTS: Final[dict[str, tuple[float, float, float]]] = {
     "t_dual_weapon_mastery": (1.0, 0.60, 0.85),
     "t_corrupted_strength": (1.0, 0.60, 0.80),
 }
+_CURSE_OF_MADNESS_EFFECT_PREFIX: Final[str] = "effects.EFF_CURSE_OF_MADNESS."
 
 
 def _damage_type_from_field(value: str | float | bool | None) -> str:
@@ -448,7 +449,16 @@ def _offhand_damage_multiplier(
         level = _talent_level(talents, talent_id)
         if level > 0.0:
             offmult = max(offmult, cm.combat_talent_limit(level, limit, low, high))
+    offmult += _curse_of_madness_offhand_bonus(all_fields)
     return offmult
+
+
+def _curse_of_madness_offhand_bonus(all_fields: dict[str, str | float | bool]) -> float:
+    level = _number_field(all_fields, f"{_CURSE_OF_MADNESS_EFFECT_PREFIX}level")
+    unlock_level = _number_field(all_fields, f"{_CURSE_OF_MADNESS_EFFECT_PREFIX}unlockLevel")
+    if level < 1.0 or unlock_level < 1.0:
+        return 0.0
+    return cm.combat_talent_limit(level, 50.0, 4.0, 20.0) / 100.0
 
 
 def _damage_fields_by_prefixes(all_fields: dict[str, str | float | bool], *prefixes: str) -> dict[str, float]:
