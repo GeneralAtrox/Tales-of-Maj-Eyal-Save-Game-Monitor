@@ -34,9 +34,11 @@ from scoring.battle_simulator import (
     BattleEnemySnapshot,
     BattleSimulatorState,
     battle_calibration_estimate,
+    combined_threat_pct,
+    threat_tier_label,
 )
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses
-from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields, talent_timing_label
+from scoring.talent_threat import EnemyPowers, TalentThreatEntry, enemy_powers_from_fields, talent_timing_label
 from tome_practice import (
     AutoPracticeResult,
     PracticeLaunchInfo,
@@ -112,6 +114,21 @@ def battle_enemy_from_boss_template(stats: BossTemplateStats) -> BattleEnemySnap
             crit_power_bonus_pct=stats.crit_power_bonus_pct,
         ),
     )
+
+
+def _format_talent_entry(entry: TalentThreatEntry) -> str:
+    talent_name = entry.talent_name or entry.talent_id
+    damage_type = entry.damage_type or "all"
+    timing = talent_timing_label(
+        entry.mode,
+        entry.cooldown,
+        entry.current_cooldown,
+        entry.resource_shortages,
+        entry.range_to_target,
+        entry.range_limit,
+    )
+    timing_text = f", {timing}" if timing else ""
+    return f"{talent_name}: {entry.expected_damage:.1f} {damage_type} ({entry.threat_pct:.1f}% HP{timing_text})"
 
 
 class BattleSimulatorPanel(QWidget):
@@ -725,11 +742,16 @@ class BattleSimulatorPanel(QWidget):
             )
             self._result_status.setStyleSheet(f"font-size: 12px; color: {SUBTEXT0};")
 
-        tier_color = RED if report.can_one_shot else (YELLOW if report.weapon_threat_pct >= 35 else GREEN)
-        self._result_values["tier"].setText(
-            f"<span style='color:{tier_color}; font-weight:700;'>{report.tier_label}</span>"
+        talent_report = result.talent_report
+        current_threat_pct = combined_threat_pct(report, talent_report)
+        current_tier = threat_tier_label(current_threat_pct)
+        tier_color = RED if report.can_one_shot or current_threat_pct >= 70 else (
+            YELLOW if current_threat_pct >= 35 else GREEN
         )
-        self._result_values["threat"].setText(f"{report.weapon_threat_pct:.1f}% of effective HP")
+        self._result_values["tier"].setText(
+            f"<span style='color:{tier_color}; font-weight:700;'>{current_tier}</span>"
+        )
+        self._result_values["threat"].setText(f"{current_threat_pct:.1f}% of effective HP")
         self._result_values["expected"].setText(f"{report.expected_damage:.1f}")
         self._result_values["peak"].setText(f"{report.peak_damage:.1f}")
         if report.burst_hits > 1:
@@ -739,23 +761,14 @@ class BattleSimulatorPanel(QWidget):
             )
         else:
             self._result_values["burst"].setText("--")
-        talent_report = result.talent_report
-        if talent_report is not None and talent_report.max_expected_damage > 0.0:
-            talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
-            damage_type = talent_report.worst_damage_type or "all"
-            timing = talent_timing_label(
-                talent_report.worst_mode,
-                talent_report.worst_cooldown,
-                talent_report.worst_current_cooldown,
-                talent_report.entries[0].resource_shortages if talent_report.entries else None,
-                talent_report.entries[0].range_to_target if talent_report.entries else None,
-                talent_report.entries[0].range_limit if talent_report.entries else None,
-            )
-            timing_text = f", {timing}" if timing else ""
-            self._result_values["talent"].setText(
-                f"{talent_name}: {talent_report.max_expected_damage:.1f} {damage_type} "
-                f"({talent_report.max_threat_pct:.1f}% HP{timing_text})"
-            )
+        available_talent = talent_report.strongest_available_entry() if talent_report is not None else None
+        strongest_known_talent = (
+            talent_report.entries[0] if talent_report is not None and talent_report.entries else None
+        )
+        if available_talent is not None:
+            self._result_values["talent"].setText(_format_talent_entry(available_talent))
+        elif strongest_known_talent is not None:
+            self._result_values["talent"].setText(f"Unavailable: {_format_talent_entry(strongest_known_talent)}")
         else:
             self._result_values["talent"].setText("--")
         self._result_values["raw"].setText(f"{report.raw_damage:.1f}")
@@ -777,22 +790,10 @@ class BattleSimulatorPanel(QWidget):
             advice_lines.append(f"- {item.description}{suffix}")
         if report.notes:
             advice_lines.extend(f"- {note}" for note in report.notes)
-        if talent_report is not None and talent_report.max_expected_damage > 0.0:
-            talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
-            timing = talent_timing_label(
-                talent_report.worst_mode,
-                talent_report.worst_cooldown,
-                talent_report.worst_current_cooldown,
-                talent_report.entries[0].resource_shortages if talent_report.entries else None,
-                talent_report.entries[0].range_to_target if talent_report.entries else None,
-                talent_report.entries[0].range_limit if talent_report.entries else None,
-            )
-            timing_text = f", {timing}" if timing else ""
-            advice_lines.append(
-                f"- Strongest known talent: {talent_name} "
-                f"({talent_report.max_expected_damage:.0f} "
-                f"{talent_report.worst_damage_type or 'all'}{timing_text})"
-            )
+        if available_talent is not None:
+            advice_lines.append(f"- Strongest available talent: {_format_talent_entry(available_talent)}")
+        if strongest_known_talent is not None and strongest_known_talent is not available_talent:
+            advice_lines.append(f"- Strongest known talent unavailable: {_format_talent_entry(strongest_known_talent)}")
         if talent_report is not None and talent_report.cc_tags:
             advice_lines.append(f"- Known control tags: {', '.join(talent_report.cc_tags)}")
         self._advice_box.setPlainText("\n".join(advice_lines) if advice_lines else "No additional changes needed.")

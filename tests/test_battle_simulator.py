@@ -327,6 +327,11 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(threat_tier_label(35.0), "High")
         self.assertEqual(threat_tier_label(20.0), "Mediocre")
 
+    def test_combined_threat_ignores_unavailable_talent_pressure(self) -> None:
+        talent_report = TalentThreatReport(max_threat_pct=85.0, max_available_threat_pct=0.0)
+
+        self.assertEqual(combined_threat_pct(None, talent_report), 0.0)
+
     def test_calibration_estimate_includes_talent_damage(self) -> None:
         state = BattleSimulatorState()
         state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
