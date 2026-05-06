@@ -30,6 +30,7 @@ from game_data.talent_db import lookup_talent_by_id
 from gui.sprite_resolve import is_usable_sprite, pick_actor_image
 from gui.startup_trace import mark_startup_phase
 from runtime_output import console_print
+from scoring import combat_math as cm
 
 # Re-exported so ``from gui.memory_reader import DANGER_*`` keeps working
 # for gui.enemy_panel without forcing every consumer to reach into
@@ -203,6 +204,8 @@ _ENTITY_ROOT_FIELDS = {
     "combat_mentalresist",
     "combat_precomputed_mindpower",
     "combat_precomputed_physpower",
+    "combat_precomputed_accuracy",
+    "combat_precomputed_defense",
     "combat_precomputed_spellpower",
     "combat_physcrit",
     "combat_physresist",
@@ -1266,6 +1269,18 @@ def _engine_armor_hardiness(raw_bonus: float | None) -> float:
     return max(0.0, min(100.0, 30.0 + float(raw_bonus or 0.0)))
 
 
+def _engine_defense(raw_defense: float | None, stats: dict[str, float], precomputed: float | None = None) -> float:
+    if precomputed is not None:
+        return max(0.0, float(precomputed))
+    raw = max(
+        0.0,
+        float(raw_defense or 0.0)
+        + (stats.get("dex", 10.0) - 10.0) * 0.7
+        + (stats.get("lck", 50.0) - 50.0) * 0.4,
+    )
+    return cm.rescale_combat_stats(raw) if raw > 0.0 else 0.0
+
+
 @dataclass(slots=True)
 class EntityInfo:
     """Snapshot of one actor from game.level.entities."""
@@ -1584,12 +1599,17 @@ class MemoryReader:
 
         raw_resists = _dump_numeric_subtable("resists")
         raw_caps = _dump_numeric_subtable("resists_cap")
+        total_stats = self._read_player_total_stats(h, pt)
 
         return PlayerStats(
             level=level,
             max_life=_tab_get_number(h, pt, "max_life") or 0.0,
             armor=_tab_get_number(h, pt, "combat_armor") or 0.0,
-            defense=_tab_get_number(h, pt, "combat_def") or 0.0,
+            defense=_engine_defense(
+                _tab_get_number(h, pt, "combat_def"),
+                total_stats,
+                _tab_get_number(h, pt, "combat_precomputed_defense"),
+            ),
             phys_save=_tab_get_number(h, pt, "combat_physresist") or 0.0,
             spell_save=_tab_get_number(h, pt, "combat_spellresist") or 0.0,
             mental_save=_tab_get_number(h, pt, "combat_mentalresist") or 0.0,

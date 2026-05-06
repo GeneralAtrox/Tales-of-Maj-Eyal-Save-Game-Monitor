@@ -550,6 +550,17 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.crit_chance_pct, 10.5)
         self.assertEqual(offense.crit_power_bonus_pct, 30.0)
 
+    def test_enemy_offense_prefers_precomputed_accuracy(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.atk": 12.0,
+                "combat_precomputed_accuracy": 47.0,
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.atk, 47.0)
+
     def test_enemy_offense_estimates_engine_melee_damage(self) -> None:
         offense = EnemyOffense.from_all_fields(
             {

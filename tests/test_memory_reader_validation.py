@@ -132,6 +132,13 @@ class MemoryReaderValidationTests(unittest.TestCase):
         self.assertEqual(memory_reader._engine_armor_hardiness(90.0), 100.0)
         self.assertEqual(memory_reader._engine_armor_hardiness(-40.0), 0.0)
 
+    def test_engine_defense_uses_stats_and_precomputed_value(self) -> None:
+        self.assertEqual(
+            memory_reader._engine_defense(10.0, {"dex": 30.0, "lck": 55.0}),
+            23,
+        )
+        self.assertEqual(memory_reader._engine_defense(10.0, {}, precomputed=42.0), 42.0)
+
     def test_tab_dump_stat_subtable_reads_integer_keyed_actor_stats(self) -> None:
         indexed_values = {
             3: 12.0,

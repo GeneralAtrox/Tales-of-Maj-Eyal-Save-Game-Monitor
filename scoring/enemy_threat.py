@@ -165,7 +165,7 @@ class EnemyOffense:
             name=name or str(all_fields.get("name") or ""),
             rank=num("rank", 1.0),
             global_speed=num("global_speed", 1.0) or 1.0,
-            atk=num("combat.atk"),
+            atk=_number_field(all_fields, "combat_precomputed_accuracy", num("combat.atk")),
             dam=_melee_damage(all_fields, num("combat.dam")),
             apr=num("combat.apr"),
             crit_chance_pct=_physical_crit_chance(all_fields),
