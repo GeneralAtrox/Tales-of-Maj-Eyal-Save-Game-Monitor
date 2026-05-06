@@ -746,6 +746,7 @@ class BattleSimulatorPanel(QWidget):
                 talent_report.worst_mode,
                 talent_report.worst_cooldown,
                 talent_report.worst_current_cooldown,
+                talent_report.entries[0].resource_shortages if talent_report.entries else None,
             )
             timing_text = f", {timing}" if timing else ""
             self._result_values["talent"].setText(
@@ -779,6 +780,7 @@ class BattleSimulatorPanel(QWidget):
                 talent_report.worst_mode,
                 talent_report.worst_cooldown,
                 talent_report.worst_current_cooldown,
+                talent_report.entries[0].resource_shortages if talent_report.entries else None,
             )
             timing_text = f", {timing}" if timing else ""
             advice_lines.append(

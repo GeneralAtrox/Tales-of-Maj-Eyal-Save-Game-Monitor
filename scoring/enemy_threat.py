@@ -35,6 +35,17 @@ _DAMAGE_TYPE_BY_ID: Final[dict[int, str]] = {
     11: "MIND",
     12: "TEMPORAL",
 }
+_RESOURCE_COST_FIELDS: Final[tuple[str, ...]] = (
+    "mana",
+    "stamina",
+    "vim",
+    "positive",
+    "negative",
+    "hate",
+    "psi",
+    "soul",
+    "steam",
+)
 
 
 def _damage_type_from_field(value: str | float | bool | None) -> str:
@@ -120,7 +131,11 @@ class EnemyOffense:
             for k, v in all_fields.items()
             if k.startswith("resists_pen.") and isinstance(v, (int, float))
         }
-        weapon_mults = weapon_multipliers_for_talents(_number_fields_by_prefix(all_fields, "talents."))
+        resources = _resource_fields(all_fields)
+        weapon_mults = weapon_multipliers_for_talents(
+            _number_fields_by_prefix(all_fields, "talents."),
+            resources=resources or None,
+        )
         return cls(
             name=name or str(all_fields.get("name") or ""),
             rank=num("rank", 1.0),
@@ -167,6 +182,15 @@ def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: 
         for key, value in all_fields.items()
         if key.startswith(prefix) and isinstance(value, (int, float)) and not isinstance(value, bool)
     }
+
+
+def _resource_fields(all_fields: dict[str, str | float | bool]) -> dict[str, float]:
+    resources: dict[str, float] = {}
+    for key in _RESOURCE_COST_FIELDS:
+        value = all_fields.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            resources[key] = float(value)
+    return resources
 
 
 def _melee_damage(all_fields: dict[str, str | float | bool], weapon_damage: float) -> float:

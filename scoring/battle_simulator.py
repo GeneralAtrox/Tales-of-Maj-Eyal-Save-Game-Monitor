@@ -66,7 +66,7 @@ def threat_tier_label(threat_pct: float) -> str:
 
 
 def combined_threat_pct(report: ThreatReport | None, talent_report: TalentThreatReport | None) -> float:
-    talent_pct = talent_report.max_threat_pct if talent_report is not None else 0.0
+    talent_pct = talent_report.max_available_threat_pct if talent_report is not None else 0.0
     weapon_pct = report.weapon_threat_pct if report is not None else 0.0
     return max(weapon_pct, talent_pct)
 
@@ -87,11 +87,12 @@ def battle_calibration_estimate(result: BattleSimulationResult) -> BattleCalibra
         _add_damage_candidate(expected_candidates, result.report.expected_damage, result.report.damage_type)
         _add_damage_candidate(peak_candidates, result.report.peak_damage, result.report.damage_type)
         _add_unique_damage_type(damage_types, result.report.damage_type)
-    if result.talent_report is not None and result.talent_report.max_expected_damage > 0.0:
-        talent_type = result.talent_report.worst_damage_type
-        _add_damage_candidate(expected_candidates, result.talent_report.max_expected_damage, talent_type)
-        _add_damage_candidate(peak_candidates, result.talent_report.max_expected_damage, talent_type)
-        _add_unique_damage_type(damage_types, talent_type)
+    if result.talent_report is not None:
+        talent_entry = result.talent_report.strongest_available_entry()
+        if talent_entry is not None and talent_entry.expected_damage > 0.0:
+            _add_damage_candidate(expected_candidates, talent_entry.expected_damage, talent_entry.damage_type)
+            _add_damage_candidate(peak_candidates, talent_entry.expected_damage, talent_entry.damage_type)
+            _add_unique_damage_type(damage_types, talent_entry.damage_type)
     expected = max(expected_candidates, default=None, key=lambda item: item[0])
     peak = max(peak_candidates, default=None, key=lambda item: item[0])
     return BattleCalibrationEstimate(
@@ -175,6 +176,8 @@ def copy_enemy_snapshot(enemy: BattleEnemySnapshot | None) -> BattleEnemySnapsho
             resists_pen=dict(powers.resists_pen),
             talents=dict(powers.talents),
             talents_cd=dict(powers.talents_cd),
+            resources=dict(powers.resources),
+            has_resource_snapshot=powers.has_resource_snapshot,
             stats=dict(powers.stats),
             spell_crit_pct=powers.spell_crit_pct,
             mind_crit_pct=powers.mind_crit_pct,

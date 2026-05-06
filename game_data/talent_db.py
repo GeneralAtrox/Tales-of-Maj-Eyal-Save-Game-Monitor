@@ -7,10 +7,10 @@ name- and id-keyed metadata for GUI talent panels and threat scoring.
 The database is built lazily on first use and cached as JSON beside this
 module, so repeated launches avoid re-scanning the archive unless it changes.
 
-Schema v11: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
+Schema v12: adds talent crit metadata, stat-scaling metadata, improves direct damage type extraction
 from projectile/projector calls, keeps both name- and id-keyed records, and prefers direct weapon-hit
 multipliers over unrelated helper damage in weapon talents. Also tracks total same-action weapon burst,
-engine-default activated talent mode, and whether NPC AI may use the talent.
+engine-default activated talent mode, NPC AI usability, and direct numeric resource costs.
 """
 
 from __future__ import annotations
@@ -26,7 +26,20 @@ _TOME_TEAM = Path(
     r"\game\modules\tome.team"
 )
 _CACHE_FILE = Path(__file__).parent / "_talent_cache.json"
-_CACHE_SCHEMA_VERSION = 11
+_CACHE_SCHEMA_VERSION = 12
+_RESOURCE_COST_FIELDS = frozenset(
+    {
+        "mana",
+        "stamina",
+        "vim",
+        "positive",
+        "negative",
+        "hate",
+        "psi",
+        "soul",
+        "steam",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -63,6 +76,8 @@ class TalentRecord:
     """``activated`` | ``sustained`` | ``passive`` (empty if unparsed)."""
     npc_usable: bool = True
     """False when the Lua talent has ``no_npc_use`` set to a truthy value."""
+    resource_costs: dict[str, float] = field(default_factory=dict)
+    """Direct numeric activated costs keyed by resource short name."""
 
 
 _db: dict[str, TalentRecord] | None = None
@@ -77,6 +92,7 @@ _RE_TYPE = re.compile(r'\btype\s*=\s*\{\s*"([^"]+)"')
 _RE_MODE = re.compile(r'\bmode\s*=\s*"([^"]+)"')
 _RE_COOLDOWN = re.compile(r"\bcooldown\s*=\s*(\d+)\b")
 _RE_NO_NPC_USE_VALUE = re.compile(r"\bno_npc_use\s*=\s*([A-Za-z_][A-Za-z0-9_.]*)")
+_RE_RESOURCE_COST = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*,?\s*$")
 _RE_DAM_DESC = re.compile(r"damDesc\s*\(\s*[^,]+,\s*DamageType[.:](\w+)")
 _RE_DAMAGE_TYPE_TOKEN = re.compile(r"DamageType[.:](\w+)")
 _RE_SCALING = re.compile(
@@ -226,6 +242,7 @@ def _parse_lua(lua: str) -> list[tuple[str, TalentRecord]]:
             cooldown=_extract_cooldown(block),
             tactical_disable=_extract_tactical_disable(block),
             npc_usable=_extract_npc_usable(block),
+            resource_costs=_extract_resource_costs(block),
         )
         dtype, family, stat, no_dr, low, high, burst_low, burst_high, burst_hits = _extract_damage(block)
         record.damage_type = dtype
@@ -283,6 +300,23 @@ def _extract_npc_usable(block: str) -> bool:
     if not (match := _RE_NO_NPC_USE_VALUE.search(_strip_lua_comments(block))):
         return True
     return match.group(1).lower() in {"false", "nil"}
+
+
+def _extract_resource_costs(block: str) -> dict[str, float]:
+    costs: dict[str, float] = {}
+    for line in _strip_lua_comments(block).splitlines():
+        if not (match := _RE_RESOURCE_COST.match(line)):
+            continue
+        resource = match.group(1).lower()
+        if resource not in _RESOURCE_COST_FIELDS:
+            continue
+        try:
+            cost = float(match.group(2))
+        except ValueError:
+            continue
+        if cost > 0:
+            costs[resource] = cost
+    return costs
 
 
 def _strip_lua_comments(text: str) -> str:
@@ -498,6 +532,7 @@ def _record_to_cache(record: TalentRecord) -> dict[str, object]:
         "talent_type": record.talent_type,
         "mode": record.mode,
         "npc_usable": record.npc_usable,
+        "resource_costs": dict(record.resource_costs),
     }
 
 
@@ -505,6 +540,8 @@ def _record_from_cache(value: object) -> TalentRecord | None:
     if not isinstance(value, dict):
         return None
     td = value.get("tactical_disable", [])
+    raw_costs = value.get("resource_costs", {})
+    cost_items = raw_costs.items() if isinstance(raw_costs, dict) else ()
     return TalentRecord(
         description=str(value.get("description", "")),
         icon=str(value.get("icon", "")),
@@ -524,4 +561,9 @@ def _record_from_cache(value: object) -> TalentRecord | None:
         talent_type=str(value.get("talent_type", "")),
         mode=str(value.get("mode", "")),
         npc_usable=bool(value.get("npc_usable", True)),
+        resource_costs={
+            str(key): float(cost)
+            for key, cost in cost_items
+            if isinstance(cost, (int, float))
+        },
     )

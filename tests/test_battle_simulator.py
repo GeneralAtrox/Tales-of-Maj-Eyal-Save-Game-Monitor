@@ -119,6 +119,8 @@ class BattleSimulatorStateTests(unittest.TestCase):
         expected = round(cm.rescale_damage(100.0) * 1.5, 1)
         self.assertEqual(result.talent_report.max_expected_damage, expected)
         self.assertEqual(result.talent_report.max_threat_pct, expected)
+        self.assertEqual(result.talent_report.max_available_expected_damage, 0.0)
+        self.assertEqual(result.talent_report.max_available_threat_pct, 0.0)
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
         self.assertEqual(result.talent_report.worst_cooldown, 3)
         self.assertEqual(result.talent_report.worst_current_cooldown, 2)
@@ -162,14 +164,56 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.entries, [])
         self.assertEqual(result.talent_report.cc_tags, [])
 
+    def test_compute_marks_resource_blocked_talent_unavailable(self) -> None:
+        state = BattleSimulatorState()
+        state.set_live_player(PlayerDefenses(max_life=100, resists_cap={"all": 70}))
+        state.load_enemy(
+            BattleEnemySnapshot(
+                name="Caster",
+                level=25,
+                max_life=500,
+                offense=EnemyOffense(name="Caster", atk=10, dam=5),
+                powers=EnemyPowers(
+                    spellpower=100,
+                    talents={"T_FLAME": 5},
+                    resources={"mana": 5},
+                    has_resource_snapshot=True,
+                ),
+            )
+        )
+        db = {
+            "T_FLAME": TalentRecord(
+                talent_id="T_FLAME",
+                damage_type="FIRE",
+                scaling_family="spell",
+                damage_low=10.0,
+                damage_high=100.0,
+                resource_costs={"mana": 30.0},
+            )
+        }
+
+        with patch("scoring.talent_threat.get_talent_db_by_id", return_value=db):
+            result = state.compute()
+
+        self.assertIsNotNone(result.talent_report)
+        assert result.talent_report is not None
+        self.assertEqual(result.talent_report.entries[0].resource_shortages, {"mana": 25.0})
+        self.assertEqual(result.talent_report.max_available_expected_damage, 0.0)
+        self.assertEqual(result.talent_report.max_available_threat_pct, 0.0)
+        self.assertIsNone(result.talent_report.strongest_available_entry())
+
     def test_talent_timing_label_includes_mode_and_cooldown(self) -> None:
         self.assertEqual(talent_timing_label("activated", 4), "activated, cd 4")
         self.assertEqual(talent_timing_label("activated", 4, 2), "activated, cd 4, cooling 2")
+        self.assertEqual(
+            talent_timing_label("activated", 4, 0, {"mana": 25.0}),
+            "activated, cd 4, needs mana +25",
+        )
         self.assertEqual(talent_timing_label("activated", 0), "activated, no cd")
         self.assertEqual(talent_timing_label("passive", 0), "passive")
 
     def test_combined_threat_prefers_talent_pressure(self) -> None:
-        talent_report = TalentThreatReport(max_threat_pct=85.0)
+        talent_report = TalentThreatReport(max_threat_pct=85.0, max_available_threat_pct=85.0)
 
         self.assertEqual(combined_threat_pct(None, talent_report), 85.0)
         self.assertEqual(threat_tier_label(85.0), "Deadly")
@@ -239,6 +283,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertIsNotNone(result.talent_report)
         assert result.talent_report is not None
         self.assertEqual(result.talent_report.max_expected_damage, expected)
+        self.assertEqual(result.talent_report.max_available_expected_damage, expected)
 
     def test_player_ignore_direct_crits_reduces_talent_crit_power(self) -> None:
         state = BattleSimulatorState()
@@ -499,6 +544,33 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
         self.assertEqual(offense.talent_burst_weapon_hits, 1)
 
+    def test_enemy_offense_skips_resource_blocked_weapon_talent_multiplier(self) -> None:
+        db = {
+            "T_STUNNING_BLOW": TalentRecord(
+                talent_id="T_STUNNING_BLOW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=3.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=1,
+                resource_costs={"stamina": 20.0},
+            )
+        }
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            offense = EnemyOffense.from_all_fields(
+                {
+                    "combat.dam": 50.0,
+                    "stamina": 5.0,
+                    "talents.T_STUNNING_BLOW": 5.0,
+                },
+                "Test",
+            )
+
+        self.assertEqual(offense.talent_max_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_hits, 1)
+
     def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:
         player = PlayerDefenses(max_life=100, armor=0, defense=0)
         enemy = EnemyOffense(
@@ -542,6 +614,7 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 "resists_pen.FIRE": 10.0,
                 "talents.flame": 5.0,
                 "talents_cd.flame": 1.2,
+                "mana": 30.0,
             }
         )
 
@@ -558,6 +631,8 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(powers.resists_pen, {"FIRE": 10.0})
         self.assertEqual(powers.talents, {"T_FLAME": 5})
         self.assertEqual(powers.talents_cd, {"T_FLAME": 2})
+        self.assertEqual(powers.resources, {"mana": 30.0})
+        self.assertTrue(powers.has_resource_snapshot)
 
     def test_enemy_powers_respect_precomputed_engine_power_fields(self) -> None:
         powers = enemy_powers_from_fields(

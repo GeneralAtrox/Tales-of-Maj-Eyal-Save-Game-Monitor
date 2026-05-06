@@ -348,6 +348,7 @@ class _EnemyCard(QFrame):
                     talent_report.worst_mode,
                     talent_report.worst_cooldown,
                     talent_report.worst_current_cooldown,
+                    talent_report.entries[0].resource_shortages if talent_report.entries else None,
                 )
                 timing_text = f", {timing}" if timing else ""
                 talent_line = (
@@ -476,7 +477,7 @@ class _EnemyCard(QFrame):
             info.addWidget(stats_lbl)
 
         # ── Row 3b: combat advice (only when threat is high enough) ──
-        talent_pressure_high = talent_report is not None and talent_report.max_threat_pct >= 70
+        talent_pressure_high = talent_report is not None and talent_report.max_available_threat_pct >= 70
         if report is not None and player is not None:
             if report.can_one_shot or report.weapon_threat_pct >= 70:
                 advice_items = survive_one_hit_advice(enemy_offense, player)
@@ -498,6 +499,7 @@ class _EnemyCard(QFrame):
                     talent_report.worst_mode,
                     talent_report.worst_cooldown,
                     talent_report.worst_current_cooldown,
+                    talent_report.entries[0].resource_shortages if talent_report.entries else None,
                 )
                 timing_text = f", {timing}" if timing else ""
                 prefix = "⚠ " if talent_can_kill else "● "

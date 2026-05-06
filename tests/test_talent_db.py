@@ -112,6 +112,22 @@ newTalent{
         self.assertTrue(records["Commented Action"].npc_usable)
         self.assertTrue(records["Explicitly Allowed Action"].npc_usable)
 
+    def test_numeric_resource_costs_are_preserved(self) -> None:
+        lua = """
+newTalent{
+    name = "Resource Action",
+    mana = 12,
+    stamina = 4.5,
+    -- vim = 99,
+    action = function(self, t)
+        local mana = 100
+    end,
+}
+"""
+        [(_name, record)] = talent_db._parse_lua(lua)
+
+        self.assertEqual(record.resource_costs, {"mana": 12.0, "stamina": 4.5})
+
     def test_damage_type_can_come_from_direct_project_payload(self) -> None:
         lua = """
 newTalent{

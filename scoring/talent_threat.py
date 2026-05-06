@@ -22,6 +22,18 @@ from game_data.talent_db import TalentRecord, get_talent_db_by_id
 from . import combat_math as cm
 from .enemy_threat import PlayerDefenses
 
+_RESOURCE_COST_FIELDS = (
+    "mana",
+    "stamina",
+    "vim",
+    "positive",
+    "negative",
+    "hate",
+    "psi",
+    "soul",
+    "steam",
+)
+
 
 @dataclass(slots=True)
 class EnemyPowers:
@@ -39,6 +51,9 @@ class EnemyPowers:
     """``T_XXX`` → talent level (raw, before mastery)."""
     talents_cd: dict[str, int] = field(default_factory=dict)
     """``T_XXX`` → current cooldown turns visible on the actor."""
+    resources: dict[str, float] = field(default_factory=dict)
+    """Current actor resources read from memory, keyed by resource short name."""
+    has_resource_snapshot: bool = False
     stats: dict[str, float] = field(default_factory=dict)
     """Base stat values used by ``combatTalentStatDamage`` talents."""
     spell_crit_pct: float = 0.0
@@ -55,6 +70,7 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
     """Build talent-threat inputs from `EntityInfo.all_fields`."""
 
     stats = _number_fields_by_prefix(all_fields, "stats.")
+    resources = _resource_fields(all_fields)
     return EnemyPowers(
         spellpower=_spell_power(all_fields, stats),
         mindpower=_mind_power(all_fields, stats),
@@ -66,6 +82,8 @@ def enemy_powers_from_fields(all_fields: dict[str, str | float | bool]) -> Enemy
         resists_pen=_number_fields_by_prefix(all_fields, "resists_pen."),
         talents=_talent_fields_by_prefix(all_fields, "talents."),
         talents_cd=_cooldown_fields_by_prefix(all_fields, "talents_cd."),
+        resources=resources,
+        has_resource_snapshot=bool(resources),
         stats=stats,
         spell_crit_pct=_spell_crit(all_fields, stats),
         mind_crit_pct=_mind_crit(all_fields, stats),
@@ -85,16 +103,19 @@ class TalentThreatEntry:
     cooldown: int
     current_cooldown: int
     mode: str
+    resource_shortages: dict[str, float] = field(default_factory=dict)
 
     @property
     def is_available(self) -> bool:
-        return self.current_cooldown <= 0
+        return self.current_cooldown <= 0 and not self.resource_shortages
 
 
 @dataclass(slots=True)
 class TalentThreatReport:
     max_expected_damage: float = 0.0
     max_threat_pct: float = 0.0
+    max_available_expected_damage: float = 0.0
+    max_available_threat_pct: float = 0.0
     worst_talent_id: str = ""
     worst_talent_name: str = ""
     worst_damage_type: str = ""
@@ -110,7 +131,12 @@ class TalentThreatReport:
         return next((entry for entry in self.entries if entry.is_available), None)
 
 
-def talent_timing_label(mode: str, cooldown: int, current_cooldown: int = 0) -> str:
+def talent_timing_label(
+    mode: str,
+    cooldown: int,
+    current_cooldown: int = 0,
+    resource_shortages: dict[str, float] | None = None,
+) -> str:
     """Compact display label for a parsed talent's activation context."""
     parts: list[str] = []
     normalized_mode = mode.strip().lower()
@@ -122,6 +148,8 @@ def talent_timing_label(mode: str, cooldown: int, current_cooldown: int = 0) -> 
         parts.append("no cd")
     if current_cooldown > 0:
         parts.append(f"cooling {current_cooldown}")
+    if resource_shortages:
+        parts.extend(_resource_shortage_labels(resource_shortages))
     return ", ".join(parts)
 
 
@@ -340,6 +368,7 @@ def compute_talent_threat(
             cooldown=record.cooldown,
             current_cooldown=powers.talents_cd.get(tid, 0),
             mode=record.mode,
+            resource_shortages=_resource_shortages(record.resource_costs, powers),
         )
         report.entries.append(entry)
         if expected > report.max_expected_damage:
@@ -351,11 +380,16 @@ def compute_talent_threat(
             report.worst_cooldown = entry.cooldown
             report.worst_current_cooldown = entry.current_cooldown
             report.worst_mode = entry.mode
+        if entry.is_available and expected > report.max_available_expected_damage:
+            report.max_available_expected_damage = expected
+            report.max_available_threat_pct = threat_pct
 
     report.entries.sort(key=lambda e: e.expected_damage, reverse=True)
     report.cc_tags = sorted(cc)
     report.max_expected_damage = round(report.max_expected_damage, 1)
     report.max_threat_pct = round(report.max_threat_pct, 1)
+    report.max_available_expected_damage = round(report.max_available_expected_damage, 1)
+    report.max_available_threat_pct = round(report.max_available_threat_pct, 1)
     return report
 
 
@@ -382,6 +416,15 @@ def _number_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: 
         for key, value in all_fields.items()
         if key.startswith(prefix) and isinstance(value, (int, float)) and not isinstance(value, bool)
     }
+
+
+def _resource_fields(all_fields: dict[str, str | float | bool]) -> dict[str, float]:
+    resources: dict[str, float] = {}
+    for key in _RESOURCE_COST_FIELDS:
+        value = all_fields.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            resources[key] = float(value)
+    return resources
 
 
 def _talent_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix: str) -> dict[str, int]:
@@ -416,3 +459,26 @@ def _cooldown_fields_by_prefix(all_fields: dict[str, str | float | bool], prefix
             talent_id = f"T_{talent_id}"
         cooldowns[talent_id] = cooldown
     return cooldowns
+
+
+def _resource_shortages(costs: dict[str, float], powers: EnemyPowers) -> dict[str, float]:
+    if not costs or not powers.has_resource_snapshot:
+        return {}
+    shortages: dict[str, float] = {}
+    for resource, cost in costs.items():
+        current = powers.resources.get(resource)
+        if current is None:
+            shortages[resource] = cost
+        elif current < cost:
+            shortages[resource] = cost - current
+    return shortages
+
+
+def _resource_shortage_labels(shortages: dict[str, float]) -> list[str]:
+    labels: list[str] = []
+    for resource, missing in sorted(shortages.items()):
+        if missing <= 0:
+            continue
+        missing_text = str(int(missing)) if float(missing).is_integer() else f"{missing:.1f}"
+        labels.append(f"needs {resource} +{missing_text}")
+    return labels
