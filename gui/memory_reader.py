@@ -1157,6 +1157,11 @@ def compute_danger(enemy: EntityInfo, player: PlayerStats | None) -> tuple[str, 
     return _compute_danger_ranked(enemy, player)  # type: ignore[arg-type]
 
 
+def _engine_armor_hardiness(raw_bonus: float | None) -> float:
+    """Mirror ToME's base armor-hardiness floor from ``combatArmorHardiness``."""
+    return max(0.0, min(100.0, 30.0 + float(raw_bonus or 0.0)))
+
+
 @dataclass(slots=True)
 class EntityInfo:
     """Snapshot of one actor from game.level.entities."""
@@ -1483,7 +1488,7 @@ class MemoryReader:
             spell_save=_tab_get_number(h, pt, "combat_spellresist") or 0.0,
             mental_save=_tab_get_number(h, pt, "combat_mentalresist") or 0.0,
             die_at=_tab_get_number(h, pt, "die_at") or 0.0,
-            armor_hardiness=_tab_get_number(h, pt, "combat_armor_hardiness") or 0.0,
+            armor_hardiness=_engine_armor_hardiness(_tab_get_number(h, pt, "combat_armor_hardiness")),
             evasion=_tab_get_number(h, pt, "evasion") or 0.0,
             ignore_direct_crits=_tab_get_number(h, pt, "ignore_direct_crits") or 0.0,
             x=_tab_get_number(h, pt, "x"),

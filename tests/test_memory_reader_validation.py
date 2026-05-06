@@ -124,6 +124,13 @@ class MemoryReaderValidationTests(unittest.TestCase):
             [0x10000020],
         )
 
+    def test_engine_armor_hardiness_applies_base_floor_and_bounds(self) -> None:
+        self.assertEqual(memory_reader._engine_armor_hardiness(None), 30.0)
+        self.assertEqual(memory_reader._engine_armor_hardiness(0.0), 30.0)
+        self.assertEqual(memory_reader._engine_armor_hardiness(25.0), 55.0)
+        self.assertEqual(memory_reader._engine_armor_hardiness(90.0), 100.0)
+        self.assertEqual(memory_reader._engine_armor_hardiness(-40.0), 0.0)
+
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()
         reader._handle = 1
