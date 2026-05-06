@@ -669,6 +669,32 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
         self.assertEqual(offense.talent_burst_weapon_hits, 1)
 
+    def test_enemy_offense_skips_cooling_weapon_talent_multiplier(self) -> None:
+        db = {
+            "T_STUNNING_BLOW": TalentRecord(
+                talent_id="T_STUNNING_BLOW",
+                scaling_family="weapon",
+                damage_low=1.0,
+                damage_high=3.0,
+                weapon_burst_low=1.0,
+                weapon_burst_high=3.0,
+                weapon_burst_hits=1,
+            )
+        }
+        with patch("scoring.talent_weapon.get_talent_db_by_id", return_value=db):
+            offense = EnemyOffense.from_all_fields(
+                {
+                    "combat.dam": 50.0,
+                    "talents.stunning_blow": 5.0,
+                    "talents_cd.STUNNING_BLOW": 2.0,
+                },
+                "Test",
+            )
+
+        self.assertEqual(offense.talent_max_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_mult, 1.0)
+        self.assertEqual(offense.talent_burst_weapon_hits, 1)
+
     def test_weapon_threat_surfaces_multi_hit_burst_kill(self) -> None:
         player = PlayerDefenses(max_life=100, armor=0, defense=0)
         enemy = EnemyOffense(

@@ -136,6 +136,7 @@ class EnemyOffense:
         resources = _resource_fields(all_fields)
         weapon_mults = weapon_multipliers_for_talents(
             _number_fields_by_prefix(all_fields, "talents."),
+            cooldowns=_number_fields_by_prefix(all_fields, "talents_cd."),
             resources=resources or None,
         )
         return cls(

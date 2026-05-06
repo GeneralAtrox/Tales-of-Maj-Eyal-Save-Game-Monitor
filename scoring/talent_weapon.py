@@ -18,26 +18,30 @@ def weapon_multiplier_for_talents(
     talents: Mapping[str, float],
     *,
     db: Mapping[str, TalentRecord] | None = None,
+    cooldowns: Mapping[str, float] | None = None,
 ) -> float:
     """Return the largest known weapon multiplier across visible talents."""
-    return weapon_multipliers_for_talents(talents, db=db).max_hit
+    return weapon_multipliers_for_talents(talents, db=db, cooldowns=cooldowns).max_hit
 
 
 def weapon_multipliers_for_talents(
     talents: Mapping[str, float],
     *,
     db: Mapping[str, TalentRecord] | None = None,
+    cooldowns: Mapping[str, float] | None = None,
     resources: Mapping[str, float] | None = None,
 ) -> WeaponTalentMultipliers:
     """Return strongest single hit and strongest same-action burst across visible weapon talents."""
     if not talents:
         return WeaponTalentMultipliers()
     records = db if db is not None else get_talent_db_by_id()
+    cooldowns_by_id = _normalize_number_map(cooldowns) if cooldowns is not None else {}
     best_hit = 1.0
     best_burst = 1.0
     best_burst_hits = 1
     for raw_id, raw_level in talents.items():
-        record = records.get(_normalize_talent_id(raw_id))
+        talent_id = _normalize_talent_id(raw_id)
+        record = records.get(talent_id)
         if (
             record is None
             or not record.npc_usable
@@ -45,6 +49,8 @@ def weapon_multipliers_for_talents(
             or record.scaling_family != "weapon"
             or record.damage_high <= 0.0
         ):
+            continue
+        if cooldowns_by_id.get(talent_id, 0.0) > 0.0:
             continue
         if resources is not None and not _resource_costs_available(record.resource_costs, resources):
             continue
@@ -72,6 +78,12 @@ def _normalize_talent_id(raw_id: str) -> str:
     if talent_id.startswith("T_"):
         return talent_id
     return f"T_{talent_id}"
+
+
+def _normalize_number_map(values: Mapping[str, float] | None) -> dict[str, float]:
+    if not values:
+        return {}
+    return {_normalize_talent_id(key): float(value) for key, value in values.items()}
 
 
 def _resource_costs_available(costs: Mapping[str, float], resources: Mapping[str, float]) -> bool:
