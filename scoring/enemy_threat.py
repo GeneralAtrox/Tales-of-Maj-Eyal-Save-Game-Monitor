@@ -183,8 +183,8 @@ class EnemyOffense:
             crit_power_bonus_pct=_physical_crit_power_bonus(all_fields),
             accuracy_effect=_accuracy_effect_from_fields(all_fields),
             accuracy_effect_scale=_truthy_field(all_fields, "combat.accuracy_effect_scale"),
-            damage_range=num("combat.damrange", 1.1) or 1.0,
-            physspeed=num("combat.physspeed", 1.0) or 1.0,
+            damage_range=_combat_damage_range(all_fields),
+            physspeed=_combat_physical_speed(all_fields, num("combat.physspeed", 1.0)),
             weapon_range=num("combat.range"),
             damage_type=_damage_type_from_field(all_fields.get("combat.damtype")),
             inc_damage=inc,
@@ -244,6 +244,16 @@ def _combat_attack(
 
 def _combat_apr(all_fields: dict[str, str | float | bool], weapon_apr: float) -> float:
     return _number_field(all_fields, "combat_apr") + weapon_apr
+
+
+def _combat_damage_range(all_fields: dict[str, str | float | bool]) -> float:
+    weapon_range = _number_field(all_fields, "combat.damrange", 1.1)
+    return (_number_field(all_fields, "combat_damrange") + weapon_range) or 1.0
+
+
+def _combat_physical_speed(all_fields: dict[str, str | float | bool], weapon_physspeed: float) -> float:
+    actor_physspeed = max(_number_field(all_fields, "combat_physspeed", 1.0), 0.4)
+    return (weapon_physspeed or 1.0) / actor_physspeed
 
 
 def _crit_stat_bonus(stats: dict[str, float]) -> float:

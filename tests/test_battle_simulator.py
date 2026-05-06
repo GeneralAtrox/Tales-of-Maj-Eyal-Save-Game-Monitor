@@ -739,6 +739,29 @@ class BattleSimulatorStateTests(unittest.TestCase):
 
         self.assertEqual(offense.damage_range, 1.1)
 
+    def test_enemy_offense_applies_live_actor_damage_range_modifier(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.dam": 50.0,
+                "combat.damrange": 1.4,
+                "combat_damrange": 0.2,
+            },
+            "Test",
+        )
+
+        self.assertAlmostEqual(offense.damage_range, 1.6)
+
+    def test_enemy_offense_applies_live_actor_physical_speed_modifier(self) -> None:
+        offense = EnemyOffense.from_all_fields(
+            {
+                "combat.physspeed": 1.0,
+                "combat_physspeed": 2.0,
+            },
+            "Test",
+        )
+
+        self.assertEqual(offense.physspeed, 0.5)
+
     def test_enemy_offense_reads_engine_crit_fields(self) -> None:
         offense = EnemyOffense.from_all_fields(
             {
