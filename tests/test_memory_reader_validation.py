@@ -305,7 +305,135 @@ class MemoryReaderValidationTests(unittest.TestCase):
         ):
             snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
 
-        self.assertEqual(snapshot, {"combat.talent_on_hit": True})
+        self.assertEqual(snapshot, {"combat.talent_on_hit": True, "combat.source": "MAINHAND"})
+
+    def test_tab_dump_entity_snapshot_prefers_primary_weapon_combat_fields(self) -> None:
+        actor_ptr = 0x10000000
+        actor_combat_ptr = 0x20000000
+        actor_project_ptr = 0x21000000
+        inven_ptr = 0x30000000
+        bucket_ptr = 0x40000000
+        item_ptr = 0x50000000
+        weapon_combat_ptr = 0x60000000
+        weapon_dammod_ptr = 0x61000000
+        weapon_burst_ptr = 0x62000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == actor_ptr and key == "combat":
+                return actor_combat_ptr
+            if tab_ptr == actor_ptr and key == "inven":
+                return inven_ptr
+            if tab_ptr == actor_combat_ptr and key == "melee_project":
+                return actor_project_ptr
+            if tab_ptr == item_ptr and key == "combat":
+                return weapon_combat_ptr
+            if tab_ptr == weapon_combat_ptr and key == "dammod":
+                return weapon_dammod_ptr
+            if tab_ptr == weapon_combat_ptr and key == "burst_on_hit":
+                return weapon_burst_ptr
+            return None
+
+        def fake_ordered(_handle: int, tab_ptr: int) -> list[int]:
+            if tab_ptr == inven_ptr:
+                return [bucket_ptr]
+            if tab_ptr == bucket_ptr:
+                return [item_ptr]
+            return []
+
+        def fake_dump_flat(
+            _handle: int,
+            tab_ptr: int,
+            prefix: str = "",
+            **_kwargs: object,
+        ) -> dict[str, str | float]:
+            if tab_ptr == actor_combat_ptr:
+                return {"combat.dam": 10.0, "combat.atk": 3.0, "combat.damtype": "FIRE"}
+            if tab_ptr == bucket_ptr:
+                return {"short_name": "MAINHAND"}
+            if tab_ptr == weapon_combat_ptr:
+                return {"combat.dam": 50.0, "combat.apr": 7.0, "combat.damtype": "COLD"}
+            if tab_ptr == weapon_dammod_ptr:
+                return {"combat.dammod.str": 1.2}
+            return {}
+
+        def fake_damage_subtable(_handle: int, tab_ptr: int, prefix: str = "") -> dict[str, float]:
+            if tab_ptr == actor_project_ptr:
+                return {f"{prefix}FIRE": 5.0}
+            if tab_ptr == weapon_burst_ptr:
+                return {f"{prefix}COLD": 9.0}
+            return {}
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", side_effect=fake_dump_flat),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_get_ordered_tables", side_effect=fake_ordered),
+            patch.object(memory_reader, "_tab_dump_damage_subtable", side_effect=fake_damage_subtable),
+        ):
+            snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
+
+        self.assertEqual(snapshot["combat.dam"], 50.0)
+        self.assertEqual(snapshot["combat.apr"], 7.0)
+        self.assertEqual(snapshot["combat.damtype"], "COLD")
+        self.assertEqual(snapshot["combat.dammod.str"], 1.2)
+        self.assertEqual(snapshot["combat.burst_on_hit.COLD"], 9.0)
+        self.assertEqual(snapshot["combat.source"], "MAINHAND")
+        self.assertNotIn("combat.atk", snapshot)
+        self.assertNotIn("combat.melee_project.FIRE", snapshot)
+
+    def test_tab_dump_entity_snapshot_ignores_archery_mainhand_for_melee_combat(self) -> None:
+        actor_ptr = 0x10000000
+        actor_combat_ptr = 0x20000000
+        inven_ptr = 0x30000000
+        bucket_ptr = 0x40000000
+        item_ptr = 0x50000000
+        weapon_combat_ptr = 0x60000000
+
+        def fake_get_table(_handle: int, tab_ptr: int, key: str) -> int | None:
+            if tab_ptr == actor_ptr and key == "combat":
+                return actor_combat_ptr
+            if tab_ptr == actor_ptr and key == "inven":
+                return inven_ptr
+            if tab_ptr == item_ptr and key == "combat":
+                return weapon_combat_ptr
+            return None
+
+        def fake_scalar(_handle: int, tab_ptr: int, key: str) -> str | None:
+            if tab_ptr == item_ptr and key == "archery":
+                return "bow"
+            return None
+
+        def fake_ordered(_handle: int, tab_ptr: int) -> list[int]:
+            if tab_ptr == inven_ptr:
+                return [bucket_ptr]
+            if tab_ptr == bucket_ptr:
+                return [item_ptr]
+            return []
+
+        def fake_dump_flat(
+            _handle: int,
+            tab_ptr: int,
+            prefix: str = "",
+            **_kwargs: object,
+        ) -> dict[str, str | float]:
+            if tab_ptr == actor_combat_ptr:
+                return {"combat.dam": 10.0, "combat.damtype": "FIRE"}
+            if tab_ptr == bucket_ptr:
+                return {"short_name": "MAINHAND"}
+            if tab_ptr == weapon_combat_ptr:
+                return {"combat.dam": 50.0, "combat.damtype": "COLD"}
+            return {}
+
+        with (
+            patch.object(memory_reader, "_tab_dump_flat", side_effect=fake_dump_flat),
+            patch.object(memory_reader, "_tab_get_table", side_effect=fake_get_table),
+            patch.object(memory_reader, "_tab_get_ordered_tables", side_effect=fake_ordered),
+            patch.object(memory_reader, "_tab_get_scalar", side_effect=fake_scalar),
+        ):
+            snapshot = memory_reader._tab_dump_entity_snapshot(1, actor_ptr)
+
+        self.assertEqual(snapshot["combat.dam"], 10.0)
+        self.assertEqual(snapshot["combat.damtype"], "FIRE")
+        self.assertNotIn("combat.source", snapshot)
 
     def test_ensure_game_table_skips_validation_until_interval_expires(self) -> None:
         reader = memory_reader.MemoryReader()

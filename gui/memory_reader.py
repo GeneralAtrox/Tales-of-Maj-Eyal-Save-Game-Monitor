@@ -742,6 +742,16 @@ _ENTITY_PROJECT_SUBTABLES = ("melee_project",)
 _COMBAT_PROJECT_SUBTABLES = ("melee_project", "burst_on_hit", "burst_on_crit")
 _COMBAT_PROC_HOOK_TABLES = ("talent_on_hit", "talent_on_crit", "special_on_hit", "special_on_crit")
 _WEAPON_COMBAT_INVENTORY_BUCKETS = {"MAINHAND", "OFFHAND", "PSIONIC_FOCUS"}
+_PRIMARY_WEAPON_COMBAT_INVENTORY_BUCKETS = {"MAINHAND"}
+_COMBAT_REPLACE_PREFIXES = (
+    "combat.dammod.",
+    "combat.melee_project.",
+    "combat.burst_on_hit.",
+    "combat.burst_on_crit.",
+)
+_COMBAT_REPLACE_KEYS = {f"combat.{field}" for field in _ENTITY_COMBAT_FIELDS} | {
+    f"combat.{hook}" for hook in _COMBAT_PROC_HOOK_TABLES
+}
 
 
 def _tab_dump_all(h: int, tab_ptr: int) -> dict[str, str | float | bool]:
@@ -899,6 +909,55 @@ def _tab_dump_equipped_weapon_proc_hooks(h: int, actor_ptr: int) -> dict[str, bo
     return out
 
 
+def _tab_dump_combat_fields(h: int, combat_tab: int) -> dict[str, str | float | bool]:
+    out = _tab_dump_flat(h, combat_tab, prefix="combat.", allowed_keys=_ENTITY_COMBAT_FIELDS)
+    dammod_tab = _tab_get_table(h, combat_tab, "dammod")
+    if dammod_tab:
+        out.update(_tab_dump_flat(h, dammod_tab, prefix="combat.dammod.", allowed_keys=_ENTITY_STAT_FIELDS))
+    for sub in _COMBAT_PROJECT_SUBTABLES:
+        sub_tab = _tab_get_table(h, combat_tab, sub)
+        if sub_tab:
+            out.update(_tab_dump_damage_subtable(h, sub_tab, prefix=f"combat.{sub}."))
+    for sub in _COMBAT_PROC_HOOK_TABLES:
+        sub_tab = _tab_get_table(h, combat_tab, sub)
+        if sub_tab and _tab_has_any_entries(h, sub_tab):
+            out[f"combat.{sub}"] = True
+    return out
+
+
+def _tab_dump_primary_weapon_combat_fields(h: int, actor_ptr: int) -> dict[str, str | float | bool]:
+    """Return combat fields for the equipped weapon used by standard melee attacks."""
+    inven_tab = _tab_get_table(h, actor_ptr, "inven")
+    if inven_tab is None:
+        return {}
+
+    for bucket_ptr in _tab_get_ordered_tables(h, inven_tab):
+        bucket = _tab_dump_flat(h, bucket_ptr, allowed_keys={"name", "short_name"})
+        bucket_name = str(bucket.get("short_name") or bucket.get("name") or "").upper()
+        if bucket_name not in _PRIMARY_WEAPON_COMBAT_INVENTORY_BUCKETS:
+            continue
+        for item_ptr in _tab_get_ordered_tables(h, bucket_ptr):
+            if _tab_get_table(h, item_ptr, "archery") is not None or _tab_get_scalar(h, item_ptr, "archery"):
+                continue
+            combat_tab = _tab_get_table(h, item_ptr, "combat")
+            if combat_tab:
+                fields = _tab_dump_combat_fields(h, combat_tab)
+                if fields:
+                    fields["combat.source"] = bucket_name
+                    return fields
+    return {}
+
+
+def _replace_combat_fields(
+    out: dict[str, str | float | bool],
+    combat_fields: dict[str, str | float | bool],
+) -> None:
+    for key in list(out):
+        if key in _COMBAT_REPLACE_KEYS or any(key.startswith(prefix) for prefix in _COMBAT_REPLACE_PREFIXES):
+            del out[key]
+    out.update(combat_fields)
+
+
 def _tab_dump_stat_subtable(h: int, tab_ptr: int, prefix: str = "stats.") -> dict[str, float]:
     """Return stat values from a ToME Actor ``stats`` table.
 
@@ -926,18 +985,9 @@ def _tab_dump_entity_snapshot(h: int, actor_ptr: int) -> dict[str, str | float |
 
     combat_tab = _tab_get_table(h, actor_ptr, "combat")
     if combat_tab:
-        out.update(_tab_dump_flat(h, combat_tab, prefix="combat.", allowed_keys=_ENTITY_COMBAT_FIELDS))
-        dammod_tab = _tab_get_table(h, combat_tab, "dammod")
-        if dammod_tab:
-            out.update(_tab_dump_flat(h, dammod_tab, prefix="combat.dammod.", allowed_keys=_ENTITY_STAT_FIELDS))
-        for sub in _COMBAT_PROJECT_SUBTABLES:
-            sub_tab = _tab_get_table(h, combat_tab, sub)
-            if sub_tab:
-                out.update(_tab_dump_damage_subtable(h, sub_tab, prefix=f"combat.{sub}."))
-        for sub in _COMBAT_PROC_HOOK_TABLES:
-            sub_tab = _tab_get_table(h, combat_tab, sub)
-            if sub_tab and _tab_has_any_entries(h, sub_tab):
-                out[f"combat.{sub}"] = True
+        out.update(_tab_dump_combat_fields(h, combat_tab))
+    if primary_weapon_combat := _tab_dump_primary_weapon_combat_fields(h, actor_ptr):
+        _replace_combat_fields(out, primary_weapon_combat)
     out.update(_tab_dump_equipped_weapon_proc_hooks(h, actor_ptr))
 
     for sub in _ENTITY_PROJECT_SUBTABLES:
