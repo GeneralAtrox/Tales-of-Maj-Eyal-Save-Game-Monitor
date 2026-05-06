@@ -55,6 +55,22 @@ class BattleSimulationResult:
     status: str = ""
 
 
+def threat_tier_label(threat_pct: float) -> str:
+    if threat_pct >= 70:
+        return "Deadly"
+    if threat_pct >= 35:
+        return "High"
+    if threat_pct >= 20:
+        return "Mediocre"
+    return "Low"
+
+
+def combined_threat_pct(report: ThreatReport | None, talent_report: TalentThreatReport | None) -> float:
+    talent_pct = talent_report.max_threat_pct if talent_report is not None else 0.0
+    weapon_pct = report.weapon_threat_pct if report is not None else 0.0
+    return max(weapon_pct, talent_pct)
+
+
 @dataclass(frozen=True, slots=True)
 class BattleCalibrationEstimate:
     expected_damage: float | None = None

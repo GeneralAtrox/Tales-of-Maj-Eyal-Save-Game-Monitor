@@ -4,10 +4,16 @@ from unittest.mock import patch
 
 from game_data.talent_db import TalentRecord
 from scoring import combat_math as cm
-from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState, battle_calibration_estimate
+from scoring.battle_simulator import (
+    BattleEnemySnapshot,
+    BattleSimulatorState,
+    battle_calibration_estimate,
+    combined_threat_pct,
+    threat_tier_label,
+)
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, weapon_threat
-from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields, talent_timing_label
+from scoring.talent_threat import EnemyPowers, TalentThreatReport, enemy_powers_from_fields, talent_timing_label
 
 
 class BattleSimulatorStateTests(unittest.TestCase):
@@ -123,6 +129,14 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(talent_timing_label("activated", 4), "activated, cd 4")
         self.assertEqual(talent_timing_label("activated", 0), "activated, no cd")
         self.assertEqual(talent_timing_label("passive", 0), "passive")
+
+    def test_combined_threat_prefers_talent_pressure(self) -> None:
+        talent_report = TalentThreatReport(max_threat_pct=85.0)
+
+        self.assertEqual(combined_threat_pct(None, talent_report), 85.0)
+        self.assertEqual(threat_tier_label(85.0), "Deadly")
+        self.assertEqual(threat_tier_label(35.0), "High")
+        self.assertEqual(threat_tier_label(20.0), "Mediocre")
 
     def test_calibration_estimate_includes_talent_damage(self) -> None:
         state = BattleSimulatorState()

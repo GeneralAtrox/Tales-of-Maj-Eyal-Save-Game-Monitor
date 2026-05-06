@@ -46,8 +46,15 @@ from gui.theme import (
     TEXT,
     YELLOW,
 )
+from scoring.battle_simulator import combined_threat_pct, threat_tier_label
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, ThreatReport, weapon_threat
+from scoring.talent_threat import (
+    TalentThreatReport,
+    compute_talent_threat,
+    enemy_powers_from_fields,
+    talent_timing_label,
+)
 
 # ── NPC sprite lookup ────────────────────────────────────────────────────────
 
@@ -322,16 +329,31 @@ class _EnemyCard(QFrame):
         # Compute threat report if we have player defenses; else fall back to
         # the rank-based danger label.
         report: ThreatReport | None = None
+        talent_report: TalentThreatReport | None = None
+        talent_can_kill = False
         if player is not None:
             enemy_offense = EnemyOffense.from_all_fields(entity.all_fields, entity.name)
             report = weapon_threat(enemy_offense, player)
+            talent_report = compute_talent_threat(enemy_powers_from_fields(entity.all_fields), player)
 
         if report is not None:
-            tier = report.tier_label
+            threat_pct = combined_threat_pct(report, talent_report)
+            tier = threat_tier_label(threat_pct)
             tier_color = _THREAT_TIER_COLORS.get(tier, OVERLAY)
-            badge_text = f" {tier} {report.weapon_threat_pct:.0f}% "
+            badge_text = f" {tier} {threat_pct:.0f}% "
+            talent_line = ""
+            if talent_report is not None and talent_report.max_expected_damage > 0.0:
+                talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
+                timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+                timing_text = f", {timing}" if timing else ""
+                talent_line = (
+                    f"\nTalent threat: {talent_name} {talent_report.max_expected_damage:.0f} "
+                    f"{talent_report.worst_damage_type or 'all'} "
+                    f"({talent_report.max_threat_pct:.0f}% HP{timing_text})"
+                )
             tooltip = (
-                f"Threat score: {report.weapon_threat_pct:.0f}% of effective HP\n"
+                f"Threat score: {threat_pct:.0f}% of effective HP\n"
+                f"Weapon threat: {report.weapon_threat_pct:.0f}% of effective HP\n"
                 f"Expected single-hit damage: {report.expected_damage:.0f}\n"
                 f"Peak single-hit damage: {report.peak_damage:.0f}\n"
                 f"Peak weapon burst: {report.burst_peak_damage:.0f}"
@@ -339,6 +361,7 @@ class _EnemyCard(QFrame):
                 f"Hit rate: {report.hit_rate_pct:.0f}%\n"
                 f"Damage type: {report.damage_type} "
                 f"(x{report.worst_resist_multiplier:.2f})"
+                f"{talent_line}"
             )
             danger_badge = QLabel(badge_text)
             danger_badge.setToolTip(tooltip)
@@ -348,13 +371,22 @@ class _EnemyCard(QFrame):
             )
             top.addWidget(danger_badge)
 
-            if report.can_one_shot or report.can_burst_kill:
-                oneshot = QLabel(" 1-SHOT " if report.can_one_shot else " BURST ")
-                oneshot.setToolTip(
-                    "This enemy can remove all your HP in a single hit."
-                    if report.can_one_shot
-                    else "This enemy can remove all your HP with a multi-hit weapon talent."
-                )
+            talent_can_kill = (
+                talent_report is not None
+                and talent_report.max_expected_damage >= player.effective_hp
+            )
+            if report.can_one_shot or report.can_burst_kill or talent_can_kill:
+                if report.can_one_shot:
+                    badge_label = " 1-SHOT "
+                    badge_tooltip = "This enemy can remove all your HP in a single hit."
+                elif report.can_burst_kill:
+                    badge_label = " BURST "
+                    badge_tooltip = "This enemy can remove all your HP with a multi-hit weapon talent."
+                else:
+                    badge_label = " TALENT "
+                    badge_tooltip = "This enemy can remove all your HP with a non-weapon talent."
+                oneshot = QLabel(badge_label)
+                oneshot.setToolTip(badge_tooltip)
                 oneshot.setStyleSheet(
                     f"background: {RED}; color: {SURFACE0}; font-size: 10px;"
                     f" font-weight: 800; border-radius: 3px; padding: 1px 6px;"
@@ -442,22 +474,37 @@ class _EnemyCard(QFrame):
             info.addWidget(stats_lbl)
 
         # ── Row 3b: combat advice (only when threat is high enough) ──
-        if report is not None and player is not None and (
-            report.can_one_shot or report.weapon_threat_pct >= 70
-        ):
-            advice_items = survive_one_hit_advice(enemy_offense, player)
-            if advice_items:
-                feasible = [a for a in advice_items if a.feasible]
-                chosen = feasible[0] if feasible else advice_items[0]
-                prefix = "⚠ " if report.can_one_shot else "● "
-                text = f"{prefix}{chosen.description}"
-                if not chosen.feasible and not feasible:
-                    text += "  (no single lever saves you — stack defenses)"
-                advice_lbl = QLabel(text)
-                advice_lbl.setWordWrap(True)
-                color = RED if report.can_one_shot else YELLOW
-                advice_lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 600;")
-                info.addWidget(advice_lbl)
+        talent_pressure_high = talent_report is not None and talent_report.max_threat_pct >= 70
+        if report is not None and player is not None:
+            if report.can_one_shot or report.weapon_threat_pct >= 70:
+                advice_items = survive_one_hit_advice(enemy_offense, player)
+                if advice_items:
+                    feasible = [a for a in advice_items if a.feasible]
+                    chosen = feasible[0] if feasible else advice_items[0]
+                    prefix = "⚠ " if report.can_one_shot else "● "
+                    text = f"{prefix}{chosen.description}"
+                    if not chosen.feasible and not feasible:
+                        text += "  (no single lever saves you — stack defenses)"
+                    advice_lbl = QLabel(text)
+                    advice_lbl.setWordWrap(True)
+                    color = RED if report.can_one_shot else YELLOW
+                    advice_lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 600;")
+                    info.addWidget(advice_lbl)
+            if talent_report is not None and (talent_can_kill or talent_pressure_high):
+                talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
+                timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+                timing_text = f", {timing}" if timing else ""
+                prefix = "⚠ " if talent_can_kill else "● "
+                text = (
+                    f"{prefix}Strongest talent: {talent_name} "
+                    f"({talent_report.max_expected_damage:.0f} "
+                    f"{talent_report.worst_damage_type or 'all'}{timing_text})"
+                )
+                talent_lbl = QLabel(text)
+                talent_lbl.setWordWrap(True)
+                color = RED if talent_can_kill else YELLOW
+                talent_lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 600;")
+                info.addWidget(talent_lbl)
 
         # ── Row 4: lore description (truncated) ──
         if npc and npc.desc:
