@@ -36,7 +36,7 @@ from scoring.battle_simulator import (
     battle_calibration_estimate,
 )
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses
-from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields
+from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields, talent_timing_label
 from tome_practice import (
     AutoPracticeResult,
     PracticeLaunchInfo,
@@ -742,9 +742,11 @@ class BattleSimulatorPanel(QWidget):
         if talent_report is not None and talent_report.max_expected_damage > 0.0:
             talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
             damage_type = talent_report.worst_damage_type or "all"
+            timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+            timing_text = f", {timing}" if timing else ""
             self._result_values["talent"].setText(
                 f"{talent_name}: {talent_report.max_expected_damage:.1f} {damage_type} "
-                f"({talent_report.max_threat_pct:.1f}% HP)"
+                f"({talent_report.max_threat_pct:.1f}% HP{timing_text})"
             )
         else:
             self._result_values["talent"].setText("--")
@@ -769,9 +771,12 @@ class BattleSimulatorPanel(QWidget):
             advice_lines.extend(f"- {note}" for note in report.notes)
         if talent_report is not None and talent_report.max_expected_damage > 0.0:
             talent_name = talent_report.worst_talent_name or talent_report.worst_talent_id
+            timing = talent_timing_label(talent_report.worst_mode, talent_report.worst_cooldown)
+            timing_text = f", {timing}" if timing else ""
             advice_lines.append(
                 f"- Strongest known talent: {talent_name} "
-                f"({talent_report.max_expected_damage:.0f} {talent_report.worst_damage_type or 'all'})"
+                f"({talent_report.max_expected_damage:.0f} "
+                f"{talent_report.worst_damage_type or 'all'}{timing_text})"
             )
         if talent_report is not None and talent_report.cc_tags:
             advice_lines.append(f"- Known control tags: {', '.join(talent_report.cc_tags)}")

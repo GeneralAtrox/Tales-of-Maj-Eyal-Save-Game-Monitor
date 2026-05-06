@@ -7,7 +7,7 @@ from scoring import combat_math as cm
 from scoring.battle_simulator import BattleEnemySnapshot, BattleSimulatorState, battle_calibration_estimate
 from scoring.combat_advice import survive_one_hit_advice
 from scoring.enemy_threat import EnemyOffense, PlayerDefenses, weapon_threat
-from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields
+from scoring.talent_threat import EnemyPowers, enemy_powers_from_fields, talent_timing_label
 
 
 class BattleSimulatorStateTests(unittest.TestCase):
@@ -98,6 +98,8 @@ class BattleSimulatorStateTests(unittest.TestCase):
                 scaling_family="spell",
                 damage_low=10.0,
                 damage_high=100.0,
+                cooldown=3,
+                mode="activated",
                 tactical_disable=["stun"],
             )
         }
@@ -111,7 +113,16 @@ class BattleSimulatorStateTests(unittest.TestCase):
         self.assertEqual(result.talent_report.max_expected_damage, expected)
         self.assertEqual(result.talent_report.max_threat_pct, expected)
         self.assertEqual(result.talent_report.worst_talent_name, "Flame")
+        self.assertEqual(result.talent_report.worst_cooldown, 3)
+        self.assertEqual(result.talent_report.worst_mode, "activated")
+        self.assertEqual(result.talent_report.entries[0].cooldown, 3)
+        self.assertEqual(result.talent_report.entries[0].mode, "activated")
         self.assertEqual(result.talent_report.cc_tags, ["stun"])
+
+    def test_talent_timing_label_includes_mode_and_cooldown(self) -> None:
+        self.assertEqual(talent_timing_label("activated", 4), "activated, cd 4")
+        self.assertEqual(talent_timing_label("activated", 0), "activated, no cd")
+        self.assertEqual(talent_timing_label("passive", 0), "passive")
 
     def test_calibration_estimate_includes_talent_damage(self) -> None:
         state = BattleSimulatorState()

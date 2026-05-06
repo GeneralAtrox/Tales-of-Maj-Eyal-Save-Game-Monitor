@@ -79,6 +79,8 @@ class TalentThreatEntry:
     raw_damage: float
     expected_damage: float
     threat_pct: float
+    cooldown: int
+    mode: str
 
 
 @dataclass(slots=True)
@@ -88,10 +90,25 @@ class TalentThreatReport:
     worst_talent_id: str = ""
     worst_talent_name: str = ""
     worst_damage_type: str = ""
+    worst_cooldown: int = 0
+    worst_mode: str = ""
     entries: list[TalentThreatEntry] = field(default_factory=list)
     cc_tags: list[str] = field(default_factory=list)
     """Unique ``tactical.disable`` tags across all known talents — the
     enemy's crowd-control toolkit (stun, pin, disarm, ...)."""
+
+
+def talent_timing_label(mode: str, cooldown: int) -> str:
+    """Compact display label for a parsed talent's activation context."""
+    parts: list[str] = []
+    normalized_mode = mode.strip().lower()
+    if normalized_mode:
+        parts.append(normalized_mode)
+    if cooldown > 0:
+        parts.append(f"cd {cooldown}")
+    elif normalized_mode == "activated":
+        parts.append("no cd")
+    return ", ".join(parts)
 
 
 def _scale_power_damage(record: TalentRecord, level: int, power: float) -> float:
@@ -304,6 +321,8 @@ def compute_talent_threat(
             raw_damage=round(raw, 1),
             expected_damage=round(expected, 1),
             threat_pct=round(threat_pct, 1),
+            cooldown=record.cooldown,
+            mode=record.mode,
         )
         report.entries.append(entry)
         if expected > report.max_expected_damage:
@@ -312,6 +331,8 @@ def compute_talent_threat(
             report.worst_talent_id = tid
             report.worst_talent_name = entry.talent_name
             report.worst_damage_type = dtype
+            report.worst_cooldown = entry.cooldown
+            report.worst_mode = entry.mode
 
     report.entries.sort(key=lambda e: e.expected_damage, reverse=True)
     report.cc_tags = sorted(cc)
